@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Isolated agent worktrees (each is its own checkout with its own
+    // node_modules/.next — never meant to be linted from the main tree).
+    ".claude/worktrees/**",
   ]),
 ]);
 
