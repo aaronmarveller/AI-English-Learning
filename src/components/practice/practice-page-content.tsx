@@ -2,11 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { AskInChineseSheet } from "@/components/practice/ask-in-chinese-sheet";
 import { ConversationProgressSteps } from "@/components/practice/conversation-progress-steps";
 import { EmilyAvatar, type EmilyAvatarState } from "@/components/practice/emily-avatar";
 import { MessageBubblePair } from "@/components/practice/message-bubble-pair";
 import { PracticeInputForm } from "@/components/practice/practice-input-form";
-import { pickRandomOpeningLine, type HighlightKey } from "@/content/practice";
+import { PracticeTranscriptDrawer } from "@/components/practice/practice-transcript-drawer";
+import { pickRandomOpeningLine, pickRandomSilenceNudge, type HighlightKey } from "@/content/practice";
 import type { ActiveConversationState } from "@/lib/conversation-state-machine";
 import { markStepComplete } from "@/lib/progress";
 import { usePractice } from "@/lib/practice-state";
@@ -15,6 +17,14 @@ const PRACTICE_TURN_ENDPOINT = "/api/practice/turn";
 
 /** How long Emily's avatar stays in the "talking" state after a new line lands, before settling back to idle. */
 const TALKING_DURATION_MS = 1400;
+
+/**
+ * How long the learner can go without submitting a reply before Emily sends
+ * one gentle nudge (ticket 10; spec.md "Practice 页交互模型": "无响应计时
+ * 15–20 秒触发一次鼓励语，不推进状态，不提供答案"; user story 62). Picked at
+ * the middle of the spec's 15-20s range.
+ */
+const SILENCE_TIMEOUT_MS = 18000;
 
 type TurnResponseBody = {
   verdict: "accepted" | "needs_retry" | "off_topic";
@@ -42,10 +52,13 @@ function isTurnResponseBody(value: unknown): value is TurnResponseBody {
  * Explore's page/content split — everything here is client-only state
  * (the practice store, in-flight request status, avatar animation timing).
  *
- * Voice input (ticket 09) and the full-transcript drawer (ticket 10) are
- * explicitly out of scope here — this page's text form must work standalone,
- * and `usePractice()`'s `messages` array already accumulates full history
- * for that later ticket to render.
+ * Voice input (ticket 09, still landing in a sibling worktree against this
+ * same file) is explicitly out of scope here — this page's text form must
+ * work standalone. Support & recovery features (ticket 10 — bilingual
+ * subtitle toggle, replay, Ask-in-Chinese sheet, silence-timeout nudge, full
+ * transcript drawer) are wired in below; per spec.md's "Practice 页交互模型"
+ * they must never advance `conversationState` or call the LLM proxy route
+ * themselves.
  */
 export function PracticePageContent() {
   const router = useRouter();
@@ -56,11 +69,13 @@ export function PracticePageContent() {
     ensureOpeningMessage,
     appendLearnerMessage,
     recordTurnResult,
+    appendSupportMessage,
   } = usePractice();
 
   const [avatarState, setAvatarState] = useState<EmilyAvatarState>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isAskInChineseOpen, setIsAskInChineseOpen] = useState(false);
   // Mirrors the id of the Emily message the "talking" beat was last started
   // for — see the render-time adjustment below.
   const [talkingForMessageId, setTalkingForMessageId] = useState<string | undefined>(undefined);
@@ -103,6 +118,25 @@ export function PracticePageContent() {
     const timeoutId = setTimeout(() => setAvatarState("idle"), TALKING_DURATION_MS);
     return () => clearTimeout(timeoutId);
   }, [avatarState]);
+
+  // Silence-timeout nudge: a single-shot timer keyed off the last message's
+  // id (or its absence, before the opening line lands) — any new message
+  // (a learner submission, Emily's graded reply, or this nudge itself)
+  // reruns the effect and re-arms a fresh window, so this fires once per
+  // stretch of continued silence rather than on a repeating interval. Stays
+  // idle while a turn is mid-flight (`isSubmitting`) so the nudge never
+  // fires while Emily is "thinking", and stops entirely once the
+  // conversation is complete. Deliberately calls `appendSupportMessage`
+  // directly, never `recordTurnResult` — no LLM call, no state transition.
+  const lastMessageId = messages[messages.length - 1]?.id;
+  useEffect(() => {
+    if (isComplete || isSubmitting) return;
+    const timeoutId = setTimeout(() => {
+      const nudge = pickRandomSilenceNudge();
+      appendSupportMessage(nudge.en, nudge.zh);
+    }, SILENCE_TIMEOUT_MS);
+    return () => clearTimeout(timeoutId);
+  }, [lastMessageId, isComplete, isSubmitting, appendSupportMessage]);
 
   async function handleSubmit(text: string) {
     if (isComplete || isSubmitting) return;
@@ -172,10 +206,22 @@ export function PracticePageContent() {
       <div className="flex flex-col items-center gap-4 rounded-card border border-border bg-card p-4">
         <EmilyAvatar state={avatarState} />
         <MessageBubblePair
-          emilyMessage={emilyMessage ? { textEn: emilyMessage.textEn } : null}
-          learnerMessage={learnerMessage ? { textEn: learnerMessage.textEn } : null}
+          key={emilyMessage?.id}
+          emilyMessage={emilyMessage ? { textEn: emilyMessage.textEn, textZh: emilyMessage.textZh } : null}
+          learnerMessage={learnerMessage ? { textEn: learnerMessage.textEn, textZh: learnerMessage.textZh } : null}
+          defaultShowChinese={messages.length > 0 && messages[0].id === emilyMessage?.id}
         />
       </div>
+
+      <button
+        type="button"
+        onClick={() => setIsAskInChineseOpen(true)}
+        disabled={isComplete}
+        data-testid="ask-in-chinese-button"
+        className="self-start text-body-sm text-accent underline underline-offset-2 disabled:opacity-50 active:scale-95 active:brightness-90"
+      >
+        中文提问 Ask in Chinese
+      </button>
 
       {errorMessage ? (
         <p role="alert" data-testid="practice-error" className="text-body-sm text-red-600">
@@ -184,6 +230,15 @@ export function PracticePageContent() {
       ) : null}
 
       <PracticeInputForm disabled={isComplete || isSubmitting} onSubmit={handleSubmit} />
+
+      <PracticeTranscriptDrawer />
+
+      {isAskInChineseOpen && !isComplete ? (
+        <AskInChineseSheet
+          conversationState={conversationState as ActiveConversationState}
+          onClose={() => setIsAskInChineseOpen(false)}
+        />
+      ) : null}
 
       <div className="mt-auto pt-6">
         <button
