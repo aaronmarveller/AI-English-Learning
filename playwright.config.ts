@@ -13,7 +13,14 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
+      // Mobile-first default: this app is a phone-only experience (see
+      // spec.md "平台与形态"), so E2E runs at the same 390x844 viewport
+      // ticket 01's style guide was checked against unless a test opts
+      // into a different size via page.setViewportSize() (see
+      // e2e/scaffold.spec.ts's desktop-viewport checks). A plain viewport
+      // override is enough here — no touch/mobile UA emulation needed,
+      // since nothing under test branches on touch vs. mouse input.
+      use: { ...devices["Desktop Chrome"], viewport: { width: 390, height: 844 } },
     },
   ],
   webServer: {
