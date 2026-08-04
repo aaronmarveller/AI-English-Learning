@@ -1,25 +1,17 @@
 import type { Metadata } from "next";
-import { ContinueButton } from "@/components/continue-button";
+import { PracticePageContent } from "@/components/practice/practice-page-content";
 
 export const metadata: Metadata = {
   title: "Practice — Greeting Somebody",
 };
 
-// Minimal placeholder — the real Practice page (AI conversation with
-// Emily, speech I/O, the 4-step conversation state machine) lands in
-// tickets 08-10, out of scope here. Just needs to be walkable.
+// The real Practice page (ticket 08): a text-driven conversation with Emily
+// that walks the learner through the 4-state Conversation State Machine.
+// Body lives in PracticePageContent (a Client Component, for its practice
+// store + in-flight request state) so this file can stay a Server
+// Component and keep exporting `metadata` like every other learning page.
+// Voice input (ticket 09) and the full-transcript drawer (ticket 10) build
+// on top of this without changing this file.
 export default function PracticePage() {
-  return (
-    <div className="flex flex-1 flex-col gap-6">
-      <h1 className="text-h1">Practice</h1>
-      <p className="text-body text-muted">
-        和 Emily 的对话练习将在这里进行（内容见后续 ticket）。
-      </p>
-      <div className="mt-auto pt-6">
-        <ContinueButton next="/review" markStepComplete="practice">
-          继续 Continue
-        </ContinueButton>
-      </div>
-    </div>
-  );
+  return <PracticePageContent />;
 }

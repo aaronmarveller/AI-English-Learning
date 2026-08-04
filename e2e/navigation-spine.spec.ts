@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { resetStorage } from "./fixtures";
 import { STEP_IDS, STEP_ROUTES, type StepId } from "@/lib/progress";
 
@@ -18,6 +18,40 @@ function expectedDotState(dotStep: StepId, currentStep: StepId): "current" | "co
   return STEP_IDS.indexOf(dotStep) < STEP_IDS.indexOf(currentStep) ? "completed" : "upcoming";
 }
 
+/**
+ * Advances past the Practice page's real conversation core (ticket 08).
+ * Unlike every other step, Practice has no simple "Continue" button —
+ * its primary action ("查看学习总结") only unlocks once its own inner
+ * 4-step Greeting→Check-in→Response→Closing conversation completes. This
+ * stubs the LLM proxy route to always accept, drives all 4 turns, then
+ * clicks View Summary — the walkthrough's equivalent of "click Continue"
+ * for this one step.
+ */
+async function completePracticeConversation(page: Page): Promise<void> {
+  await page.route("**/api/practice/turn", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        verdict: "accepted",
+        reply_en: "Great!",
+        reply_zh: "太好了！",
+        highlight_key: "used-whitelist-phrase",
+      }),
+    });
+  });
+
+  for (let i = 0; i < 4; i++) {
+    await expect(page.getByTestId("practice-text-input")).toBeEnabled();
+    await page.getByTestId("practice-text-input").fill("Hi there!");
+    await page.getByTestId("practice-send-button").click();
+  }
+
+  const viewSummaryButton = page.getByTestId("view-summary-button");
+  await expect(viewSummaryButton).toBeEnabled();
+  await viewSummaryButton.click();
+}
+
 test.describe("navigation spine", () => {
   test("walking the flow via each page's primary button advances the route and progress dots in order", async ({
     page,
@@ -35,6 +69,11 @@ test.describe("navigation spine", () => {
           "data-state",
           expectedDotState(dotStep, step),
         );
+      }
+
+      if (step === "practice") {
+        await completePracticeConversation(page);
+        continue;
       }
 
       // Scoped by name rather than an unscoped role query: real pages
