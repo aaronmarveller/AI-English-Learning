@@ -1,6 +1,6 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 
 /**
  * Debug jump-bar flag: `?debug=1` on any URL activates it. The flag is
@@ -15,26 +15,31 @@ import { useSyncExternalStore } from "react";
  * read of external mutable state, which is exactly what useSyncExternalStore
  * is for — it also gives correct, mismatch-free SSR/hydration behavior for
  * free (getServerSnapshot below always reports "inactive").
+ *
+ * `getSnapshot` is a pure read (URL param OR persisted flag) — it must not
+ * write, since React's contract allows calling it multiple times per render
+ * (including for discarded/interrupted renders). The sessionStorage *write*
+ * that makes the flag survive navigation lives in a separate `useEffect`.
  */
 
 const DEBUG_STORAGE_KEY = "greeting-somebody:debug";
 
-function readAndPersist(): boolean {
+function hasDebugQueryParam(): boolean {
   if (typeof window === "undefined") return false;
-  const params = new URLSearchParams(window.location.search);
-  if (params.get("debug") === "1") {
-    try {
-      window.sessionStorage.setItem(DEBUG_STORAGE_KEY, "1");
-    } catch {
-      // Ignore storage failures — the flag still applies for this render.
-    }
-    return true;
-  }
+  return new URLSearchParams(window.location.search).get("debug") === "1";
+}
+
+function readPersistedFlag(): boolean {
+  if (typeof window === "undefined") return false;
   try {
     return window.sessionStorage.getItem(DEBUG_STORAGE_KEY) === "1";
   } catch {
     return false;
   }
+}
+
+function getSnapshot(): boolean {
+  return hasDebugQueryParam() || readPersistedFlag();
 }
 
 function subscribe(): () => void {
@@ -50,5 +55,18 @@ function getServerSnapshot(): boolean {
 
 /** Whether the debug step jump bar should be shown / the nav guard bypassed. */
 export function useDebugFlag(): boolean {
-  return useSyncExternalStore(subscribe, readAndPersist, getServerSnapshot);
+  const active = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+
+  useEffect(() => {
+    if (!hasDebugQueryParam()) return;
+    try {
+      window.sessionStorage.setItem(DEBUG_STORAGE_KEY, "1");
+    } catch {
+      // Ignore storage failures — the flag still applies for this render via
+      // the URL param; it just won't survive navigating to a route that
+      // drops the query string.
+    }
+  }, []);
+
+  return active;
 }
