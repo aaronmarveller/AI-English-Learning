@@ -93,29 +93,20 @@ export default function StyleGuidePage() {
             <button
               type="button"
               data-state="default"
-              className="rounded-button bg-accent px-6 py-3 text-body-lg font-medium text-accent-foreground"
+              className="btn-primary"
             >
               开始 Start
             </button>
             <span className="text-caption text-muted">常态</span>
           </li>
           <li className="flex flex-col items-center gap-2">
-            <button
-              type="button"
-              data-state="pressed"
-              className="scale-[0.98] rounded-button bg-accent px-6 py-3 text-body-lg font-medium text-accent-foreground brightness-90"
-            >
+            <button type="button" data-state="pressed" className="btn-primary">
               开始 Start
             </button>
             <span className="text-caption text-muted">按下</span>
           </li>
           <li className="flex flex-col items-center gap-2">
-            <button
-              type="button"
-              disabled
-              data-state="disabled"
-              className="cursor-not-allowed rounded-button bg-accent px-6 py-3 text-body-lg font-medium text-accent-foreground opacity-40"
-            >
+            <button type="button" disabled data-state="disabled" className="btn-primary">
               开始 Start
             </button>
             <span className="text-caption text-muted">禁用</span>

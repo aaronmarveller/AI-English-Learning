@@ -11,10 +11,12 @@ const fontEn = Poppins({
 });
 
 // Source Han Sans (distributed by Google as Noto Sans SC) for Chinese copy.
+// Weight set mirrors fontEn's so every --text-*--font-weight step in globals.css
+// has a matching real cut in both scripts (no browser-synthesized bold).
 const fontZh = Noto_Sans_SC({
   variable: "--font-zh",
   subsets: ["latin"],
-  weight: ["400", "500", "700"],
+  weight: ["400", "500", "600", "700"],
 });
 
 export const metadata: Metadata = {

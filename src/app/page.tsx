@@ -7,10 +7,7 @@ export default function Home() {
       <p className="text-body text-muted">
         项目脚手架与设计系统已就绪，课程页面将在后续 ticket 中实现。
       </p>
-      <Link
-        href="/style-guide"
-        className="rounded-button bg-accent px-6 py-3 text-body-lg font-medium text-accent-foreground"
-      >
+      <Link href="/style-guide" className="btn-primary">
         查看样式基准页
       </Link>
     </main>
