@@ -59,7 +59,15 @@ async function installScriptedPracticeApi(
 }
 
 async function submitReply(page: Page, text: string): Promise<void> {
-  await page.getByTestId("practice-text-input").fill(text);
+  // Ticket 09 made the microphone the default input mode; this suite is
+  // about the conversation core, not voice, so it switches to the
+  // (always-available) text fallback once — idempotent across repeated
+  // calls in the same test — and drives every turn through it as before.
+  const textInput = page.getByTestId("practice-text-input");
+  if (!(await textInput.isVisible())) {
+    await page.getByTestId("practice-input-mode-toggle").click();
+  }
+  await textInput.fill(text);
   await page.getByTestId("practice-send-button").click();
 }
 
