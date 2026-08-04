@@ -152,7 +152,7 @@ export const PRACTICE_SCRIPT: Record<ActiveConversationState, PracticeStateScrip
     labelZh: "结束",
     labelEn: "Closing",
     learningGoal:
-      "You just signaled that the conversation is wrapping up (e.g. that you both need to get going). The learner's job this turn is to say goodbye in a natural, friendly way.",
+      "You just signaled that the conversation is wrapping up (e.g. that you both need to get going). The learner's job this turn is to say goodbye in a natural, friendly way. IMPORTANT: if you judge this turn \"accepted\", this is the FINAL turn of the whole conversation — your reply must be a brief, warm closing line (per the Speaking Style limits above) that ALSO gives the learner one short encouraging remark about the conversation and invites them to check their summary (e.g. naturally mention something like \"go check out your summary!\").",
     acceptedResponses: CLOSING_EXPRESSIONS.map((expression) => expression.expression),
   },
 };

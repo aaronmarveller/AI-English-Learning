@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import {
-  ACTIVE_CONVERSATION_STATES,
+  isActiveConversationState,
   type ActiveConversationState,
 } from "@/lib/conversation-state-machine";
 import {
@@ -61,13 +61,6 @@ type TurnResult = {
   reply_zh: string;
   highlight_key: HighlightKey;
 };
-
-function isActiveConversationState(value: unknown): value is ActiveConversationState {
-  return (
-    typeof value === "string" &&
-    (ACTIVE_CONVERSATION_STATES as readonly string[]).includes(value)
-  );
-}
 
 function isHistoryTurn(value: unknown): value is HistoryTurn {
   if (typeof value !== "object" || value === null) return false;

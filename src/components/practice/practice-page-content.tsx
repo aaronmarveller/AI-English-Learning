@@ -224,7 +224,7 @@ export function PracticePageContent() {
       </button>
 
       {errorMessage ? (
-        <p role="alert" data-testid="practice-error" className="text-body-sm text-red-600">
+        <p role="alert" data-testid="practice-error" className="text-body-sm text-danger">
           {errorMessage}
         </p>
       ) : null}
@@ -246,7 +246,7 @@ export function PracticePageContent() {
           disabled={!isComplete}
           onClick={handleViewSummary}
           data-testid="view-summary-button"
-          className="btn-primary w-full"
+          className="btn-primary w-full active:scale-[0.98] active:brightness-90"
         >
           查看学习总结 View Summary
         </button>

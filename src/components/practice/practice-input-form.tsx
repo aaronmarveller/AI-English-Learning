@@ -205,7 +205,7 @@ export function PracticeInputForm({ disabled, onSubmit }: PracticeInputFormProps
               type="submit"
               disabled={disabled || value.trim().length === 0}
               data-testid="practice-send-button"
-              className="btn-primary shrink-0 px-5 py-3 active:scale-95 active:brightness-90"
+              className="btn-primary shrink-0 px-5 py-3 active:scale-[0.98] active:brightness-90"
             >
               发送 Send
             </button>

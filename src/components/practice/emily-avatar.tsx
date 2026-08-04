@@ -49,6 +49,19 @@ export function EmilyAvatar({ state }: EmilyAvatarProps) {
         <span className="emily-thinking-dot h-1.5 w-1.5 rounded-full bg-muted" />
       </div>
 
+      {/* Sound wave — spec.md "Practice 页交互模型": "Talking 为轻微浮动 + 声波
+          + 发光环脉冲" names 3 talking-state cues; float + glow-pulse live on
+          .emily-avatar itself via globals.css, this bar trio is the 3rd. */}
+      <div
+        data-testid="emily-sound-wave"
+        aria-hidden
+        className={`flex h-3 items-end gap-1 ${state === "talking" ? "" : "invisible"}`}
+      >
+        <span className="emily-sound-bar w-1 rounded-full bg-accent" />
+        <span className="emily-sound-bar w-1 rounded-full bg-accent" />
+        <span className="emily-sound-bar w-1 rounded-full bg-accent" />
+      </div>
+
       <span className="sr-only" role="status">
         {STATE_LABEL[state]}
       </span>

@@ -32,7 +32,7 @@ export type ConversationState = ActiveConversationState | "complete";
 /** The per-turn judgment the LLM proxy route returns (spec.md "大模型契约"). */
 export type Verdict = "accepted" | "needs_retry" | "off_topic";
 
-function isActiveConversationState(value: unknown): value is ActiveConversationState {
+export function isActiveConversationState(value: unknown): value is ActiveConversationState {
   return (
     typeof value === "string" &&
     (ACTIVE_CONVERSATION_STATES as readonly string[]).includes(value)
