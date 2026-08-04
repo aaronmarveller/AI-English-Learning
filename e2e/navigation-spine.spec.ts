@@ -41,6 +41,11 @@ async function completePracticeConversation(page: Page): Promise<void> {
     });
   });
 
+  // Ticket 09 made the microphone the default input mode; this walkthrough
+  // isn't concerned with voice, so it switches to the (always-available)
+  // text fallback once and then drives the conversation exactly as before.
+  await page.getByTestId("practice-input-mode-toggle").click();
+
   for (let i = 0; i < 4; i++) {
     await expect(page.getByTestId("practice-text-input")).toBeEnabled();
     await page.getByTestId("practice-text-input").fill("Hi there!");
