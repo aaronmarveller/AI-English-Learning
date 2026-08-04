@@ -37,7 +37,15 @@ test.describe("navigation spine", () => {
         );
       }
 
-      await page.getByRole("button").click();
+      // Scoped by name rather than an unscoped role query: real pages
+      // legitimately have more than one <button> (section toggles,
+      // pronunciation controls, etc.), and an unscoped getByRole("button")
+      // throws a Playwright strict-mode violation the moment a page has
+      // more than one. Every ContinueButton's label contains the English
+      // word "Continue" even though the Chinese half varies by page
+      // (Review's placeholder says "继续下一课 Continue", others say
+      // "继续 Continue") — match on that shared substring.
+      await page.getByRole("button", { name: /Continue/ }).click();
     }
 
     // Review's Continue is the flow's 6th stop: the single-lesson MVP's
