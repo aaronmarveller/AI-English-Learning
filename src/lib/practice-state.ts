@@ -213,6 +213,26 @@ export function recordTurnResult(input: {
   return resultingState;
 }
 
+/**
+ * Appends an Emily message without touching `conversationState` or
+ * `highlightKeys` — for support features that must never transition the
+ * conversation (ticket 10's silence-timeout nudge; spec.md user story 62:
+ * "20 秒没说话时 Emily 只轻轻推一下、不催也不给答案"). Unlike
+ * `recordTurnResult`, this never calls `nextConversationState` — the learner
+ * hasn't submitted a turn to grade, so there is nothing to advance.
+ */
+export function appendSupportMessage(en: string, zh: string): void {
+  ensureHydrated();
+  const message: PracticeMessage = {
+    id: nextMessageId(),
+    role: "emily",
+    textEn: en,
+    textZh: zh,
+    state: snapshot.conversationState,
+  };
+  persist({ ...snapshot, messages: [...snapshot.messages, message] });
+}
+
 /** Clears the conversation back to a clean start — ticket 11's Retry button will call this. */
 export function resetPractice(): void {
   ensureHydrated();
@@ -236,6 +256,7 @@ export function usePractice() {
     ensureOpeningMessage,
     appendLearnerMessage,
     recordTurnResult,
+    appendSupportMessage,
     resetPractice,
   };
 }

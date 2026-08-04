@@ -227,6 +227,91 @@ ${whitelist}
  * exposed by `usePractice()`. Keep additions backward compatible — don't
  * rename or remove an existing key once Review depends on it.
  */
+// --- Ask-in-Chinese help content (ticket 10; spec.md "Practice 页交互模型":
+// "Ask in Chinese 不调用大模型...四段内容对每个 Conversation State 都是固定的,
+// 写成预设文案即可") ---------------------------------------------------------
+
+export type AskInChineseHelp = {
+  /** What the current expression/step actually means. */
+  meaning: string;
+  /** When/why you'd say this in a real conversation. */
+  whenToUse: string;
+  /** One illustrative example — framed as "you could say something like...",
+   * never the literal expected answer handed over as "the" answer. */
+  example: string;
+  /** Encourages the learner to keep answering in English themselves. */
+  encouragement: string;
+};
+
+/**
+ * Fixed, per-state 4-part help content (spec.md user story 55: "中文帮助解释
+ * 含义、说明什么时候用、给一个例子、再鼓励我用英语继续"; user story 56: "中文
+ * 帮助不替我回答"). Grounded in this same file's `PRACTICE_SCRIPT` — each
+ * entry explains the *current* Learning Goal, not generic filler — but never
+ * quotes an Accepted Response as a literal fill-in-the-blank answer.
+ *
+ * No model call: read directly by src/components/practice/ask-in-chinese-sheet.tsx,
+ * keyed by the live `conversationState` — zero latency, zero cost, fully
+ * predictable content.
+ */
+export const ASK_IN_CHINESE_HELP: Record<ActiveConversationState, AskInChineseHelp> = {
+  greeting: {
+    meaning:
+      "Emily 刚跟你打了招呼。英语里「打招呼」通常就是一句很短的问候，比如 Hi 或 Good morning，不是完整句子。",
+    whenToUse:
+      "任何你和认识的人（哪怕只是邻居）第一次开口说话时都可以用——路上遇到、进门看到对方，都是打招呼的时机。",
+    example: "比如你可以说：\"Hi there!\" 或者 \"Good morning!\"，简短、自然就好。",
+    encouragement: "大概明白意思了吗？试着用英语跟 Emily 打个招呼吧，不用完美，说出来就好！",
+  },
+  checkin: {
+    meaning:
+      "Emily 在问你最近怎么样。这其实是一句寒暄，英语母语者问 How are you 时，多数情况并不是真的在打听你的近况。",
+    whenToUse:
+      "打完招呼后，几乎总会紧接着问一句「你还好吗」，这是英语日常对话里几乎固定的第二步。",
+    example: "比如你可以说：\"I'm good, thanks! How about you?\"，简单回应一下，再顺手问回去。",
+    encouragement: "试着用自己的话回应 Emily，再问她一句怎么样——放心大胆说英语！",
+  },
+  response: {
+    meaning:
+      "Emily 已经回答了你的问候，也反过来问了你怎么样。这一步要把「简单回应 + 反问 + 补一句小细节」合起来说完，是这节课最完整的一句。",
+    whenToUse:
+      "对方问完你好不好之后，通常会用一句话把这三件事一起说完，显得自然、不生硬。",
+    example:
+      "比如你可以说：\"Good, thanks! And you? I'm doing pretty good, just heading to work.\" 这样的组合。",
+    encouragement: "试着把这三部分连起来，用英语说说看——哪怕慢一点、不完整也没关系！",
+  },
+  closing: {
+    meaning:
+      "Emily 刚刚在暗示对话该结束了（比如说她该走了）。这一步轮到你说再见。",
+    whenToUse:
+      "对话自然收尾、双方都要各自离开时，用一句轻松的告别语结束就好。",
+    example: "比如你可以说：\"Have a good one!\" 或者 \"See you around!\"",
+    encouragement: "试着用英语跟 Emily 说再见吧，这就是这节课的最后一步了！",
+  },
+};
+
+// --- Silence-timeout nudge (ticket 10; spec.md user story 62: "20 秒没说话
+// 时 Emily 只轻轻推一下、不催也不给答案") --------------------------------------
+
+export type SupportNudge = { en: string; zh: string };
+
+/**
+ * Fixed bilingual line(s) Emily sends when the learner has gone quiet for a
+ * while — appended via practice-state.ts's `appendSupportMessage`, which
+ * never touches `conversationState`. One is enough per spec.md's own
+ * example wording ("Emily 只会温柔地说一句 'Take your time.'") — no answer, no
+ * pressure, no repeat nagging.
+ */
+export const SILENCE_NUDGES: SupportNudge[] = [
+  { en: "Take your time!", zh: "别着急，慢慢想。" },
+];
+
+/** Picks one of the fixed silence-nudge lines at random. */
+export function pickRandomSilenceNudge(): SupportNudge {
+  const index = Math.floor(Math.random() * SILENCE_NUDGES.length);
+  return SILENCE_NUDGES[index];
+}
+
 export const HIGHLIGHT_KEYS = [
   /** accepted — the learner said (or closely echoed) one of the Accepted Responses. */
   "used-whitelist-phrase",
