@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import type { KeyboardEvent } from "react";
 import { HOME_CONTENT } from "@/content/home";
+import { STEP_ROUTES } from "@/lib/progress";
 
 /**
  * Today's Mission card (spec.md user stories 13–15). The whole card is one
@@ -24,7 +25,7 @@ export function MissionCard() {
   const router = useRouter();
   const { course } = HOME_CONTENT;
 
-  const start = () => router.push("/observe");
+  const start = () => router.push(STEP_ROUTES.observe);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Enter" || event.key === " ") {

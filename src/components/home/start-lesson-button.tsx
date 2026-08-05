@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { STEP_ROUTES } from "@/lib/progress";
 
 /**
  * Home's single primary action button (spec.md user story 1: "每个页面只有
@@ -26,7 +27,7 @@ export function StartLessonButton() {
     <button
       type="button"
       data-testid="start-lesson-button"
-      onClick={() => router.push("/observe")}
+      onClick={() => router.push(STEP_ROUTES.observe)}
       className="btn-primary w-full"
     >
       Start Lesson 开始上课

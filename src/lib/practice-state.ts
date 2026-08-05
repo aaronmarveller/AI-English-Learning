@@ -1,6 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import { createPersistedStore } from "@/lib/create-persisted-store";
 import {
   ACTIVE_CONVERSATION_STATES,
   isConversationState,
@@ -12,9 +13,10 @@ import {
 import type { HighlightKey, OpeningLine } from "@/content/practice";
 
 /**
- * Practice conversation store (ticket 08) — same hand-rolled
- * useSyncExternalStore + localStorage pattern as src/lib/progress.ts, under
- * its own distinct storage key so it never collides with the Learning Flow
+ * Practice conversation store (ticket 08) — built on the same shared
+ * useSyncExternalStore + localStorage factory as src/lib/progress.ts
+ * (src/lib/create-persisted-store.ts, extracted in ticket 07), under its
+ * own distinct storage key so it never collides with the Learning Flow
  * progress store.
  *
  * This module owns *persisted conversation state*: the current
@@ -49,6 +51,11 @@ type PracticeStoreState = {
 
 const STORAGE_KEY = "greeting-somebody:practice";
 
+// A single stable reference — useSyncExternalStore requires getServerSnapshot
+// to return a cached value (a fresh literal on every call reads as "always
+// changed" and can trigger a render loop). createPersistedStore returns this
+// exact reference from its getServerSnapshot. Never mutated in place — every
+// update goes through `store.persist`, which always builds a new object.
 const INITIAL_STATE: PracticeStoreState = {
   conversationState: "greeting",
   messages: [],
@@ -67,81 +74,30 @@ function isPracticeMessage(value: unknown): value is PracticeMessage {
   );
 }
 
-function readFromStorage(): PracticeStoreState {
-  if (typeof window === "undefined") return INITIAL_STATE;
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return INITIAL_STATE;
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null) return INITIAL_STATE;
-    const p = parsed as Record<string, unknown>;
-    const conversationState = isConversationState(p.conversationState)
-      ? p.conversationState
-      : INITIAL_STATE.conversationState;
-    const messages = Array.isArray(p.messages) ? p.messages.filter(isPracticeMessage) : [];
-    const highlightKeys = Array.isArray(p.highlightKeys)
-      ? p.highlightKeys.filter((k): k is HighlightKey => typeof k === "string")
-      : [];
-    return { conversationState, messages, highlightKeys };
-  } catch {
-    // Corrupt or inaccessible storage (e.g. private browsing) — fall back
-    // to a clean slate rather than throwing.
-    return INITIAL_STATE;
-  }
+function deserialize(raw: string): PracticeStoreState {
+  const parsed: unknown = JSON.parse(raw);
+  if (typeof parsed !== "object" || parsed === null) return INITIAL_STATE;
+  const p = parsed as Record<string, unknown>;
+  const conversationState = isConversationState(p.conversationState)
+    ? p.conversationState
+    : INITIAL_STATE.conversationState;
+  const messages = Array.isArray(p.messages) ? p.messages.filter(isPracticeMessage) : [];
+  const highlightKeys = Array.isArray(p.highlightKeys)
+    ? p.highlightKeys.filter((k): k is HighlightKey => typeof k === "string")
+    : [];
+  return { conversationState, messages, highlightKeys };
 }
 
-function writeToStorage(state: PracticeStoreState) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    // Ignore write failures (storage full / disabled) — the conversation
-    // just won't survive a refresh in that case.
-  }
+function serialize(state: PracticeStoreState): string {
+  return JSON.stringify(state);
 }
 
-// --- Module-level store -----------------------------------------------
-
-let snapshot: PracticeStoreState = INITIAL_STATE;
-let hydrated = false;
-const listeners = new Set<() => void>();
-
-function ensureHydrated() {
-  if (hydrated || typeof window === "undefined") return;
-  snapshot = readFromStorage();
-  hydrated = true;
-}
-
-function emit() {
-  for (const listener of listeners) listener();
-}
-
-function persist(next: PracticeStoreState) {
-  snapshot = next;
-  writeToStorage(next);
-  emit();
-}
-
-function subscribe(listener: () => void): () => void {
-  ensureHydrated();
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-}
-
-function getSnapshot(): PracticeStoreState {
-  ensureHydrated();
-  return snapshot;
-}
-
-// A single stable reference — useSyncExternalStore requires getServerSnapshot
-// to return a cached value (a fresh literal on every call reads as "always
-// changed" and can trigger a render loop). INITIAL_STATE is never mutated —
-// every update goes through `persist`, which always builds a new object.
-function getServerSnapshot(): PracticeStoreState {
-  return INITIAL_STATE;
-}
+const store = createPersistedStore<PracticeStoreState>({
+  storageKey: STORAGE_KEY,
+  initialState: INITIAL_STATE,
+  serialize,
+  deserialize,
+});
 
 let messageIdCounter = 0;
 function nextMessageId(): string {
@@ -156,29 +112,29 @@ function nextMessageId(): string {
  * whichever line was already shown, since it's already message #1).
  */
 export function ensureOpeningMessage(line: OpeningLine): void {
-  ensureHydrated();
-  if (snapshot.messages.length > 0) return;
+  const current = store.getSnapshot();
+  if (current.messages.length > 0) return;
   const message: PracticeMessage = {
     id: nextMessageId(),
     role: "emily",
     textEn: line.en,
     textZh: line.zh,
-    state: snapshot.conversationState,
+    state: current.conversationState,
   };
-  persist({ ...snapshot, messages: [message] });
+  store.persist({ ...current, messages: [message] });
 }
 
 /** Appends the learner's echoed input as a message in the current state, ahead of grading. */
 export function appendLearnerMessage(text: string): void {
-  ensureHydrated();
+  const current = store.getSnapshot();
   const message: PracticeMessage = {
     id: nextMessageId(),
     role: "learner",
     textEn: text,
     textZh: "",
-    state: snapshot.conversationState,
+    state: current.conversationState,
   };
-  persist({ ...snapshot, messages: [...snapshot.messages, message] });
+  store.persist({ ...current, messages: [...current.messages, message] });
 }
 
 /**
@@ -196,7 +152,7 @@ export function recordTurnResult(input: {
   replyZh: string;
   highlightKey: HighlightKey;
 }): ConversationState {
-  ensureHydrated();
+  const current = store.getSnapshot();
   const resultingState = nextConversationState(input.priorState, input.verdict);
   const message: PracticeMessage = {
     id: nextMessageId(),
@@ -205,10 +161,10 @@ export function recordTurnResult(input: {
     textZh: input.replyZh,
     state: input.priorState,
   };
-  persist({
+  store.persist({
     conversationState: resultingState,
-    messages: [...snapshot.messages, message],
-    highlightKeys: [...snapshot.highlightKeys, input.highlightKey],
+    messages: [...current.messages, message],
+    highlightKeys: [...current.highlightKeys, input.highlightKey],
   });
   return resultingState;
 }
@@ -222,21 +178,20 @@ export function recordTurnResult(input: {
  * hasn't submitted a turn to grade, so there is nothing to advance.
  */
 export function appendSupportMessage(en: string, zh: string): void {
-  ensureHydrated();
+  const current = store.getSnapshot();
   const message: PracticeMessage = {
     id: nextMessageId(),
     role: "emily",
     textEn: en,
     textZh: zh,
-    state: snapshot.conversationState,
+    state: current.conversationState,
   };
-  persist({ ...snapshot, messages: [...snapshot.messages, message] });
+  store.persist({ ...current, messages: [...current.messages, message] });
 }
 
 /** Clears the conversation back to a clean start — ticket 11's Retry button will call this. */
 export function resetPractice(): void {
-  ensureHydrated();
-  persist({ conversationState: "greeting", messages: [], highlightKeys: [] });
+  store.persist({ conversationState: "greeting", messages: [], highlightKeys: [] });
 }
 
 /**
@@ -247,7 +202,7 @@ export function resetPractice(): void {
  * hydrating, same pattern as src/lib/progress.ts's `useProgress`.
  */
 export function usePractice() {
-  const state = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getServerSnapshot);
   return {
     conversationState: state.conversationState,
     messages: state.messages,

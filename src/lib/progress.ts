@@ -1,6 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import { createPersistedStore } from "@/lib/create-persisted-store";
 
 /**
  * Progress store for the 5-step Learning Flow (Home doesn't count as a step).
@@ -13,6 +14,12 @@ import { useSyncExternalStore } from "react";
  * Order matters: STEP_IDS defines both the progress-dot order (1-5) and the
  * unlock chain — a step is unlocked once the step immediately before it is
  * complete. `observe` has no prerequisite, so it's always unlocked from Home.
+ *
+ * The module-level singleton snapshot / hydration-flag / listeners /
+ * useSyncExternalStore wiring live in src/lib/create-persisted-store.ts,
+ * shared with src/lib/practice-state.ts (ticket 07). This module keeps only
+ * what's genuinely its own: the on-disk JSON shape and the StepId-array
+ * validation that recovers from corrupt storage.
  */
 
 export const STEP_IDS = ["observe", "explore", "notice", "practice", "review"] as const;
@@ -45,99 +52,53 @@ function isStepId(value: unknown): value is StepId {
   return typeof value === "string" && (STEP_IDS as readonly string[]).includes(value);
 }
 
-function readFromStorage(): readonly StepId[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
-    if (
-      typeof parsed !== "object" ||
-      parsed === null ||
-      !Array.isArray((parsed as PersistedState).completed)
-    ) {
-      return [];
-    }
-    return (parsed as PersistedState).completed.filter(isStepId);
-  } catch {
-    // Corrupt or inaccessible storage (e.g. private browsing) — fall back
-    // to a clean slate rather than throwing.
-    return [];
-  }
-}
-
-function writeToStorage(completed: readonly StepId[]) {
-  if (typeof window === "undefined") return;
-  try {
-    const payload: PersistedState = { completed: [...completed] };
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-  } catch {
-    // Ignore write failures (storage full / disabled) — progress just
-    // won't survive a refresh in that case.
-  }
-}
-
-// --- Module-level store -----------------------------------------------
-// A tiny external store (subscribe/getSnapshot) rather than a full state
-// library: six booleans don't need zustand. useSyncExternalStore gives us
-// correct SSR behavior (getServerSnapshot below) and lets every consumer
-// (header dots, debug bar, guards) stay in sync without prop-drilling.
-
-let snapshot: readonly StepId[] = [];
-let hydrated = false;
-const listeners = new Set<() => void>();
-
-function ensureHydrated() {
-  if (hydrated || typeof window === "undefined") return;
-  snapshot = readFromStorage();
-  hydrated = true;
-}
-
-function emit() {
-  for (const listener of listeners) listener();
-}
-
-function subscribe(listener: () => void): () => void {
-  ensureHydrated();
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-}
-
-function getSnapshot(): readonly StepId[] {
-  ensureHydrated();
-  return snapshot;
-}
-
 // A single stable reference — useSyncExternalStore requires getServerSnapshot
 // to return a cached value (a fresh `[]` literal on every call is a *new*
 // array each time, which reads as "always changed" and can trigger a
-// render loop).
+// render loop). createPersistedStore returns this exact reference from its
+// getServerSnapshot, so it just has to be defined once, here.
 const EMPTY_COMPLETED: readonly StepId[] = [];
 
-function getServerSnapshot(): readonly StepId[] {
-  return EMPTY_COMPLETED;
+function deserialize(raw: string): readonly StepId[] {
+  const parsed: unknown = JSON.parse(raw);
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    !Array.isArray((parsed as PersistedState).completed)
+  ) {
+    return EMPTY_COMPLETED;
+  }
+  return (parsed as PersistedState).completed.filter(isStepId);
 }
+
+function serialize(completed: readonly StepId[]): string {
+  const payload: PersistedState = { completed: [...completed] };
+  return JSON.stringify(payload);
+}
+
+const store = createPersistedStore<readonly StepId[]>({
+  storageKey: STORAGE_KEY,
+  initialState: EMPTY_COMPLETED,
+  serialize,
+  deserialize,
+});
 
 /** Marks `step` complete and persists it. Safe to call multiple times. */
 export function markStepComplete(step: StepId): void {
-  ensureHydrated();
-  if (snapshot.includes(step)) return;
-  snapshot = [...snapshot, step];
-  writeToStorage(snapshot);
-  emit();
+  const current = store.getSnapshot();
+  if (current.includes(step)) return;
+  store.persist([...current, step]);
 }
 
 /** Clears all progress (e.g. for a future "retry lesson" flow). */
 export function resetProgress(): void {
-  ensureHydrated();
-  snapshot = [];
-  writeToStorage(snapshot);
-  emit();
+  store.persist([]);
 }
 
-export function isStepComplete(step: StepId, completed: readonly StepId[] = getSnapshot()): boolean {
+export function isStepComplete(
+  step: StepId,
+  completed: readonly StepId[] = store.getSnapshot(),
+): boolean {
   return completed.includes(step);
 }
 
@@ -145,7 +106,10 @@ export function isStepComplete(step: StepId, completed: readonly StepId[] = getS
  * A step is unlocked once the step immediately before it is complete.
  * `observe` (index 0) has no prerequisite and is always unlocked.
  */
-export function isStepUnlocked(step: StepId, completed: readonly StepId[] = getSnapshot()): boolean {
+export function isStepUnlocked(
+  step: StepId,
+  completed: readonly StepId[] = store.getSnapshot(),
+): boolean {
   const index = STEP_IDS.indexOf(step);
   if (index <= 0) return true;
   const prerequisite = STEP_IDS[index - 1];
@@ -164,7 +128,7 @@ export function getStepFromPathname(pathname: string): StepId | null {
  * the real localStorage-backed value immediately after hydrating.
  */
 export function useProgress() {
-  const completed = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  const completed = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getServerSnapshot);
   return {
     completed,
     isStepComplete: (step: StepId) => isStepComplete(step, completed),
