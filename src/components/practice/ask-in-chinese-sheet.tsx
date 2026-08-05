@@ -50,7 +50,7 @@ export function AskInChineseSheet({ conversationState, onClose }: AskInChineseSh
             onClick={onClose}
             data-testid="ask-in-chinese-close-button"
             aria-label="关闭 Close"
-            className="text-body-lg text-muted active:scale-95 active:brightness-90"
+            className="btn-icon-pressed text-body-lg text-muted"
           >
             ✕
           </button>

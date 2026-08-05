@@ -62,7 +62,7 @@ export default function LearningLayout({ children }: { children: ReactNode }) {
             href="/"
             aria-label="返回 Home"
             data-testid="back-home"
-            className="justify-self-start rounded-button px-2 py-1 text-body-sm text-muted active:scale-95 active:brightness-90"
+            className="btn-icon-pressed justify-self-start rounded-button px-2 py-1 text-body-sm text-muted"
           >
             <span aria-hidden>←</span> Home
           </Link>

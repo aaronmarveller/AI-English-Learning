@@ -160,7 +160,7 @@ export function PracticeInputForm({ disabled, onSubmit }: PracticeInputFormProps
             data-testid="practice-mic-button"
             data-state={micState}
             aria-label="开始说话 Start speaking"
-            className={`flex h-16 w-16 shrink-0 items-center justify-center rounded-full text-h2 active:scale-95 active:brightness-90 disabled:cursor-not-allowed disabled:opacity-40 ${
+            className={`btn-icon-pressed flex h-16 w-16 shrink-0 items-center justify-center rounded-full text-h2 disabled:cursor-not-allowed disabled:opacity-40 ${
               micState === "listening"
                 ? "animate-pulse bg-accent text-accent-foreground"
                 : "bg-accent-soft text-accent"
@@ -183,7 +183,7 @@ export function PracticeInputForm({ disabled, onSubmit }: PracticeInputFormProps
             type="button"
             onClick={handleToggleMode}
             data-testid="practice-input-mode-toggle"
-            className="text-body-sm text-muted underline underline-offset-2 active:scale-95 active:brightness-90"
+            className="btn-icon-pressed text-body-sm text-muted underline underline-offset-2"
           >
             改用打字 Switch to typing
           </button>
@@ -205,7 +205,7 @@ export function PracticeInputForm({ disabled, onSubmit }: PracticeInputFormProps
               type="submit"
               disabled={disabled || value.trim().length === 0}
               data-testid="practice-send-button"
-              className="btn-primary shrink-0 px-5 py-3 active:scale-[0.98] active:brightness-90"
+              className="btn-primary shrink-0 px-5 py-3"
             >
               发送 Send
             </button>
@@ -215,7 +215,7 @@ export function PracticeInputForm({ disabled, onSubmit }: PracticeInputFormProps
               type="button"
               onClick={handleToggleMode}
               data-testid="practice-input-mode-toggle"
-              className="self-start text-body-sm text-muted underline underline-offset-2 active:scale-95 active:brightness-90"
+              className="btn-icon-pressed self-start text-body-sm text-muted underline underline-offset-2"
             >
               改用语音 Switch to voice
             </button>

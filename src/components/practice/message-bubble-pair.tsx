@@ -89,7 +89,7 @@ export function MessageBubblePair({ emilyMessage, learnerMessage, defaultShowChi
               onClick={() => setShowChinese((current) => !current)}
               data-testid="subtitle-toggle-button"
               data-state={showChinese ? "expanded" : "collapsed"}
-              className="text-caption text-muted underline underline-offset-2 active:scale-95 active:brightness-90"
+              className="btn-icon-pressed text-caption text-muted underline underline-offset-2"
             >
               中英字幕 Show Chinese
             </button>
@@ -98,7 +98,7 @@ export function MessageBubblePair({ emilyMessage, learnerMessage, defaultShowChi
               onClick={handleReplay}
               data-testid="replay-button"
               aria-label="重播 Replay"
-              className="text-caption text-muted underline underline-offset-2 active:scale-95 active:brightness-90"
+              className="btn-icon-pressed text-caption text-muted underline underline-offset-2"
             >
               🔊 重播 Replay
             </button>

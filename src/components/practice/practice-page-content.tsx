@@ -218,7 +218,7 @@ export function PracticePageContent() {
         onClick={() => setIsAskInChineseOpen(true)}
         disabled={isComplete}
         data-testid="ask-in-chinese-button"
-        className="self-start text-body-sm text-accent underline underline-offset-2 disabled:opacity-50 active:scale-95 active:brightness-90"
+        className="btn-icon-pressed self-start text-body-sm text-accent underline underline-offset-2 disabled:opacity-50"
       >
         中文提问 Ask in Chinese
       </button>
@@ -246,7 +246,7 @@ export function PracticePageContent() {
           disabled={!isComplete}
           onClick={handleViewSummary}
           data-testid="view-summary-button"
-          className="btn-primary w-full active:scale-[0.98] active:brightness-90"
+          className="btn-primary w-full"
         >
           查看学习总结 View Summary
         </button>

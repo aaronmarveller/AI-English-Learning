@@ -27,7 +27,7 @@ export function StartLessonButton() {
       type="button"
       data-testid="start-lesson-button"
       onClick={() => router.push("/observe")}
-      className="btn-primary w-full active:scale-[0.98] active:brightness-90"
+      className="btn-primary w-full"
     >
       Start Lesson 开始上课
     </button>

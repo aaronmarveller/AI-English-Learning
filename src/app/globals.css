@@ -77,11 +77,36 @@ body {
 .btn-primary {
   @apply rounded-button bg-accent px-6 py-3 text-body-lg font-medium text-accent-foreground;
 }
+/*
+ * Press feedback (ticket 06/issue #6: "统一按钮按压反馈到一条共用样式规则").
+ * Previously every .btn-primary call site hand-copied
+ * `active:scale-[0.98] active:brightness-90` inline; that's collapsed here
+ * into one rule so `:active` (which every browser applies on press/tap with
+ * no JS wiring) gives every primary button its feedback for free.
+ * `[data-state="pressed"]` is kept alongside `:active` — not because any
+ * real button sets it, but because src/app/style-guide/page.tsx's static
+ * 3-state demo hardcodes that attribute to force-show the "pressed" look
+ * without an actual pointer down; dropping it would silently break that
+ * demo (and e2e/scaffold.spec.ts, which asserts it renders).
+ */
+.btn-primary:active,
 .btn-primary[data-state="pressed"] {
   @apply scale-[0.98] brightness-90;
 }
 .btn-primary:disabled {
   @apply cursor-not-allowed opacity-40;
+}
+
+/*
+ * Shared press feedback for icon-style / secondary clickable elements
+ * (ticket 06/issue #6) that don't use .btn-primary — close buttons, mic/
+ * speaker icon buttons, underlined text-link-style buttons, debug jump
+ * links, etc. Was previously `active:scale-95 active:brightness-90`
+ * hand-copied at every one of those call sites; now defined once here and
+ * applied via this class alongside each site's own layout/color classes.
+ */
+.btn-icon-pressed:active {
+  @apply scale-95 brightness-90;
 }
 
 /*

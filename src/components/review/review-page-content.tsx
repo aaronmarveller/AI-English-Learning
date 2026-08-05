@@ -102,7 +102,7 @@ export function ReviewPageContent() {
           disabled={isRevealing}
           onClick={handleRetry}
           data-testid="retry-button"
-          className="btn-primary w-full active:scale-[0.98] active:brightness-90"
+          className="btn-primary w-full"
         >
           重练 Retry Lesson
         </button>
@@ -111,7 +111,7 @@ export function ReviewPageContent() {
           disabled={isRevealing}
           onClick={handleContinue}
           data-testid="review-continue-button"
-          className="btn-primary w-full active:scale-[0.98] active:brightness-90"
+          className="btn-primary w-full"
         >
           继续下一课 Continue
         </button>

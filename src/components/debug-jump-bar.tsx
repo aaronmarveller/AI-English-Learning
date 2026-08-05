@@ -18,7 +18,7 @@ export function DebugJumpBar() {
   if (!active) return null;
 
   const linkClassName =
-    "rounded-button bg-card px-3 py-1 text-caption text-foreground shadow-sm active:scale-95 active:brightness-90";
+    "btn-icon-pressed rounded-button bg-card px-3 py-1 text-caption text-foreground shadow-sm";
 
   return (
     <nav

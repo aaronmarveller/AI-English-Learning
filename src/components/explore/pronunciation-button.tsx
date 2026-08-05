@@ -41,7 +41,7 @@ export function PronunciationButton({ text, label, testId, className = "" }: Pro
       aria-label={label ?? `播放发音 Play pronunciation: ${text}`}
       data-testid={testId}
       data-state={isPlaying ? "playing" : "idle"}
-      className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-button bg-accent-soft text-accent active:scale-95 active:brightness-90 ${className}`.trim()}
+      className={`btn-icon-pressed inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-button bg-accent-soft text-accent ${className}`.trim()}
       onClick={activate}
     >
       <span aria-hidden>{isPlaying ? "🔊" : "🔈"}</span>

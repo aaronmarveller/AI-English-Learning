@@ -16,7 +16,7 @@ export default function ComingSoonPage() {
       </p>
       <h1 className="text-h1">Coming Soon</h1>
       <p className="text-body text-muted">这不是 bug——这部分内容还在开发中，敬请期待。</p>
-      <Link href="/" className="btn-primary active:scale-[0.98] active:brightness-90">
+      <Link href="/" className="btn-primary">
         返回 Home
       </Link>
     </main>

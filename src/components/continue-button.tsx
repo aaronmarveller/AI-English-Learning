@@ -35,7 +35,7 @@ export function ContinueButton({
   return (
     <button
       type="button"
-      className={`btn-primary w-full active:scale-[0.98] active:brightness-90 ${className}`.trim()}
+      className={`btn-primary w-full ${className}`.trim()}
       onClick={() => {
         markStepComplete(step);
         router.push(next);
