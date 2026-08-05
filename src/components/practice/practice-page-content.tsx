@@ -12,13 +12,7 @@ import { pickRandomOpeningLine, SILENCE_NUDGE } from "@/content/practice";
 import type { ActiveConversationState } from "@/lib/conversation-state-machine";
 import { markStepComplete } from "@/lib/progress";
 import { usePractice } from "@/lib/practice-state";
-import {
-  isPracticeTurnStreamEvent,
-  type PracticeTurnFinalEvent,
-  type PracticeTurnStreamEvent,
-} from "@/lib/practice-judge";
-
-const PRACTICE_TURN_ENDPOINT = "/api/practice/turn";
+import { submitPracticeTurn } from "@/lib/submit-practice-turn";
 
 /** How long Emily's avatar stays in the "talking" state after a new line lands, before settling back to idle. */
 const TALKING_DURATION_MS = 1400;
@@ -30,69 +24,6 @@ const TALKING_DURATION_MS = 1400;
  * the middle of the spec's 15-20s range.
  */
 const SILENCE_TIMEOUT_MS = 18000;
-
-// --- Streamed turn response parsing (issue #5) -------------------
-//
-// The `/api/practice/turn` route streams Server-Sent Events rather than one
-// blocking JSON body (see that route's doc comment for the exact wire
-// format). `PracticeTurnStreamEvent`/`isPracticeTurnStreamEvent` (imported
-// above from src/lib/practice-judge.ts) are the SAME definitions the route
-// itself uses to build these events — a single shared shape, not an
-// independently hand-written copy on this end that could silently drift
-// from what the server actually sends.
-
-/**
- * Consumes `response.body` as Server-Sent Events, parsing out each `data:`
- * line's JSON payload as it arrives. Calls `onEvent` for every well-formed
- * event this module recognizes; malformed/unrecognized lines are silently
- * skipped (mirroring how the old `isTurnResponseBody` guard just made the
- * caller's `!isTurnResponseBody(data)` check fail rather than throwing a
- * parse error) — the caller decides what "the stream ended without ever
- * producing a valid final event" means for its own error handling.
- */
-async function consumeTurnEventStream(
-  response: Response,
-  onEvent: (event: PracticeTurnStreamEvent) => void,
-): Promise<void> {
-  const body = response.body;
-  if (!body) {
-    throw new Error("practice turn response had no body to stream");
-  }
-
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-
-    // SSE frames are separated by a blank line; a single frame may itself
-    // be split across chunks, so only split on complete "\n\n" boundaries
-    // and keep any trailing partial frame in the buffer for the next read.
-    let separatorIndex: number;
-    while ((separatorIndex = buffer.indexOf("\n\n")) !== -1) {
-      const frame = buffer.slice(0, separatorIndex);
-      buffer = buffer.slice(separatorIndex + 2);
-
-      for (const line of frame.split("\n")) {
-        if (!line.startsWith("data:")) continue;
-        const jsonText = line.slice("data:".length).trim();
-        if (!jsonText) continue;
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(jsonText);
-        } catch {
-          continue;
-        }
-        if (isPracticeTurnStreamEvent(parsed)) {
-          onEvent(parsed);
-        }
-      }
-    }
-  }
-}
 
 /**
  * Practice page body: a text-driven conversation with Emily that walks the
@@ -131,6 +62,10 @@ export function PracticePageContent() {
   const [talkingForMessageId, setTalkingForMessageId] = useState<string | undefined>(undefined);
 
   const openingPickedRef = useRef(false);
+  // Tracks the in-flight submitPracticeTurn request, if any, so the cleanup
+  // effect below can abort it on unmount — same ref-plus-unmount-cleanup
+  // shape as practice-input-form.tsx's `controllerRef`/`startListening`.
+  const submitControllerRef = useRef<AbortController | null>(null);
 
   // Opening line: picked once per mount, only actually applied by
   // ensureOpeningMessage if the transcript is still empty (fresh start). A
@@ -141,6 +76,13 @@ export function PracticePageContent() {
     openingPickedRef.current = true;
     ensureOpeningMessage(pickRandomOpeningLine());
   }, [ensureOpeningMessage]);
+
+  // Stop any in-flight turn submission if the learner navigates away mid-request.
+  useEffect(() => {
+    return () => {
+      submitControllerRef.current?.abort();
+    };
+  }, []);
 
   const emilyMessage = [...messages].reverse().find((message) => message.role === "emily") ?? null;
   const lastMessage = messages[messages.length - 1];
@@ -196,62 +138,45 @@ export function PracticePageContent() {
     appendLearnerMessage(text);
     setAvatarState("thinking");
 
-    try {
-      const history = messages.map((message) => ({
-        role: message.role === "emily" ? ("assistant" as const) : ("user" as const),
-        content: message.textEn,
-      }));
+    const history = messages.map((message) => ({
+      role: message.role === "emily" ? ("assistant" as const) : ("user" as const),
+      content: message.textEn,
+    }));
 
-      const response = await fetch(PRACTICE_TURN_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ state: priorState, message: text, history }),
-      });
+    const controller = new AbortController();
+    submitControllerRef.current = controller;
 
-      if (!response.ok) {
-        throw new Error(`practice turn request failed with status ${response.status}`);
-      }
+    // submitPracticeTurn never throws — it resolves a discriminated result,
+    // so every failure path (network failure, non-2xx status, a stream
+    // `error` event, the stream ending without `final`, or this request
+    // being aborted) is handled explicitly below instead of via try/catch.
+    const result = await submitPracticeTurn(
+      { priorState, message: text, history },
+      { signal: controller.signal },
+    );
 
-      // The route now streams Server-Sent Events rather than one blocking
-      // JSON body (issue #5). `final` is the one event that gets
-      // committed to the Practice store — exactly once, same as the old
-      // single-JSON-body response — and `error` (or the stream simply
-      // ending without ever sending `final`) falls into the same catch
-      // block below that a non-ok status or malformed body used to.
-      let finalResult: PracticeTurnFinalEvent | null = null;
-      let streamError: string | null = null;
-      await consumeTurnEventStream(response, (event) => {
-        if (event.type === "final") {
-          finalResult = event;
-        } else if (event.type === "error") {
-          streamError = event.error;
-        }
-        // "partial" events are progress-only and intentionally not acted on
-        // here — see this file's module doc comment above.
-      });
-
-      if (streamError) {
-        throw new Error(`practice turn stream reported an error: ${streamError}`);
-      }
-      if (!finalResult) {
-        throw new Error("practice turn stream ended without a final result");
-      }
-
-      const data: PracticeTurnFinalEvent = finalResult;
+    if (result.ok) {
       recordTurnResult({
         priorState,
-        verdict: data.verdict,
-        replyEn: data.reply_en,
-        replyZh: data.reply_zh,
-        highlightKey: data.highlight_key,
+        verdict: result.data.verdict,
+        replyEn: result.data.reply_en,
+        replyZh: result.data.reply_zh,
+        highlightKey: result.data.highlight_key,
       });
-    } catch (error) {
-      console.error("Practice turn failed", error);
-      setErrorMessage("Emily 好像没收到消息，请再试一次。 Something went wrong — please try again.");
-      setAvatarState("idle");
-    } finally {
       setIsSubmitting(false);
+      return;
     }
+
+    if (result.reason === "aborted") {
+      // The component is unmounting or this request was superseded — there
+      // is nothing left to show the learner, so skip errorMessage/avatarState.
+      return;
+    }
+
+    console.error("Practice turn failed", result.reason);
+    setErrorMessage("Emily 好像没收到消息，请再试一次。 Something went wrong — please try again.");
+    setAvatarState("idle");
+    setIsSubmitting(false);
   }
 
   function handleViewSummary() {
