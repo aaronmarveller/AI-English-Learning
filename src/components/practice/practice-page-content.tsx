@@ -8,10 +8,15 @@ import { EmilyAvatar, type EmilyAvatarState } from "@/components/practice/emily-
 import { MessageBubblePair } from "@/components/practice/message-bubble-pair";
 import { PracticeInputForm } from "@/components/practice/practice-input-form";
 import { PracticeTranscriptDrawer } from "@/components/practice/practice-transcript-drawer";
-import { pickRandomOpeningLine, SILENCE_NUDGE, type HighlightKey } from "@/content/practice";
+import { pickRandomOpeningLine, SILENCE_NUDGE } from "@/content/practice";
 import type { ActiveConversationState } from "@/lib/conversation-state-machine";
 import { markStepComplete } from "@/lib/progress";
 import { usePractice } from "@/lib/practice-state";
+import {
+  isPracticeTurnStreamEvent,
+  type PracticeTurnFinalEvent,
+  type PracticeTurnStreamEvent,
+} from "@/lib/practice-judge";
 
 const PRACTICE_TURN_ENDPOINT = "/api/practice/turn";
 
@@ -26,47 +31,15 @@ const TALKING_DURATION_MS = 1400;
  */
 const SILENCE_TIMEOUT_MS = 18000;
 
-type TurnResponseBody = {
-  verdict: "accepted" | "needs_retry" | "off_topic";
-  reply_en: string;
-  reply_zh: string;
-  highlight_key: string;
-};
-
-function isTurnResponseBody(value: unknown): value is TurnResponseBody {
-  if (typeof value !== "object" || value === null) return false;
-  const v = value as Record<string, unknown>;
-  return (
-    (v.verdict === "accepted" || v.verdict === "needs_retry" || v.verdict === "off_topic") &&
-    typeof v.reply_en === "string" &&
-    typeof v.reply_zh === "string" &&
-    typeof v.highlight_key === "string"
-  );
-}
-
 // --- Streamed turn response parsing (issue #5) -------------------
 //
-// The `/api/practice/turn` route now streams Server-Sent Events instead of
-// one blocking JSON body (see that route's doc comment for the exact wire
-// format). Each event is `data: <json>\n\n`; the JSON payload is one of:
-//   - { type: "partial", reply_en: string } — progress only, never committed.
-//   - { type: "final", verdict, reply_en, reply_zh, highlight_key } — the one
-//     event that gets validated and written to the Practice store.
-//   - { type: "error", error: string } — terminal failure signal.
-
-type StreamedTurnEvent =
-  | ({ type: "final" } & TurnResponseBody)
-  | { type: "partial"; reply_en: string }
-  | { type: "error"; error: string };
-
-function isStreamedTurnEvent(value: unknown): value is StreamedTurnEvent {
-  if (typeof value !== "object" || value === null) return false;
-  const v = value as Record<string, unknown>;
-  if (v.type === "partial") return typeof v.reply_en === "string";
-  if (v.type === "error") return typeof v.error === "string";
-  if (v.type === "final") return isTurnResponseBody(v);
-  return false;
-}
+// The `/api/practice/turn` route streams Server-Sent Events rather than one
+// blocking JSON body (see that route's doc comment for the exact wire
+// format). `PracticeTurnStreamEvent`/`isPracticeTurnStreamEvent` (imported
+// above from src/lib/practice-judge.ts) are the SAME definitions the route
+// itself uses to build these events — a single shared shape, not an
+// independently hand-written copy on this end that could silently drift
+// from what the server actually sends.
 
 /**
  * Consumes `response.body` as Server-Sent Events, parsing out each `data:`
@@ -79,7 +52,7 @@ function isStreamedTurnEvent(value: unknown): value is StreamedTurnEvent {
  */
 async function consumeTurnEventStream(
   response: Response,
-  onEvent: (event: StreamedTurnEvent) => void,
+  onEvent: (event: PracticeTurnStreamEvent) => void,
 ): Promise<void> {
   const body = response.body;
   if (!body) {
@@ -113,7 +86,7 @@ async function consumeTurnEventStream(
         } catch {
           continue;
         }
-        if (isStreamedTurnEvent(parsed)) {
+        if (isPracticeTurnStreamEvent(parsed)) {
           onEvent(parsed);
         }
       }
@@ -245,7 +218,7 @@ export function PracticePageContent() {
       // single-JSON-body response — and `error` (or the stream simply
       // ending without ever sending `final`) falls into the same catch
       // block below that a non-ok status or malformed body used to.
-      let finalResult: TurnResponseBody | null = null;
+      let finalResult: PracticeTurnFinalEvent | null = null;
       let streamError: string | null = null;
       await consumeTurnEventStream(response, (event) => {
         if (event.type === "final") {
@@ -264,15 +237,13 @@ export function PracticePageContent() {
         throw new Error("practice turn stream ended without a final result");
       }
 
-      const data: TurnResponseBody = finalResult;
+      const data: PracticeTurnFinalEvent = finalResult;
       recordTurnResult({
         priorState,
         verdict: data.verdict,
         replyEn: data.reply_en,
         replyZh: data.reply_zh,
-        // The route validates highlight_key against HIGHLIGHT_KEYS before
-        // responding, so this cast is safe.
-        highlightKey: data.highlight_key as HighlightKey,
+        highlightKey: data.highlight_key,
       });
     } catch (error) {
       console.error("Practice turn failed", error);

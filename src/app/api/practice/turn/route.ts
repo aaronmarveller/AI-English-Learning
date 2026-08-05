@@ -7,6 +7,7 @@ import {
   InvalidModelOutputError,
   judgeTurn,
   type HistoryTurn,
+  type PracticeTurnStreamEvent,
 } from "@/lib/practice-judge";
 
 /**
@@ -111,7 +112,7 @@ export async function POST(request: Request): Promise<Response> {
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      function sendEvent(payload: unknown): void {
+      function sendEvent(payload: PracticeTurnStreamEvent): void {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
       }
 

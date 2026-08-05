@@ -74,6 +74,29 @@ function isTurnResult(value: unknown): value is TurnResult {
 }
 
 /**
+ * The SSE wire contract src/app/api/practice/turn/route.ts streams to the
+ * client (issue #5) — defined once here, next to `TurnResult`, so the route
+ * and the client both import this single shape instead of each hand-writing
+ * their own copy and risking silent protocol drift between them.
+ */
+export type PracticeTurnFinalEvent = { type: "final" } & TurnResult;
+
+export type PracticeTurnStreamEvent =
+  | PracticeTurnFinalEvent
+  | { type: "partial"; reply_en: string }
+  | { type: "error"; error: string };
+
+/** Validates a parsed SSE payload against the `PracticeTurnStreamEvent` contract above. */
+export function isPracticeTurnStreamEvent(value: unknown): value is PracticeTurnStreamEvent {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  if (v.type === "partial") return typeof v.reply_en === "string";
+  if (v.type === "error") return typeof v.error === "string";
+  if (v.type === "final") return isTurnResult(v);
+  return false;
+}
+
+/**
  * The single tool the model is forced to call via `tool_choice`. This is
  * the structured-output mechanism (spec.md: "强制结构化输出") — we never do
  * a free-text completion and try to parse JSON out of it.
