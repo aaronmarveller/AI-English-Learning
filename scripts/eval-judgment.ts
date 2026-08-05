@@ -28,35 +28,13 @@
  * the environment.
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import {
   ACTIVE_CONVERSATION_STATES,
   type ActiveConversationState,
   type Verdict,
 } from "@/lib/conversation-state-machine";
 import { MODEL_ID, judgeTurn } from "@/lib/practice-judge";
-
-// --- .env.local loading (no dependency — this script runs outside Next's
-// own automatic .env.local loading via `tsx`, so it does its own) ----------
-
-function loadEnvLocal(): void {
-  const path = resolve(process.cwd(), ".env.local");
-  if (!existsSync(path)) return;
-  for (const line of readFileSync(path, "utf8").split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eq = trimmed.indexOf("=");
-    if (eq === -1) continue;
-    const key = trimmed.slice(0, eq).trim();
-    let value = trimmed.slice(eq + 1).trim();
-    const isQuoted =
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"));
-    if (isQuoted) value = value.slice(1, -1);
-    if (!(key in process.env)) process.env[key] = value;
-  }
-}
+import { loadEnvLocal } from "./env";
 
 // --- Eval table (spec.md: "每个 Conversation State 的白名单内表达、白名单外
 // 但意图正确的自然表达、意图错误的表达、跑题表达") ----------------------------

@@ -39,3 +39,20 @@ Requires `ANTHROPIC_API_KEY` in `.env.local` (see `.env.example`). It is
 repo has none) — because each run makes real, non-deterministic, billed
 model calls. Run it by hand, and re-run it whenever
 `src/content/practice.ts`'s system-prompt copy changes.
+
+## Pre-generated audio (manual only)
+
+`npm run generate:audio` pre-generates `public/audio/*.mp3` for every fixed
+English line listed in `src/lib/audio-manifest.ts` — Emily's opening lines,
+the silence nudge, and Explore's 13 expressions/combo sentence — via a real
+TTS provider (OpenAI's `tts-1` by default). `src/lib/speech-synthesis.ts`
+plays a pre-generated file when one matches, falling back to browser speech
+synthesis otherwise — this covers Practice's live, model-generated
+conversation replies, which have no fixed pool to pre-generate audio for.
+
+Requires `OPENAI_API_KEY` in `.env.local` (see `.env.example`; `TTS_PROVIDER`
+picks the provider — only `openai` is implemented so far). Not required to
+run or demo the app: with no `public/audio/*.mp3` files at all, every line
+just falls back to browser synthesis. Already-generated files are skipped
+on re-run, so this only costs money for genuinely new/changed manifest
+entries. Manual only, same reasoning as `eval:judgment` above.
