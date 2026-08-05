@@ -68,6 +68,14 @@ export function SceneVideoPlayer({ src, captionsSrc, sceneName }: SceneVideoPlay
         <track kind="captions" src={captionsSrc} srcLang="en" label="English" default />
       </video>
 
+      {/*
+        Ticket 14 DoD: "所有可点元素有按下反馈". `active:brightness-90` on this
+        full-bleed overlay is the press feedback for the tap itself;
+        `group`/`group-active:scale-90` additionally shrinks just the ▶ icon
+        rather than the whole overlay, since scaling an `inset-0` element on
+        press would visibly shift its edges away from the card's rounded
+        corners.
+      */}
       {!hasStarted && (
         <div
           data-testid="video-poster-overlay"
@@ -75,12 +83,12 @@ export function SceneVideoPlayer({ src, captionsSrc, sceneName }: SceneVideoPlay
           aria-label={`播放视频 Play video: ${sceneName}`}
           onClick={startPlayback}
           onKeyDown={handleOverlayKeyDown}
-          className="absolute inset-0 flex cursor-pointer flex-col items-center justify-center gap-3 bg-gradient-to-br from-primary to-accent text-center"
+          className="group absolute inset-0 flex cursor-pointer flex-col items-center justify-center gap-3 bg-gradient-to-br from-primary to-accent text-center active:brightness-90"
         >
           <span
             data-testid="video-play-button"
             aria-hidden
-            className="flex h-16 w-16 items-center justify-center rounded-full bg-card/90 text-2xl text-primary shadow-lg"
+            className="flex h-16 w-16 items-center justify-center rounded-full bg-card/90 text-2xl text-primary shadow-lg transition-transform group-active:scale-90"
           >
             ▶
           </span>

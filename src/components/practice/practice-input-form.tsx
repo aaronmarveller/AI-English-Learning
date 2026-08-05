@@ -183,7 +183,7 @@ export function PracticeInputForm({ disabled, onSubmit }: PracticeInputFormProps
             type="button"
             onClick={handleToggleMode}
             data-testid="practice-input-mode-toggle"
-            className="text-body-sm text-muted underline underline-offset-2"
+            className="text-body-sm text-muted underline underline-offset-2 active:scale-95 active:brightness-90"
           >
             改用打字 Switch to typing
           </button>
@@ -215,7 +215,7 @@ export function PracticeInputForm({ disabled, onSubmit }: PracticeInputFormProps
               type="button"
               onClick={handleToggleMode}
               data-testid="practice-input-mode-toggle"
-              className="self-start text-body-sm text-muted underline underline-offset-2"
+              className="self-start text-body-sm text-muted underline underline-offset-2 active:scale-95 active:brightness-90"
             >
               改用语音 Switch to voice
             </button>

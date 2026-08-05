@@ -85,6 +85,28 @@ body {
 }
 
 /*
+ * Page-to-page transition (ticket 14; spec.md user story 6: "页面之间切换有
+ * 轻量过渡动画，so that 体验连贯不生硬"). Deliberately just a short fade +
+ * small upward drift — "轻量" rules out anything slower or more elaborate
+ * that would make the learner wait between steps. Applied in
+ * src/app/(learning)/layout.tsx to a wrapper keyed by pathname, so React
+ * remounts (and restarts this animation on) every navigation.
+ */
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.page-transition {
+  animation: page-enter 200ms ease-out;
+}
+
+/*
  * Emily avatar's 3 states (ticket 08; spec.md "Practice 页交互模型": "Avatar
  * 三态用纯 CSS 实现...Idle 为缓慢呼吸缩放；Talking 为轻微浮动 + 声波 + 发光环
  * 脉冲；Thinking 为降低不透明度 + 三点跳动"). No illustration asset exists yet
@@ -174,13 +196,21 @@ body {
   animation-delay: 0.3s;
 }
 
+/*
+ * Ticket 14 DoD: "开启系统「减少动态效果」偏好时，所有动画自动降级". One
+ * blanket rule for every animation/transition in the app — Emily's 3-state
+ * avatar animations above included, plus page transitions, press feedback,
+ * progress-dot resizing, accordion chevrons, etc. `!important` beats any
+ * more-specific-but-not-`!important` rule regardless of selector
+ * specificity, so this alone is enough; no per-feature override needed.
+ */
 @media (prefers-reduced-motion: reduce) {
-  .emily-avatar[data-state="idle"],
-  .emily-avatar[data-state="talking"] {
-    animation: none;
-  }
-  .emily-thinking-dot,
-  .emily-sound-bar {
-    animation: none;
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

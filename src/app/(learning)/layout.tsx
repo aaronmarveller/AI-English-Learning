@@ -104,7 +104,14 @@ export default function LearningLayout({ children }: { children: ReactNode }) {
       </header>
 
       <main className="flex flex-1 flex-col px-5 py-6">
-        {hasMounted && unlocked ? children : null}
+        {hasMounted && unlocked ? (
+          // key={pathname}: forces React to remount this wrapper on every
+          // navigation, which restarts the .page-transition CSS animation
+          // (ticket 14) — a plain re-render wouldn't replay a CSS animation.
+          <div key={pathname} className="page-transition flex flex-1 flex-col">
+            {children}
+          </div>
+        ) : null}
       </main>
     </div>
   );
