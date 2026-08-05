@@ -3,12 +3,8 @@ import {
   isActiveConversationState,
   type ActiveConversationState,
 } from "@/lib/conversation-state-machine";
-import {
-  InvalidModelOutputError,
-  judgeTurn,
-  type HistoryTurn,
-  type PracticeTurnStreamEvent,
-} from "@/lib/practice-judge";
+import { InvalidModelOutputError, judgeTurn } from "@/lib/practice-judge";
+import type { HistoryTurn, PracticeTurnStreamEvent } from "@/lib/practice-turn-protocol";
 
 /**
  * Practice conversation-turn proxy (ticket 08; spec.md "Implementation

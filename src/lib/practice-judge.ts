@@ -1,15 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
-import {
-  VERDICTS,
-  type ActiveConversationState,
-  type Verdict,
-} from "@/lib/conversation-state-machine";
-import {
-  GLOBAL_SYSTEM_RULES,
-  HIGHLIGHT_KEYS,
-  buildStateSystemPromptSection,
-  type HighlightKey,
-} from "@/content/practice";
+import { VERDICTS, type ActiveConversationState } from "@/lib/conversation-state-machine";
+import { GLOBAL_SYSTEM_RULES, HIGHLIGHT_KEYS, buildStateSystemPromptSection } from "@/content/practice";
+import { isTurnResult, type HistoryTurn, type TurnResult } from "@/lib/practice-turn-protocol";
 
 /**
  * Practice conversation-turn judging (ticket 08; spec.md "Implementation
@@ -41,14 +33,10 @@ import {
 /** spec.md "三个适配层": Anthropic `claude-haiku-4-5-20251001` for this ticket's LLM adapter. */
 export const MODEL_ID = "claude-haiku-4-5-20251001";
 
-export type HistoryTurn = { role: "user" | "assistant"; content: string };
-
-export type TurnResult = {
-  verdict: Verdict;
-  reply_en: string;
-  reply_zh: string;
-  highlight_key: HighlightKey;
-};
+// HistoryTurn/TurnResult/isTurnResult live in practice-turn-protocol.ts — a
+// zero-dependency module shared with the client (submit-practice-turn.ts) —
+// so this file's `@anthropic-ai/sdk` import never has a reason to be pulled
+// into a client bundle through them.
 
 export type JudgeTurnInput = {
   apiKey: string;
@@ -59,42 +47,6 @@ export type JudgeTurnInput = {
 
 /** The model call succeeded but didn't return a valid `submit_turn_result` payload. */
 export class InvalidModelOutputError extends Error {}
-
-function isTurnResult(value: unknown): value is TurnResult {
-  if (typeof value !== "object" || value === null) return false;
-  const v = value as Record<string, unknown>;
-  return (
-    typeof v.verdict === "string" &&
-    (VERDICTS as readonly string[]).includes(v.verdict) &&
-    typeof v.reply_en === "string" &&
-    typeof v.reply_zh === "string" &&
-    typeof v.highlight_key === "string" &&
-    (HIGHLIGHT_KEYS as readonly string[]).includes(v.highlight_key)
-  );
-}
-
-/**
- * The SSE wire contract src/app/api/practice/turn/route.ts streams to the
- * client (issue #5) — defined once here, next to `TurnResult`, so the route
- * and the client both import this single shape instead of each hand-writing
- * their own copy and risking silent protocol drift between them.
- */
-export type PracticeTurnFinalEvent = { type: "final" } & TurnResult;
-
-export type PracticeTurnStreamEvent =
-  | PracticeTurnFinalEvent
-  | { type: "partial"; reply_en: string }
-  | { type: "error"; error: string };
-
-/** Validates a parsed SSE payload against the `PracticeTurnStreamEvent` contract above. */
-export function isPracticeTurnStreamEvent(value: unknown): value is PracticeTurnStreamEvent {
-  if (typeof value !== "object" || value === null) return false;
-  const v = value as Record<string, unknown>;
-  if (v.type === "partial") return typeof v.reply_en === "string";
-  if (v.type === "error") return typeof v.error === "string";
-  if (v.type === "final") return isTurnResult(v);
-  return false;
-}
 
 /**
  * The single tool the model is forced to call via `tool_choice`. This is
