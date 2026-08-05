@@ -44,6 +44,83 @@ function isTurnResponseBody(value: unknown): value is TurnResponseBody {
   );
 }
 
+// --- Streamed turn response parsing (issue #5) -------------------
+//
+// The `/api/practice/turn` route now streams Server-Sent Events instead of
+// one blocking JSON body (see that route's doc comment for the exact wire
+// format). Each event is `data: <json>\n\n`; the JSON payload is one of:
+//   - { type: "partial", reply_en: string } — progress only, never committed.
+//   - { type: "final", verdict, reply_en, reply_zh, highlight_key } — the one
+//     event that gets validated and written to the Practice store.
+//   - { type: "error", error: string } — terminal failure signal.
+
+type StreamedTurnEvent =
+  | ({ type: "final" } & TurnResponseBody)
+  | { type: "partial"; reply_en: string }
+  | { type: "error"; error: string };
+
+function isStreamedTurnEvent(value: unknown): value is StreamedTurnEvent {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  if (v.type === "partial") return typeof v.reply_en === "string";
+  if (v.type === "error") return typeof v.error === "string";
+  if (v.type === "final") return isTurnResponseBody(v);
+  return false;
+}
+
+/**
+ * Consumes `response.body` as Server-Sent Events, parsing out each `data:`
+ * line's JSON payload as it arrives. Calls `onEvent` for every well-formed
+ * event this module recognizes; malformed/unrecognized lines are silently
+ * skipped (mirroring how the old `isTurnResponseBody` guard just made the
+ * caller's `!isTurnResponseBody(data)` check fail rather than throwing a
+ * parse error) — the caller decides what "the stream ended without ever
+ * producing a valid final event" means for its own error handling.
+ */
+async function consumeTurnEventStream(
+  response: Response,
+  onEvent: (event: StreamedTurnEvent) => void,
+): Promise<void> {
+  const body = response.body;
+  if (!body) {
+    throw new Error("practice turn response had no body to stream");
+  }
+
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    // SSE frames are separated by a blank line; a single frame may itself
+    // be split across chunks, so only split on complete "\n\n" boundaries
+    // and keep any trailing partial frame in the buffer for the next read.
+    let separatorIndex: number;
+    while ((separatorIndex = buffer.indexOf("\n\n")) !== -1) {
+      const frame = buffer.slice(0, separatorIndex);
+      buffer = buffer.slice(separatorIndex + 2);
+
+      for (const line of frame.split("\n")) {
+        if (!line.startsWith("data:")) continue;
+        const jsonText = line.slice("data:".length).trim();
+        if (!jsonText) continue;
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(jsonText);
+        } catch {
+          continue;
+        }
+        if (isStreamedTurnEvent(parsed)) {
+          onEvent(parsed);
+        }
+      }
+    }
+  }
+}
+
 /**
  * Practice page body: a text-driven conversation with Emily that walks the
  * learner through the 4-state Conversation State Machine (ticket 08;
@@ -162,11 +239,32 @@ export function PracticePageContent() {
         throw new Error(`practice turn request failed with status ${response.status}`);
       }
 
-      const data: unknown = await response.json();
-      if (!isTurnResponseBody(data)) {
-        throw new Error("practice turn response was malformed");
+      // The route now streams Server-Sent Events rather than one blocking
+      // JSON body (issue #5). `final` is the one event that gets
+      // committed to the Practice store — exactly once, same as the old
+      // single-JSON-body response — and `error` (or the stream simply
+      // ending without ever sending `final`) falls into the same catch
+      // block below that a non-ok status or malformed body used to.
+      let finalResult: TurnResponseBody | null = null;
+      let streamError: string | null = null;
+      await consumeTurnEventStream(response, (event) => {
+        if (event.type === "final") {
+          finalResult = event;
+        } else if (event.type === "error") {
+          streamError = event.error;
+        }
+        // "partial" events are progress-only and intentionally not acted on
+        // here — see this file's module doc comment above.
+      });
+
+      if (streamError) {
+        throw new Error(`practice turn stream reported an error: ${streamError}`);
+      }
+      if (!finalResult) {
+        throw new Error("practice turn stream ended without a final result");
       }
 
+      const data: TurnResponseBody = finalResult;
       recordTurnResult({
         priorState,
         verdict: data.verdict,

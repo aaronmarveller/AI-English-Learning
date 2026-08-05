@@ -24,6 +24,18 @@ import {
  * this exact same code path against the real API instead of reimplementing
  * it — the eval is only a meaningful regression guard for the system prompt
  * if it can't drift from what production actually sends.
+ *
+ * Issue #5: the underlying call is now `client.messages.stream()`
+ * instead of `client.messages.create()`, so the HTTP route can genuinely
+ * stream progress to the client instead of blocking on the whole model
+ * response — but `judgeTurn`'s own signature and `Promise<TurnResult>`
+ * return contract are unchanged, so scripts/eval-judgment.ts (which calls
+ * `judgeTurn(input)` with no second argument, expecting a plain resolved
+ * promise) keeps working with zero modifications. The route opts into
+ * incremental updates via the optional second `callbacks` argument, wired to
+ * the SDK's `'inputJson'` event on the streamed forced tool call — see that
+ * event's use below for why this is safe even though `tool_choice` forces
+ * structured output.
  */
 
 /** spec.md "三个适配层": Anthropic `claude-haiku-4-5-20251001` for this ticket's LLM adapter. */
@@ -103,6 +115,35 @@ function buildSystemPrompt(state: ActiveConversationState): string {
   return `${GLOBAL_SYSTEM_RULES}\n\n${buildStateSystemPromptSection(state)}`;
 }
 
+/** Optional hooks for callers that want incremental progress while `judgeTurn` is in flight. */
+export type JudgeTurnCallbacks = {
+  /**
+   * Fired zero or more times while the forced tool call's `reply_en` field is
+   * still streaming in, with whatever prefix of it has arrived so far. Never
+   * fired with the final, complete value — that only ever arrives via this
+   * function's resolved `TurnResult` once the whole response is validated.
+   * Backed by the Anthropic SDK's `'inputJson'` event (see
+   * MessageStream.ts): its `jsonSnapshot` is already a best-effort PARSED
+   * partial object (the SDK's own permissive partial-JSON parser), not raw
+   * text — so reading a string field off it can't throw the way
+   * `JSON.parse` on truncated text would.
+   */
+  onPartialReply?: (partialReplyEn: string) => void;
+};
+
+/**
+ * Type guard for the shape `stream.on("inputJson", (_, jsonSnapshot) => ...)`
+ * hands back mid-stream: a partial, possibly-incomplete object that may or
+ * may not have picked up `reply_en` yet. Deliberately looser than
+ * `isTurnResult` (no verdict/highlight_key/enum checks) since the whole
+ * point is this can be an in-progress fragment.
+ */
+function hasPartialReplyEn(value: unknown): value is { reply_en: string } {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return typeof v.reply_en === "string";
+}
+
 /**
  * Calls the real Anthropic API for one Practice conversation turn and
  * returns the validated structured result. Rejects with the raw Anthropic
@@ -110,16 +151,21 @@ function buildSystemPrompt(state: ActiveConversationState): string {
  * the model didn't return a valid `submit_turn_result` call — callers
  * (the HTTP route, the eval script) distinguish the latter to report
  * "the model misbehaved" separately from "the API call failed".
+ *
+ * Internally uses `client.messages.stream(...)` (ticket 14) rather than
+ * `.create(...)` so the HTTP route can relay progress to the client as it
+ * arrives; `tool_choice` behaves identically either way, and this function's
+ * own return contract — a single resolved `Promise<TurnResult>`, once the
+ * complete response has been validated — is unchanged, so existing callers
+ * (scripts/eval-judgment.ts) need no changes and see no behavior difference.
  */
-export async function judgeTurn({
-  apiKey,
-  state,
-  message,
-  history,
-}: JudgeTurnInput): Promise<TurnResult> {
+export async function judgeTurn(
+  { apiKey, state, message, history }: JudgeTurnInput,
+  callbacks?: JudgeTurnCallbacks,
+): Promise<TurnResult> {
   const client = new Anthropic({ apiKey });
 
-  const response = await client.messages.create({
+  const stream = client.messages.stream({
     model: MODEL_ID,
     max_tokens: 1024,
     system: buildSystemPrompt(state),
@@ -130,6 +176,17 @@ export async function judgeTurn({
     tools: [SUBMIT_TURN_RESULT_TOOL],
     tool_choice: { type: "tool", name: "submit_turn_result" },
   });
+
+  if (callbacks?.onPartialReply) {
+    const onPartialReply = callbacks.onPartialReply;
+    stream.on("inputJson", (_partialJson, jsonSnapshot) => {
+      if (hasPartialReplyEn(jsonSnapshot)) {
+        onPartialReply(jsonSnapshot.reply_en);
+      }
+    });
+  }
+
+  const response = await stream.finalMessage();
 
   const toolUse = response.content.find(
     (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",

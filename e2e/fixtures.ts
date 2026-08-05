@@ -108,6 +108,15 @@ export type ScriptedTurnResponse = {
  * boundaries at the time they were written. Now that all four tickets are
  * long since merged, that sequencing constraint no longer applies, and
  * issue #10 consolidated all four copies into this single implementation.
+ *
+ * Issue #5 made the real route stream Server-Sent Events
+ * instead of fulfilling with one plain JSON body (see
+ * src/app/api/practice/turn/route.ts's doc comment for the exact wire
+ * format this mirrors). This stub wraps each scripted response as that
+ * format's single `"final"` event — the same event the client's stream
+ * parser treats as authoritative — so this stub keeps exercising the exact
+ * client-side parsing code path production traffic does, rather than a
+ * special-cased shortcut.
  */
 export async function installScriptedPracticeApi(
   page: Page,
@@ -121,10 +130,11 @@ export async function installScriptedPracticeApi(
     if (options.delayMs) {
       await new Promise((resolve) => setTimeout(resolve, options.delayMs));
     }
+    const finalEvent = { type: "final", ...response };
     await route.fulfill({
       status: 200,
-      contentType: "application/json",
-      body: JSON.stringify(response),
+      contentType: "text/event-stream",
+      body: `data: ${JSON.stringify(finalEvent)}\n\n`,
     });
   });
 }

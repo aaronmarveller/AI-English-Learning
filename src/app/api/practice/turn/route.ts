@@ -32,6 +32,30 @@ import {
  * as "user") — passed so the model has enough context to judge, e.g.,
  * `recovered-after-retry` or `stayed-on-topic-after-detour` when a retry or
  * a detour happened earlier in the same state.
+ *
+ * Response (issue #5 — real streaming instead of one blocking
+ * response after the whole model call completes): `text/event-stream`
+ * (Server-Sent Events). The stream opens immediately (before `judgeTurn`'s
+ * promise even resolves) and carries zero or more events, one JSON payload
+ * per `data:` line:
+ *
+ *   - `{"type":"partial","reply_en":string}` — zero or more, as the forced
+ *     tool call's `reply_en` field streams in from the model. Purely a
+ *     progress signal; never authoritative and never itself committed to
+ *     the Practice store.
+ *   - `{"type":"final","verdict":...,"reply_en":...,"reply_zh":...,
+ *     "highlight_key":...}` — exactly one, once the complete response has
+ *     been validated. This is the only event the client commits to the
+ *     Practice store.
+ *   - `{"type":"error","error":string}` — exactly one, in place of `final`,
+ *     if `judgeTurn` rejects (`InvalidModelOutputError` or an upstream API
+ *     error). HTTP status is always 200 by the time any of this is known,
+ *     since the stream has already started — the error is encoded in the
+ *     stream body instead, and the client treats an `error` event the same
+ *     way it used to treat a non-2xx status or a malformed body.
+ *
+ * Exactly one of `final`/`error` is ever sent, always as the last event,
+ * and the stream is closed immediately after.
  */
 
 // Route Handlers run on the Node.js runtime by default in the App Router,
@@ -83,20 +107,49 @@ export async function POST(request: Request): Promise<Response> {
     return NextResponse.json({ error: "server_not_configured" }, { status: 500 });
   }
 
-  try {
-    const result = await judgeTurn({
-      apiKey,
-      state: parsed.state,
-      message: parsed.message,
-      history: parsed.history,
-    });
-    return NextResponse.json(result);
-  } catch (error) {
-    if (error instanceof InvalidModelOutputError) {
-      console.error(error.message);
-      return NextResponse.json({ error: "invalid_model_output" }, { status: 502 });
-    }
-    console.error("practice/turn: upstream Anthropic API error", error);
-    return NextResponse.json({ error: "upstream_error" }, { status: 502 });
-  }
+  const encoder = new TextEncoder();
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      function sendEvent(payload: unknown): void {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+      }
+
+      try {
+        const result = await judgeTurn(
+          {
+            apiKey,
+            state: parsed.state,
+            message: parsed.message,
+            history: parsed.history,
+          },
+          {
+            onPartialReply: (partialReplyEn) => {
+              sendEvent({ type: "partial", reply_en: partialReplyEn });
+            },
+          },
+        );
+        sendEvent({ type: "final", ...result });
+      } catch (error) {
+        if (error instanceof InvalidModelOutputError) {
+          console.error(error.message);
+          sendEvent({ type: "error", error: "invalid_model_output" });
+        } else {
+          console.error("practice/turn: upstream Anthropic API error", error);
+          sendEvent({ type: "error", error: "upstream_error" });
+        }
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+    },
+  });
 }

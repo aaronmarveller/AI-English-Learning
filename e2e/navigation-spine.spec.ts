@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { resetStorage } from "./fixtures";
+import { installScriptedPracticeApi, resetStorage } from "./fixtures";
 import { STEP_IDS, STEP_ROUTES, type StepId } from "@/lib/progress";
 
 /**
@@ -26,20 +26,22 @@ function expectedDotState(dotStep: StepId, currentStep: StepId): "current" | "co
  * stubs the LLM proxy route to always accept, drives all 4 turns, then
  * clicks View Summary — the walkthrough's equivalent of "click Continue"
  * for this one step.
+ *
+ * Uses the shared `installScriptedPracticeApi` stub (e2e/fixtures.ts)
+ * rather than its own inline `page.route` (as this predates issue #10's
+ * consolidation of the other four Practice-adjacent spec files) so this
+ * walkthrough stays in sync with the real route's wire format automatically
+ * — see that helper's doc comment for why (issue #5).
  */
 async function completePracticeConversation(page: Page): Promise<void> {
-  await page.route("**/api/practice/turn", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        verdict: "accepted",
-        reply_en: "Great!",
-        reply_zh: "太好了！",
-        highlight_key: "used-whitelist-phrase",
-      }),
-    });
-  });
+  await installScriptedPracticeApi(page, [
+    {
+      verdict: "accepted",
+      reply_en: "Great!",
+      reply_zh: "太好了！",
+      highlight_key: "used-whitelist-phrase",
+    },
+  ]);
 
   // Ticket 09 made the microphone the default input mode; this walkthrough
   // isn't concerned with voice, so it switches to the (always-available)
