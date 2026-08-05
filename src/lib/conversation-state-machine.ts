@@ -30,7 +30,8 @@ export type ActiveConversationState = (typeof ACTIVE_CONVERSATION_STATES)[number
 export type ConversationState = ActiveConversationState | "complete";
 
 /** The per-turn judgment the LLM proxy route returns (spec.md "大模型契约"). */
-export type Verdict = "accepted" | "needs_retry" | "off_topic";
+export const VERDICTS = ["accepted", "needs_retry", "off_topic"] as const;
+export type Verdict = (typeof VERDICTS)[number];
 
 export function isActiveConversationState(value: unknown): value is ActiveConversationState {
   return (

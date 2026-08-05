@@ -1,15 +1,13 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import {
   isActiveConversationState,
   type ActiveConversationState,
 } from "@/lib/conversation-state-machine";
 import {
-  GLOBAL_SYSTEM_RULES,
-  HIGHLIGHT_KEYS,
-  buildStateSystemPromptSection,
-  type HighlightKey,
-} from "@/content/practice";
+  InvalidModelOutputError,
+  judgeTurn,
+  type HistoryTurn,
+} from "@/lib/practice-judge";
 
 /**
  * Practice conversation-turn proxy (ticket 08; spec.md "Implementation
@@ -21,12 +19,12 @@ import {
  * `npm run build`, the `.next` output is grepped for the literal string
  * `sk-ant-` and must come back with zero matches.
  *
- * Single call + forced structured output via Claude's tool-use mechanism
- * (spec.md: "单次调用 + 强制结构化输出（不做「先判定后生成」的两跳，口语练习
- * 对首字延迟极敏感）"). `tool_choice` forces the model to call
- * `submit_turn_result`, so every response is the four contracted fields —
- * verdict / reply_en / reply_zh / highlight_key — never free text to parse
- * out of a completion.
+ * The actual model call (system-prompt assembly, forced structured output,
+ * response validation) lives in src/lib/practice-judge.ts — shared with
+ * ticket 12's judgment-quality eval (scripts/eval-judgment.ts) so the eval
+ * exercises the exact same code path production traffic does. This file is
+ * just the HTTP wrapper: parse the request, read the server-only API key,
+ * map judgeTurn's outcome to a response.
  *
  * Request body: `{ state: ActiveConversationState, message: string, history?:
  * { role: "user" | "assistant"; content: string }[] }`. `history` is the
@@ -41,25 +39,10 @@ import {
 // (not the Edge runtime).
 export const runtime = "nodejs";
 
-/** spec.md "三个适配层": Anthropic `claude-haiku-4-5-20251001` for this ticket's LLM adapter. */
-const MODEL_ID = "claude-haiku-4-5-20251001";
-
-const VERDICTS = ["accepted", "needs_retry", "off_topic"] as const;
-type Verdict = (typeof VERDICTS)[number];
-
-type HistoryTurn = { role: "user" | "assistant"; content: string };
-
 type TurnRequestBody = {
   state: ActiveConversationState;
   message: string;
   history: HistoryTurn[];
-};
-
-type TurnResult = {
-  verdict: Verdict;
-  reply_en: string;
-  reply_zh: string;
-  highlight_key: HighlightKey;
 };
 
 function isHistoryTurn(value: unknown): value is HistoryTurn {
@@ -75,61 +58,6 @@ function parseRequestBody(body: unknown): TurnRequestBody | null {
   if (typeof b.message !== "string" || b.message.trim().length === 0) return null;
   const history = Array.isArray(b.history) ? b.history.filter(isHistoryTurn) : [];
   return { state: b.state, message: b.message, history };
-}
-
-function isTurnResult(value: unknown): value is TurnResult {
-  if (typeof value !== "object" || value === null) return false;
-  const v = value as Record<string, unknown>;
-  return (
-    typeof v.verdict === "string" &&
-    (VERDICTS as readonly string[]).includes(v.verdict) &&
-    typeof v.reply_en === "string" &&
-    typeof v.reply_zh === "string" &&
-    typeof v.highlight_key === "string" &&
-    (HIGHLIGHT_KEYS as readonly string[]).includes(v.highlight_key)
-  );
-}
-
-/**
- * The single tool the model is forced to call via `tool_choice`. This is
- * the structured-output mechanism (spec.md: "强制结构化输出") — we never do
- * a free-text completion and try to parse JSON out of it.
- */
-const SUBMIT_TURN_RESULT_TOOL: Anthropic.Tool = {
-  name: "submit_turn_result",
-  description:
-    "Submit the structured result for this Practice conversation turn: your verdict on the learner's message, your reply as Emily, its Chinese translation, and a tag describing the learner's performance this turn.",
-  input_schema: {
-    type: "object",
-    properties: {
-      verdict: {
-        type: "string",
-        enum: [...VERDICTS],
-        description:
-          'accepted: the learner communicated this state\'s intent (even in their own words, outside the Accepted Responses list). needs_retry: the attempt did not yet communicate the intent. off_topic: the learner said something unrelated to the current step.',
-      },
-      reply_en: {
-        type: "string",
-        description: "Emily's reply in English. At most 20 words, at most one question.",
-      },
-      reply_zh: {
-        type: "string",
-        description: "Chinese translation of reply_en.",
-      },
-      highlight_key: {
-        type: "string",
-        enum: [...HIGHLIGHT_KEYS],
-        description: "A short tag describing the learner's performance this turn.",
-      },
-    },
-    required: ["verdict", "reply_en", "reply_zh", "highlight_key"],
-    additionalProperties: false,
-  },
-  strict: true,
-};
-
-function buildSystemPrompt(state: ActiveConversationState): string {
-  return `${GLOBAL_SYSTEM_RULES}\n\n${buildStateSystemPromptSection(state)}`;
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -155,36 +83,19 @@ export async function POST(request: Request): Promise<Response> {
     return NextResponse.json({ error: "server_not_configured" }, { status: 500 });
   }
 
-  const client = new Anthropic({ apiKey });
-
   try {
-    const response = await client.messages.create({
-      model: MODEL_ID,
-      max_tokens: 1024,
-      system: buildSystemPrompt(parsed.state),
-      messages: [
-        ...parsed.history.map((turn) => ({ role: turn.role, content: turn.content })),
-        { role: "user" as const, content: parsed.message },
-      ],
-      tools: [SUBMIT_TURN_RESULT_TOOL],
-      tool_choice: { type: "tool", name: "submit_turn_result" },
+    const result = await judgeTurn({
+      apiKey,
+      state: parsed.state,
+      message: parsed.message,
+      history: parsed.history,
     });
-
-    const toolUse = response.content.find(
-      (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",
-    );
-
-    if (!toolUse || !isTurnResult(toolUse.input)) {
-      console.error(
-        "practice/turn: model did not return a valid submit_turn_result call",
-        JSON.stringify(response.content),
-      );
-      return NextResponse.json({ error: "invalid_model_output" }, { status: 502 });
-    }
-
-    const result: TurnResult = toolUse.input;
     return NextResponse.json(result);
   } catch (error) {
+    if (error instanceof InvalidModelOutputError) {
+      console.error(error.message);
+      return NextResponse.json({ error: "invalid_model_output" }, { status: 502 });
+    }
     console.error("practice/turn: upstream Anthropic API error", error);
     return NextResponse.json({ error: "upstream_error" }, { status: 502 });
   }
