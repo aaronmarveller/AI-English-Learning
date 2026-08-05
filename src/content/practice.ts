@@ -20,6 +20,7 @@ import {
   ACTIVE_CONVERSATION_STATES,
   type ActiveConversationState,
 } from "@/lib/conversation-state-machine";
+import { CONVERSATION_STAGE_LABELS } from "@/content/conversation-stages";
 import {
   CHECKIN_EXPRESSIONS,
   CLOSING_EXPRESSIONS,
@@ -122,24 +123,24 @@ export type PracticeStateScript = {
 export const PRACTICE_SCRIPT: Record<ActiveConversationState, PracticeStateScript> = {
   greeting: {
     state: "greeting",
-    labelZh: "打招呼",
-    labelEn: "Greeting",
+    labelZh: CONVERSATION_STAGE_LABELS.greeting.labelZh,
+    labelEn: CONVERSATION_STAGE_LABELS.greeting.labelEn,
     learningGoal:
       "You just greeted the learner as your opening line. The learner's job this turn is to greet you back in a natural, friendly way.",
     acceptedResponses: GREETING_EXPRESSIONS.map((expression) => expression.expression),
   },
   checkin: {
     state: "checkin",
-    labelZh: "问候",
-    labelEn: "Check-in",
+    labelZh: CONVERSATION_STAGE_LABELS.checkin.labelZh,
+    labelEn: CONVERSATION_STAGE_LABELS.checkin.labelEn,
     learningGoal:
       "You just asked the learner how they are doing. The learner's job this turn is to acknowledge that and/or ask a check-in question back to you (e.g. how you are doing).",
     acceptedResponses: CHECKIN_EXPRESSIONS.map((expression) => expression.expression),
   },
   response: {
     state: "response",
-    labelZh: "回应",
-    labelEn: "Response",
+    labelZh: CONVERSATION_STAGE_LABELS.response.labelZh,
+    labelEn: CONVERSATION_STAGE_LABELS.response.labelEn,
     learningGoal:
       "You just answered and asked the learner how they are doing in return. The learner's job this turn is to answer briefly, optionally ask back, and add one short natural detail about themselves — a short 3-part reply said together as one turn.",
     acceptedResponses: [
@@ -149,8 +150,8 @@ export const PRACTICE_SCRIPT: Record<ActiveConversationState, PracticeStateScrip
   },
   closing: {
     state: "closing",
-    labelZh: "结束",
-    labelEn: "Closing",
+    labelZh: CONVERSATION_STAGE_LABELS.closing.labelZh,
+    labelEn: CONVERSATION_STAGE_LABELS.closing.labelEn,
     learningGoal:
       "You just signaled that the conversation is wrapping up (e.g. that you both need to get going). The learner's job this turn is to say goodbye in a natural, friendly way. IMPORTANT: if you judge this turn \"accepted\", this is the FINAL turn of the whole conversation — your reply must be a brief, warm closing line (per the Speaking Style limits above) that ALSO gives the learner one short encouraging remark about the conversation and invites them to check their summary (e.g. naturally mention something like \"go check out your summary!\").",
     acceptedResponses: CLOSING_EXPRESSIONS.map((expression) => expression.expression),

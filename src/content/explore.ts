@@ -10,6 +10,8 @@
  * visible from this worktree.
  */
 
+import { CONVERSATION_STAGE_LABELS } from "@/content/conversation-stages";
+
 export type ExpressionCard = {
   /** Stable id, also used to derive data-testid hooks for E2E. */
   id: string;
@@ -117,24 +119,40 @@ export const RESPONSE_COMBO = {
   expression: "Good, thanks! And you? I'm doing pretty good, just heading to work.",
 };
 
-/** The 4 Conversation Chunk Sections, in fixed display order. */
+/**
+ * The 4 Conversation Chunk Sections, in fixed display order. `title`/
+ * `subtitle` are read from the shared src/content/conversation-stages.ts
+ * labels (the descriptive long-form Chinese label + the English label) —
+ * not hardcoded here. `response` intentionally has no `expressions` array:
+ * its content shape is a 3-step ladder + combo sentence (see
+ * `RESPONSE_STEPS`/`RESPONSE_COMBO` below), not an expression-card array,
+ * so src/components/explore/explore-page-content.tsx still branches on
+ * `key === "response"` to pick `<ResponseLadder>` over
+ * `<ExpressionCarousel>` — but no longer needs a hardcoded title/subtitle
+ * for it.
+ */
 export const EXPLORE_SECTIONS = {
   greeting: {
     key: "greeting",
-    title: "打招呼",
-    subtitle: "Greeting",
+    title: CONVERSATION_STAGE_LABELS.greeting.labelZhLong,
+    subtitle: CONVERSATION_STAGE_LABELS.greeting.labelEn,
     expressions: GREETING_EXPRESSIONS,
   },
   checkin: {
     key: "checkin",
-    title: "问候",
-    subtitle: "Check-in",
+    title: CONVERSATION_STAGE_LABELS.checkin.labelZhLong,
+    subtitle: CONVERSATION_STAGE_LABELS.checkin.labelEn,
     expressions: CHECKIN_EXPRESSIONS,
+  },
+  response: {
+    key: "response",
+    title: CONVERSATION_STAGE_LABELS.response.labelZhLong,
+    subtitle: CONVERSATION_STAGE_LABELS.response.labelEn,
   },
   closing: {
     key: "closing",
-    title: "结束对话",
-    subtitle: "Closing",
+    title: CONVERSATION_STAGE_LABELS.closing.labelZhLong,
+    subtitle: CONVERSATION_STAGE_LABELS.closing.labelEn,
     expressions: CLOSING_EXPRESSIONS,
   },
 } as const;

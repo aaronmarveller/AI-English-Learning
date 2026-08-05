@@ -4,18 +4,21 @@
  * so the page/components stay presentational — see spec.md "模块划分" >
  * 课程内容模块 ("组件只消费，不硬编码文案").
  *
- * The four `category` strings below are the same 4-category taxonomy
+ * The four `watchFor` beats below key into the same 4-stage taxonomy
  * ticket 06 (Explore) groups its Key Expressions under (打招呼/问候/回应/
- * 结束对话) — keep them byte-for-byte identical if either page's copy ever
- * changes, since consistency between Observe's "watch for this" priming
- * and Explore's grouping is the point.
+ * 结束对话). Ticket 09 unified that taxonomy's labels into
+ * src/content/conversation-stages.ts — this module only keeps the `key`
+ * (from src/lib/conversation-state-machine.ts's `ActiveConversationState`)
+ * plus its own Observe-specific `description` ("what to notice" copy);
+ * the displayed Chinese/English labels are derived from the shared source
+ * at render time (see src/components/observe/watch-for-list.tsx).
  */
 
+import type { ActiveConversationState } from "@/lib/conversation-state-machine";
+
 export type WatchForItem = {
-  /** Canonical Chinese category name — shared with ticket 06's Explore taxonomy. */
-  category: "打招呼" | "问候" | "回应" | "结束对话";
-  /** English gloss, shown as a secondary label only. */
-  categoryLabelEn: string;
+  /** Which of the 4 canonical conversation stages this beat corresponds to. */
+  key: ActiveConversationState;
   /** What to notice during this beat of the scene, in Chinese. */
   description: string;
 };
@@ -35,23 +38,19 @@ export const OBSERVE_CONTENT = {
   },
   watchFor: [
     {
-      category: "打招呼",
-      categoryLabelEn: "Greeting",
+      key: "greeting",
       description: "注意 Emily 主动开口的第一句。",
     },
     {
-      category: "问候",
-      categoryLabelEn: "Check-in",
+      key: "checkin",
       description: "注意她怎么问候对方。",
     },
     {
-      category: "回应",
-      categoryLabelEn: "Response",
+      key: "response",
       description: "注意邻居怎么接住问候、又怎么把话题递回来。",
     },
     {
-      category: "结束对话",
-      categoryLabelEn: "Closing",
+      key: "closing",
       description: "注意两人怎么很自然地收尾。",
     },
   ],

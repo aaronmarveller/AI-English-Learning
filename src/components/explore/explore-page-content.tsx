@@ -51,11 +51,12 @@ export function ExplorePageContent() {
           const open = openSections[key];
 
           if (key === "response") {
+            const section = EXPLORE_SECTIONS.response;
             return (
               <ChunkSection
                 key={key}
-                title="回应"
-                subtitle="Response"
+                title={section.title}
+                subtitle={section.subtitle}
                 open={open}
                 onToggle={() => toggleSection(key)}
                 testId={testId}
