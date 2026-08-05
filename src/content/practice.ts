@@ -26,7 +26,6 @@ import {
   CLOSING_EXPRESSIONS,
   GREETING_EXPRESSIONS,
   RESPONSE_COMBO,
-  RESPONSE_STEPS,
 } from "@/content/explore";
 
 // --- Opening line (NOT LLM-generated — see spec.md "语音合成") -----------
@@ -142,10 +141,23 @@ export const PRACTICE_SCRIPT: Record<ActiveConversationState, PracticeStateScrip
     labelZh: CONVERSATION_STAGE_LABELS.response.labelZh,
     labelEn: CONVERSATION_STAGE_LABELS.response.labelEn,
     learningGoal:
-      "You just answered and asked the learner how they are doing in return. The learner's job this turn is to answer briefly, optionally ask back, and add one short natural detail about themselves — a short 3-part reply said together as one turn.",
+      "You just answered and asked the learner how they are doing in return. The learner's job this turn is to say all three parts together, in ONE turn: a brief acknowledgment, a question back to you, AND one short added detail about themselves. All three parts must be present together — a reply that only does one or two of these (e.g. only asking back, with no acknowledgment or detail) has not yet completed this turn.",
     acceptedResponses: [
-      ...RESPONSE_STEPS.map((step) => step.expression),
+      // Ticket 4 (#4): every entry here must be shaped like the FULL 3-part
+      // turn (acknowledgment + question back + one added detail, all said
+      // together) — never a single isolated sub-phrase on its own. A learner
+      // who says only "And you?" has completed 1 of 3 required parts, not
+      // the whole turn, so that fragment must not appear here as if it were
+      // a standalone correct answer (see learningGoal above).
+      //
+      // RESPONSE_COMBO anchors this to Explore's matching combo sentence for
+      // content continuity (this file's top doc comment); the two natural
+      // variants below are full 3-part paraphrases of that same combo, kept
+      // so the model sees a range of acceptable full-turn phrasing rather
+      // than a single fixed sentence.
       RESPONSE_COMBO.expression,
+      "I'm good, thanks! And you? I'm just heading to work.",
+      "Doing well, thanks! How about you? I'm just on my way to work now.",
     ],
   },
   closing: {
