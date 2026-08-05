@@ -209,4 +209,56 @@ test.describe("Practice page — conversation core", () => {
     // page we just landed on.
     await expect(page.getByTestId("progress-dot-practice")).toHaveAttribute("data-state", "completed");
   });
+
+  test("reloading mid-conversation keeps the same step and message history instead of resetting", async ({
+    page,
+  }) => {
+    // Practice's persistence internals (src/lib/practice-state.ts) were
+    // rebuilt on a shared factory (src/lib/create-persisted-store.ts,
+    // issue #7) — this is the reload-survival regression check that work
+    // needs but didn't get one at the time: only src/lib/progress.ts's
+    // Learning Flow equivalent (e2e/navigation-spine.spec.ts's "reloading
+    // mid-flow..." test) previously existed. Seed the on-disk shape
+    // directly (same key/shape src/lib/practice-state.ts's `deserialize`
+    // reads) rather than via resetStorage()'s addInitScript — that init
+    // script re-runs on the real reload below and would wipe the very
+    // state this test is checking survives it — mirroring
+    // navigation-spine.spec.ts's own reload test for exactly this reason.
+    await page.goto("/");
+    await page.evaluate(() => {
+      window.localStorage.clear();
+      window.sessionStorage.clear();
+      window.localStorage.setItem(
+        "greeting-somebody:practice",
+        JSON.stringify({
+          conversationState: "checkin",
+          messages: [
+            { id: "seed-1", role: "emily", textEn: "Hi there!", textZh: "嗨！", state: "greeting" },
+            { id: "seed-2", role: "learner", textEn: "Hi!", textZh: "", state: "greeting" },
+            {
+              id: "seed-3",
+              role: "emily",
+              textEn: "How are you today?",
+              textZh: "你今天怎么样？",
+              state: "checkin",
+            },
+          ],
+          highlightKeys: ["used-whitelist-phrase"],
+        }),
+      );
+    });
+
+    await page.goto(PRACTICE_URL);
+    await expect(page.getByTestId("practice-step-greeting")).toHaveAttribute("data-state", "completed");
+    await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "current");
+    await expect(page.getByTestId("emily-message-bubble")).toHaveText("How are you today?");
+
+    await page.reload();
+
+    // Same step, same last message, same accumulated history — none of it
+    // silently reset back to a fresh "greeting" start.
+    await expect(page.getByTestId("practice-step-greeting")).toHaveAttribute("data-state", "completed");
+    await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "current");
+    await expect(page.getByTestId("emily-message-bubble")).toHaveText("How are you today?");
+  });
 });
