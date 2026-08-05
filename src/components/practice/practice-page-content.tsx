@@ -8,7 +8,7 @@ import { EmilyAvatar, type EmilyAvatarState } from "@/components/practice/emily-
 import { MessageBubblePair } from "@/components/practice/message-bubble-pair";
 import { PracticeInputForm } from "@/components/practice/practice-input-form";
 import { PracticeTranscriptDrawer } from "@/components/practice/practice-transcript-drawer";
-import { pickRandomOpeningLine, pickRandomSilenceNudge, type HighlightKey } from "@/content/practice";
+import { pickRandomOpeningLine, SILENCE_NUDGE, type HighlightKey } from "@/content/practice";
 import type { ActiveConversationState } from "@/lib/conversation-state-machine";
 import { markStepComplete } from "@/lib/progress";
 import { usePractice } from "@/lib/practice-state";
@@ -132,8 +132,7 @@ export function PracticePageContent() {
   useEffect(() => {
     if (isComplete || isSubmitting) return;
     const timeoutId = setTimeout(() => {
-      const nudge = pickRandomSilenceNudge();
-      appendSupportMessage(nudge.en, nudge.zh);
+      appendSupportMessage(SILENCE_NUDGE);
     }, SILENCE_TIMEOUT_MS);
     return () => clearTimeout(timeoutId);
   }, [lastMessageId, isComplete, isSubmitting, appendSupportMessage]);

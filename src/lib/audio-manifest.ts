@@ -1,4 +1,4 @@
-import { OPENING_LINES, SILENCE_NUDGES } from "@/content/practice";
+import { OPENING_LINES, SILENCE_NUDGE } from "@/content/practice";
 import {
   CHECKIN_EXPRESSIONS,
   CLOSING_EXPRESSIONS,
@@ -43,10 +43,10 @@ export const AUDIO_MANIFEST: AudioManifestEntry[] = [
   // Emily's opening line pool (5) — spoken before any learner turn exists.
   ...OPENING_LINES.map((line) => ({ id: line.id, text: line.en })),
 
-  // Silence-timeout nudge(s) — currently just one, but mapped generically
-  // so a future addition to SILENCE_NUDGES picks up pre-generated audio
-  // automatically without touching this file.
-  ...SILENCE_NUDGES.map((nudge, index) => ({ id: `nudge-${index}`, text: nudge.en })),
+  // Silence-timeout nudge — exactly one fixed line (src/content/practice.ts's
+  // SILENCE_NUDGE); id kept as "nudge-0" to match the file already generated
+  // under public/audio/.
+  { id: "nudge-0", text: SILENCE_NUDGE.en },
 
   // Explore page's 13 pronounceable texts: 3 sections x 3 expressions each,
   // plus the Response section's 3 steps and their 1 combined combo sentence.

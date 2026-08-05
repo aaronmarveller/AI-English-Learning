@@ -10,7 +10,7 @@ import {
   type ConversationState,
   type Verdict,
 } from "@/lib/conversation-state-machine";
-import type { HighlightKey, OpeningLine } from "@/content/practice";
+import type { HighlightKey, OpeningLine, SupportNudge } from "@/content/practice";
 
 /**
  * Practice conversation store (ticket 08) — built on the same shared
@@ -106,6 +106,29 @@ function nextMessageId(): string {
 }
 
 /**
+ * Shared internal helper: constructs a `PracticeMessage` (assigning it a
+ * fresh id) and persists it appended to `messages`. Every exported function
+ * below that appends an Emily/learner message goes through this, rather
+ * than each hand-rolling the same "build the message object, spread it onto
+ * the end of `messages`, persist" shape.
+ *
+ * `stateOverrides` lets a caller update the other top-level store fields in
+ * the same persist call — only `recordTurnResult` needs this, to advance
+ * `conversationState`/`highlightKeys` alongside appending Emily's reply.
+ * Everything else distinct about each caller (ensureOpeningMessage's no-op
+ * guard when messages already exist, recordTurnResult's
+ * `nextConversationState` call) stays in the caller, not here.
+ */
+function appendMessage(
+  current: PracticeStoreState,
+  input: { role: PracticeMessage["role"]; textEn: string; textZh: string; state: ConversationState },
+  stateOverrides: Partial<Pick<PracticeStoreState, "conversationState" | "highlightKeys">> = {},
+): void {
+  const message: PracticeMessage = { id: nextMessageId(), ...input };
+  store.persist({ ...current, ...stateOverrides, messages: [...current.messages, message] });
+}
+
+/**
  * Appends Emily's opening line as the very first message, if the transcript
  * is still empty. No-op otherwise — safe to call unconditionally on every
  * mount (fresh start picks a line; a resumed/refreshed session keeps
@@ -114,27 +137,23 @@ function nextMessageId(): string {
 export function ensureOpeningMessage(line: OpeningLine): void {
   const current = store.getSnapshot();
   if (current.messages.length > 0) return;
-  const message: PracticeMessage = {
-    id: nextMessageId(),
+  appendMessage(current, {
     role: "emily",
     textEn: line.en,
     textZh: line.zh,
     state: current.conversationState,
-  };
-  store.persist({ ...current, messages: [message] });
+  });
 }
 
 /** Appends the learner's echoed input as a message in the current state, ahead of grading. */
 export function appendLearnerMessage(text: string): void {
   const current = store.getSnapshot();
-  const message: PracticeMessage = {
-    id: nextMessageId(),
+  appendMessage(current, {
     role: "learner",
     textEn: text,
     textZh: "",
     state: current.conversationState,
-  };
-  store.persist({ ...current, messages: [...current.messages, message] });
+  });
 }
 
 /**
@@ -154,18 +173,11 @@ export function recordTurnResult(input: {
 }): ConversationState {
   const current = store.getSnapshot();
   const resultingState = nextConversationState(input.priorState, input.verdict);
-  const message: PracticeMessage = {
-    id: nextMessageId(),
-    role: "emily",
-    textEn: input.replyEn,
-    textZh: input.replyZh,
-    state: input.priorState,
-  };
-  store.persist({
-    conversationState: resultingState,
-    messages: [...current.messages, message],
-    highlightKeys: [...current.highlightKeys, input.highlightKey],
-  });
+  appendMessage(
+    current,
+    { role: "emily", textEn: input.replyEn, textZh: input.replyZh, state: input.priorState },
+    { conversationState: resultingState, highlightKeys: [...current.highlightKeys, input.highlightKey] },
+  );
   return resultingState;
 }
 
@@ -175,18 +187,18 @@ export function recordTurnResult(input: {
  * conversation (ticket 10's silence-timeout nudge; spec.md user story 62:
  * "20 秒没说话时 Emily 只轻轻推一下、不催也不给答案"). Unlike
  * `recordTurnResult`, this never calls `nextConversationState` — the learner
- * hasn't submitted a turn to grade, so there is nothing to advance.
+ * hasn't submitted a turn to grade, so there is nothing to advance. Takes a
+ * single `SupportNudge`-shaped object (rather than two positional `en`/`zh`
+ * strings) so call sites can pass a nudge value straight through.
  */
-export function appendSupportMessage(en: string, zh: string): void {
+export function appendSupportMessage(input: SupportNudge): void {
   const current = store.getSnapshot();
-  const message: PracticeMessage = {
-    id: nextMessageId(),
+  appendMessage(current, {
     role: "emily",
-    textEn: en,
-    textZh: zh,
+    textEn: input.en,
+    textZh: input.zh,
     state: current.conversationState,
-  };
-  store.persist({ ...current, messages: [...current.messages, message] });
+  });
 }
 
 /** Clears the conversation back to a clean start — ticket 11's Retry button will call this. */

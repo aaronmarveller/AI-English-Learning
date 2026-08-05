@@ -250,7 +250,13 @@ export type AskInChineseHelp = {
   /** When/why you'd say this in a real conversation. */
   whenToUse: string;
   /** One illustrative example — framed as "you could say something like...",
-   * never the literal expected answer handed over as "the" answer. */
+   * never the literal expected answer handed over as "the" answer. MUST NOT
+   * equal or contain (verbatim) any entry in this same state's
+   * `PRACTICE_SCRIPT[state].acceptedResponses` — that whitelist is what the
+   * judge LLM treats as example correct answers, so a literal quote here
+   * would let a learner clear the turn by copy-pasting instead of producing
+   * their own English. Guarded by e2e/practice-ask-in-chinese-content.spec.ts.
+   */
   example: string;
   /** Encourages the learner to keep answering in English themselves. */
   encouragement: string;
@@ -261,7 +267,9 @@ export type AskInChineseHelp = {
  * 含义、说明什么时候用、给一个例子、再鼓励我用英语继续"; user story 56: "中文
  * 帮助不替我回答"). Grounded in this same file's `PRACTICE_SCRIPT` — each
  * entry explains the *current* Learning Goal, not generic filler — but never
- * quotes an Accepted Response as a literal fill-in-the-blank answer.
+ * quotes an Accepted Response as a literal fill-in-the-blank answer (see
+ * `AskInChineseHelp.example`'s doc comment above — e2e/practice-ask-in-chinese-content.spec.ts
+ * fails the build if this invariant is ever violated again).
  *
  * No model call: read directly by src/components/practice/ask-in-chinese-sheet.tsx,
  * keyed by the live `conversationState` — zero latency, zero cost, fully
@@ -273,7 +281,8 @@ export const ASK_IN_CHINESE_HELP: Record<ActiveConversationState, AskInChineseHe
       "Emily 刚跟你打了招呼。英语里「打招呼」通常就是一句很短的问候，比如 Hi 或 Good morning，不是完整句子。",
     whenToUse:
       "任何你和认识的人（哪怕只是邻居）第一次开口说话时都可以用——路上遇到、进门看到对方，都是打招呼的时机。",
-    example: "比如你可以说：\"Hi there!\" 或者 \"Good morning!\"，简短、自然就好。",
+    example:
+      "你可以用一句简短随意的问候开场，就像日常路上遇到熟人时会脱口而出的那种打招呼说法，通常一两个词就够，不需要凑成一整句话。",
     encouragement: "大概明白意思了吗？试着用英语跟 Emily 打个招呼吧，不用完美，说出来就好！",
   },
   checkin: {
@@ -290,7 +299,7 @@ export const ASK_IN_CHINESE_HELP: Record<ActiveConversationState, AskInChineseHe
     whenToUse:
       "对方问完你好不好之后，通常会用一句话把这三件事一起说完，显得自然、不生硬。",
     example:
-      "比如你可以说：\"Good, thanks! And you? I'm doing pretty good, just heading to work.\" 这样的组合。",
+      "比如你可以说：\"Pretty good! You? Just running some errands.\" 这样把三件事一口气连起来的组合——具体怎么表达，用你自己的说法就好，不必照抄。",
     encouragement: "试着把这三部分连起来，用英语说说看——哪怕慢一点、不完整也没关系！",
   },
   closing: {
@@ -298,7 +307,7 @@ export const ASK_IN_CHINESE_HELP: Record<ActiveConversationState, AskInChineseHe
       "Emily 刚刚在暗示对话该结束了（比如说她该走了）。这一步轮到你说再见。",
     whenToUse:
       "对话自然收尾、双方都要各自离开时，用一句轻松的告别语结束就好。",
-    example: "比如你可以说：\"Have a good one!\" 或者 \"See you around!\"",
+    example: "比如你可以说：\"Catch you later!\" 这样的告别语，怎么说都行，重点是自然、轻松。",
     encouragement: "试着用英语跟 Emily 说再见吧，这就是这节课的最后一步了！",
   },
 };
@@ -309,21 +318,15 @@ export const ASK_IN_CHINESE_HELP: Record<ActiveConversationState, AskInChineseHe
 export type SupportNudge = { en: string; zh: string };
 
 /**
- * Fixed bilingual line(s) Emily sends when the learner has gone quiet for a
+ * Fixed bilingual line Emily sends when the learner has gone quiet for a
  * while — appended via practice-state.ts's `appendSupportMessage`, which
- * never touches `conversationState`. One is enough per spec.md's own
- * example wording ("Emily 只会温柔地说一句 'Take your time.'") — no answer, no
- * pressure, no repeat nagging.
+ * never touches `conversationState`. Exactly one fixed line, not a
+ * randomly-selected pool: spec.md's own example wording only ever shows one
+ * ("Emily 只会温柔地说一句 'Take your time.'") — no answer, no pressure, no
+ * repeat nagging, and (per this ticket's cleanup) no pretend "random pick"
+ * mechanism standing in front of a pool of exactly one either.
  */
-export const SILENCE_NUDGES: SupportNudge[] = [
-  { en: "Take your time!", zh: "别着急，慢慢想。" },
-];
-
-/** Picks one of the fixed silence-nudge lines at random. */
-export function pickRandomSilenceNudge(): SupportNudge {
-  const index = Math.floor(Math.random() * SILENCE_NUDGES.length);
-  return SILENCE_NUDGES[index];
-}
+export const SILENCE_NUDGE: SupportNudge = { en: "Take your time!", zh: "别着急，慢慢想。" };
 
 export const HIGHLIGHT_KEYS = [
   /** accepted — the learner said (or closely echoed) one of the Accepted Responses. */
