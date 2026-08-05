@@ -1,5 +1,5 @@
-import { test, expect, type Page, type Route } from "@playwright/test";
-import { resetStorage } from "./fixtures";
+import { test, expect } from "@playwright/test";
+import { installScriptedPracticeApi, PRACTICE_URL, resetStorage, submitReply } from "./fixtures";
 
 /**
  * E2E coverage for the Practice page's text-driven conversation core
@@ -15,61 +15,13 @@ import { resetStorage } from "./fixtures";
  * Reached via `?debug=1` (see src/lib/debug.ts / the learning layout's
  * guard) since Practice's normal prerequisite is completing Observe/
  * Explore/Notice, which isn't this ticket's concern to drive through.
- */
-
-const PRACTICE_URL = "/practice?debug=1";
-const TURN_ENDPOINT = "**/api/practice/turn";
-
-type ScriptedTurnResponse = {
-  verdict: "accepted" | "needs_retry" | "off_topic";
-  reply_en: string;
-  reply_zh: string;
-  highlight_key: string;
-};
-
-/**
- * Stubs the LLM proxy route with a scripted sequence of responses — one per
- * call, saturating on the last entry if more calls arrive than scripted.
  *
- * A step up from e2e/fixtures.ts's generic `mockApiRoute` (which always
- * fulfills every matching request with the *same* fixed response): this
- * suite needs different verdicts at different points in one conversation
- * (a few accepted turns, one needs_retry, one off_topic), so the mock has to
- * vary per call. Ticket 08 explicitly calls this out as the preferred
- * option over juggling `mockApiRoute` + `page.unroute()` between steps.
+ * The scripted turn-endpoint stub (`installScriptedPracticeApi`) and the
+ * text-reply helper (`submitReply`) originated in this file but now live in
+ * e2e/fixtures.ts, shared with practice-voice.spec.ts, practice-support
+ * .spec.ts, and review.spec.ts — see that module's doc comments for why
+ * (consolidated by issue #10).
  */
-async function installScriptedPracticeApi(
-  page: Page,
-  responses: ScriptedTurnResponse[],
-  options: { delayMs?: number } = {},
-): Promise<void> {
-  let callIndex = 0;
-  await page.route(TURN_ENDPOINT, async (route: Route) => {
-    const response = responses[Math.min(callIndex, responses.length - 1)];
-    callIndex += 1;
-    if (options.delayMs) {
-      await new Promise((resolve) => setTimeout(resolve, options.delayMs));
-    }
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify(response),
-    });
-  });
-}
-
-async function submitReply(page: Page, text: string): Promise<void> {
-  // Ticket 09 made the microphone the default input mode; this suite is
-  // about the conversation core, not voice, so it switches to the
-  // (always-available) text fallback once — idempotent across repeated
-  // calls in the same test — and drives every turn through it as before.
-  const textInput = page.getByTestId("practice-text-input");
-  if (!(await textInput.isVisible())) {
-    await page.getByTestId("practice-input-mode-toggle").click();
-  }
-  await textInput.fill(text);
-  await page.getByTestId("practice-send-button").click();
-}
 
 test.describe("Practice page — conversation core", () => {
   test("Emily's opening line renders on load with zero calls to the turn endpoint", async ({

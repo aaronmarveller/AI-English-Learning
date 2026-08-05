@@ -1,5 +1,5 @@
-import { test, expect, type Page, type Route } from "@playwright/test";
-import { resetStorage } from "./fixtures";
+import { test, expect, type Page } from "@playwright/test";
+import { installScriptedPracticeApi, PRACTICE_URL, resetStorage, submitReply } from "./fixtures";
 import {
   HIGHLIGHT_TEMPLATES,
   NEEDS_MORE_PRACTICE_SUGGESTION_TEMPLATES,
@@ -11,49 +11,14 @@ import {
  *
  * Same seam as e2e/practice-conversation.spec.ts / practice-support.spec.ts:
  * a real browser drives the whole app; the only stubbed boundary is the LLM
- * proxy route's network response (`/api/practice/turn`). To land on /review
+ * proxy route's network response (`/api/practice/turn`), via e2e/fixtures
+ * .ts's `installScriptedPracticeApi` (shared with those two files and
+ * practice-voice.spec.ts; consolidated by issue #10). To land on /review
  * with real, controllable `highlightKeys` in the store (rather than seeding
  * localStorage directly, which would duplicate the practice store's internal
  * shape), this file drives a full 4-turn Practice conversation to completion
- * via a scripted turn-endpoint response sequence, exactly like those two
- * files' own helpers do.
+ * via a scripted turn-endpoint response sequence.
  */
-
-const PRACTICE_URL = "/practice?debug=1";
-const TURN_ENDPOINT = "**/api/practice/turn";
-
-type ScriptedTurnResponse = {
-  verdict: "accepted" | "needs_retry" | "off_topic";
-  reply_en: string;
-  reply_zh: string;
-  highlight_key: string;
-};
-
-/** Same scripted-response stub as e2e/practice-conversation.spec.ts — see that file's doc comment for why. */
-async function installScriptedPracticeApi(page: Page, responses: ScriptedTurnResponse[]): Promise<void> {
-  let callIndex = 0;
-  await page.route(TURN_ENDPOINT, async (route: Route) => {
-    const response = responses[Math.min(callIndex, responses.length - 1)];
-    callIndex += 1;
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify(response),
-    });
-  });
-}
-
-async function submitReply(page: Page, text: string): Promise<void> {
-  // Ticket 09 made the microphone the default input mode; this suite is
-  // about Review, not voice, so it switches to the (always-available) text
-  // fallback once and drives every turn through it.
-  const textInput = page.getByTestId("practice-text-input");
-  if (!(await textInput.isVisible())) {
-    await page.getByTestId("practice-input-mode-toggle").click();
-  }
-  await textInput.fill(text);
-  await page.getByTestId("practice-send-button").click();
-}
 
 /**
  * Drives a full 4-turn Practice conversation to completion, one scripted

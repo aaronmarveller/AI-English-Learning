@@ -1,5 +1,5 @@
-import { test, expect, type Page, type Route } from "@playwright/test";
-import { mockSpeechApis, resetStorage } from "./fixtures";
+import { test, expect, type Page } from "@playwright/test";
+import { installScriptedPracticeApi, mockSpeechApis, PRACTICE_URL, resetStorage } from "./fixtures";
 
 /**
  * E2E coverage for the Practice page's voice input (ticket 09; spec.md
@@ -11,49 +11,13 @@ import { mockSpeechApis, resetStorage } from "./fixtures";
  * the Conversation State Machine, the practice store — runs real code
  * against a real `next build && next start` server.
  *
- * A local copy of the LLM proxy stub helper lives here rather than importing
- * practice-conversation.spec.ts's, since that file belongs to ticket 08 and
- * shouldn't need to change for this ticket to land.
+ * The scripted LLM proxy stub helper (`installScriptedPracticeApi`) also
+ * lives in e2e/fixtures.ts, shared with practice-conversation.spec.ts,
+ * practice-support.spec.ts, and review.spec.ts (consolidated by issue #10 —
+ * this file used to keep its own copy per ticket 08's file-ownership
+ * boundary, which no longer applies now that both tickets are long since
+ * merged).
  */
-
-const PRACTICE_URL = "/practice?debug=1";
-const TURN_ENDPOINT = "**/api/practice/turn";
-
-type ScriptedTurnResponse = {
-  verdict: "accepted" | "needs_retry" | "off_topic";
-  reply_en: string;
-  reply_zh: string;
-  highlight_key: string;
-};
-
-/**
- * `delayMs` mirrors practice-conversation.spec.ts's (ticket 08) own scripted
- * stub: without it, this mocked route resolves fast enough that a turn can
- * fully complete (replacing the learner bubble with Emily's next line)
- * before an assertion on the *transient* learner bubble even gets its first
- * poll — a real race, not a flaky test. Any test that asserts the learner
- * bubble mid-turn needs a delay; tests that only assert the eventual Emily
- * reply don't.
- */
-async function installScriptedPracticeApi(
-  page: Page,
-  responses: ScriptedTurnResponse[],
-  options: { delayMs?: number } = {},
-): Promise<void> {
-  let callIndex = 0;
-  await page.route(TURN_ENDPOINT, async (route: Route) => {
-    const response = responses[Math.min(callIndex, responses.length - 1)];
-    callIndex += 1;
-    if (options.delayMs) {
-      await new Promise((resolve) => setTimeout(resolve, options.delayMs));
-    }
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify(response),
-    });
-  });
-}
 
 /**
  * Forces both the standard and vendor-prefixed Web Speech recognition

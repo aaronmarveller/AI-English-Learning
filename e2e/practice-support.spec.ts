@@ -1,5 +1,5 @@
-import { test, expect, type Page, type Route } from "@playwright/test";
-import { resetStorage } from "./fixtures";
+import { test, expect, type Page } from "@playwright/test";
+import { installScriptedPracticeApi, PRACTICE_URL, resetStorage, submitReply } from "./fixtures";
 
 /**
  * E2E coverage for the Practice page's support & recovery features (ticket
@@ -10,50 +10,15 @@ import { resetStorage } from "./fixtures";
  * never advance `conversationState` or call the LLM proxy route on their
  * own — that's the core constraint this whole ticket exists to protect.
  *
- * Same seam as e2e/practice-conversation.spec.ts (ticket 08, owned by a
- * sibling worktree and deliberately left untouched here): a real browser
+ * Same seam as e2e/practice-conversation.spec.ts (ticket 08): a real browser
  * drives the whole app; the only stubbed boundary is the LLM proxy route's
- * network response (`/api/practice/turn`). This file keeps its own copy of
- * the scripted-response helper rather than importing from that file, per
- * this ticket's file-ownership boundary.
+ * network response (`/api/practice/turn`), via e2e/fixtures.ts's
+ * `installScriptedPracticeApi` — shared with practice-conversation.spec.ts,
+ * practice-voice.spec.ts, and review.spec.ts (consolidated by issue #10;
+ * this file used to keep its own copy per ticket 10's file-ownership
+ * boundary, which no longer applies now that both tickets are long since
+ * merged).
  */
-
-const PRACTICE_URL = "/practice?debug=1";
-const TURN_ENDPOINT = "**/api/practice/turn";
-
-type ScriptedTurnResponse = {
-  verdict: "accepted" | "needs_retry" | "off_topic";
-  reply_en: string;
-  reply_zh: string;
-  highlight_key: string;
-};
-
-/** Same scripted-response stub as e2e/practice-conversation.spec.ts — see that file's doc comment for why. */
-async function installScriptedPracticeApi(page: Page, responses: ScriptedTurnResponse[]): Promise<void> {
-  let callIndex = 0;
-  await page.route(TURN_ENDPOINT, async (route: Route) => {
-    const response = responses[Math.min(callIndex, responses.length - 1)];
-    callIndex += 1;
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify(response),
-    });
-  });
-}
-
-async function submitReply(page: Page, text: string): Promise<void> {
-  // Ticket 09 made the microphone the default input mode; this suite is
-  // about support/recovery features, not voice, so it switches to the
-  // (always-available) text fallback once — idempotent across repeated
-  // calls in the same test — and drives every turn through it as before.
-  const textInput = page.getByTestId("practice-text-input");
-  if (!(await textInput.isVisible())) {
-    await page.getByTestId("practice-input-mode-toggle").click();
-  }
-  await textInput.fill(text);
-  await page.getByTestId("practice-send-button").click();
-}
 
 function trackTurnRequests(page: Page): string[] {
   const turnRequests: string[] = [];

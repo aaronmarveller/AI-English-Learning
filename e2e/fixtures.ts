@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import type { Page, Route } from "@playwright/test";
 
 /**
  * Shared E2E helpers (ticket 03).
@@ -61,6 +61,92 @@ export async function mockApiRoute(
       body: JSON.stringify(jsonResponse),
     });
   });
+}
+
+// --- Scripted Practice-turn stub (ticket 08; consolidated here by issue
+// #10, "收敛 E2E 的 Practice 模型响应 stub 辅助函数") -----------------------
+
+/**
+ * The Practice page's debug entry point: `?debug=1` bypasses the normal
+ * prerequisite of completing Observe/Explore/Notice first (see
+ * src/lib/debug.ts / the learning layout's guard). Every spec that stubs
+ * the LLM proxy route to drive a Practice conversation navigates here.
+ */
+export const PRACTICE_URL = "/practice?debug=1";
+
+/** The LLM proxy route `installScriptedPracticeApi` below stubs. */
+export const TURN_ENDPOINT = "**/api/practice/turn";
+
+export type ScriptedTurnResponse = {
+  verdict: "accepted" | "needs_retry" | "off_topic";
+  reply_en: string;
+  reply_zh: string;
+  highlight_key: string;
+};
+
+/**
+ * Stubs the LLM proxy route with a scripted sequence of responses — one per
+ * call, saturating on the last entry if more calls arrive than scripted.
+ *
+ * A step up from this module's generic `mockApiRoute` above (which always
+ * fulfills every matching request with the *same* fixed response): a
+ * Practice conversation needs different verdicts at different points (a few
+ * accepted turns, one needs_retry, one off_topic), so the mock has to vary
+ * per call.
+ *
+ * `delayMs` is optional and only needed by tests that assert on the
+ * *transient* learner bubble mid-turn: without it, the mocked route
+ * resolves fast enough that a turn can fully complete (replacing the
+ * learner bubble with Emily's next line) before such an assertion even gets
+ * its first poll — a real race, not a flaky test. Tests that only assert
+ * the eventual Emily reply don't need it.
+ *
+ * Ticket 08 introduced this helper for practice-conversation.spec.ts.
+ * Tickets 09, 10, and 11 (practice-voice.spec.ts, practice-support.spec.ts,
+ * review.spec.ts) each kept their own byte-for-byte copy rather than
+ * importing this one, deliberately, per those tickets' own file-ownership
+ * boundaries at the time they were written. Now that all four tickets are
+ * long since merged, that sequencing constraint no longer applies, and
+ * issue #10 consolidated all four copies into this single implementation.
+ */
+export async function installScriptedPracticeApi(
+  page: Page,
+  responses: ScriptedTurnResponse[],
+  options: { delayMs?: number } = {},
+): Promise<void> {
+  let callIndex = 0;
+  await page.route(TURN_ENDPOINT, async (route: Route) => {
+    const response = responses[Math.min(callIndex, responses.length - 1)];
+    callIndex += 1;
+    if (options.delayMs) {
+      await new Promise((resolve) => setTimeout(resolve, options.delayMs));
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(response),
+    });
+  });
+}
+
+/**
+ * Submits `text` as the learner's reply through the text-input path: makes
+ * sure the (always-available) text input is the active input mode —
+ * switching to it via the mode toggle if voice is currently active, since
+ * ticket 09 made voice the Practice page's default input mode — then fills
+ * it and clicks send. Idempotent across repeated calls in the same test.
+ *
+ * Consolidated by issue #10 from the identical copies previously kept in
+ * practice-conversation.spec.ts and practice-support.spec.ts.
+ * practice-voice.spec.ts drives voice input instead and has no use for this.
+ */
+export async function submitReply(page: Page, text: string): Promise<void> {
+  const textInput = page.getByTestId("practice-text-input");
+  if (!(await textInput.isVisible())) {
+    await page.getByTestId("practice-input-mode-toggle").click();
+  }
+  await textInput.fill(text);
+  await page.getByTestId("practice-send-button").click();
 }
 
 // --- Web Speech API stub (for ticket 08/09+) ----------------------------
