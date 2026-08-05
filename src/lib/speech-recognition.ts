@@ -40,7 +40,7 @@ interface SpeechRecognitionEventLike extends Event {
 interface SpeechRecognitionErrorEventLike extends Event {
   /**
    * The Web Speech API's own error vocabulary (e.g. "not-allowed",
-   * "no-speech", "network", "aborted") — see
+   * "audio-capture", "no-speech", "network", "aborted") — see
    * https://developer.mozilla.org/docs/Web/API/SpeechRecognitionErrorEvent/error.
    * Permission denial is reported here, not as a separate event type, so
    * `startListening`'s error path is the one and only place that checks it.
@@ -63,12 +63,22 @@ const RECOGNITION_LANG = "en-US";
 /**
  * Distinct failure reasons a caller may want to branch on. "not-allowed"
  * covers both the API's "not-allowed" and "service-not-allowed" codes — both
- * mean the learner (or an OS-level policy) denied microphone access, which is
- * the one case the ticket requires a caller to explain differently ("麦克风
- * 权限被拒绝...自动切换到文字输入并说明原因"). Everything else collapses to
- * "other" since no other reason needs distinct handling today.
+ * mean the learner (or an OS-level policy) denied microphone access.
+ * "audio-capture" is the API's own code for "no microphone was available" —
+ * see https://developer.mozilla.org/docs/Web/API/SpeechRecognitionErrorEvent/error
+ * — i.e. no mic hardware, distinct from a permission denial. Both are cases
+ * the ticket requires a caller to explain differently and fall back to text
+ * input for ("麦克风权限被拒绝" / "无可用麦克风设备...自动切换到文字输入并
+ * 说明原因"). Everything else collapses to "other" since no other reason
+ * needs distinct handling today.
  */
-export type SpeechRecognitionErrorReason = "not-allowed" | "no-speech" | "network" | "aborted" | "other";
+export type SpeechRecognitionErrorReason =
+  | "not-allowed"
+  | "audio-capture"
+  | "no-speech"
+  | "network"
+  | "aborted"
+  | "other";
 
 export type StartListeningCallbacks = {
   /** Fired for both interim and final results; `isFinal` tells the caller which. */
@@ -97,6 +107,8 @@ function toErrorReason(rawError: string): SpeechRecognitionErrorReason {
     case "not-allowed":
     case "service-not-allowed":
       return "not-allowed";
+    case "audio-capture":
+      return "audio-capture";
     case "no-speech":
       return "no-speech";
     case "network":

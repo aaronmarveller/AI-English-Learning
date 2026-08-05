@@ -5,6 +5,7 @@ import {
   isSpeechRecognitionSupported,
   startListening,
   type ListeningController,
+  type SpeechRecognitionErrorReason,
 } from "@/lib/speech-recognition";
 
 type PracticeInputFormProps = {
@@ -19,6 +20,29 @@ const UNSUPPORTED_REASON =
   "你的浏览器不支持语音识别，已切换到文字输入。 Your browser doesn't support voice input, switched to typing.";
 const PERMISSION_DENIED_REASON =
   "麦克风权限被拒绝，已切换到文字输入。 Microphone access was denied, switched to typing.";
+const NO_MICROPHONE_REASON =
+  "检测不到麦克风设备，已切换到文字输入。 No microphone was detected, switched to typing.";
+
+/**
+ * Recognition failure reasons that should trigger an auto-fallback to text
+ * input with an explanation, distinct from reasons (`"no-speech"`,
+ * `"network"`, `"aborted"`) that just silently reset the mic to idle so the
+ * learner can simply try again. Both members are hardware/permission-class
+ * faults the learner can't resolve by retrying the mic: `"not-allowed"` is a
+ * denied permission, `"audio-capture"` is no microphone hardware at all (see
+ * speech-recognition.ts's `SpeechRecognitionErrorReason` doc comment) — each
+ * gets its own explanation since they're different situations the learner
+ * benefits from telling apart.
+ */
+type FallbackTrigger = Extract<SpeechRecognitionErrorReason, "not-allowed" | "audio-capture">;
+
+function isFallbackTrigger(reason: SpeechRecognitionErrorReason): reason is FallbackTrigger {
+  return reason === "not-allowed" || reason === "audio-capture";
+}
+
+function fallbackTriggerReason(trigger: FallbackTrigger): string {
+  return trigger === "not-allowed" ? PERMISSION_DENIED_REASON : NO_MICROPHONE_REASON;
+}
 
 // --- Support detection (SSR-safe) ---------------------------------------
 //
@@ -62,7 +86,7 @@ function useSpeechRecognitionSupport(): boolean {
  *
  * Mode selection is derived, not imperative: `manualMode` (set only by the
  * toggle button) always wins when present; otherwise mode falls out of
- * `isSupported` and `permissionDenied`. That keeps every fallback rule a
+ * `isSupported` and `fallbackTrigger`. That keeps every fallback rule a
  * pure expression instead of scattered setState calls that could disagree.
  */
 export function PracticeInputForm({ disabled, onSubmit }: PracticeInputFormProps) {
@@ -71,7 +95,7 @@ export function PracticeInputForm({ disabled, onSubmit }: PracticeInputFormProps
   const [manualMode, setManualMode] = useState<InputMode | null>(null);
   const [micState, setMicState] = useState<MicState>("idle");
   const [interimTranscript, setInterimTranscript] = useState("");
-  const [permissionDenied, setPermissionDenied] = useState(false);
+  const [fallbackTrigger, setFallbackTrigger] = useState<FallbackTrigger | null>(null);
   const [value, setValue] = useState("");
 
   const controllerRef = useRef<ListeningController | null>(null);
@@ -83,13 +107,13 @@ export function PracticeInputForm({ disabled, onSubmit }: PracticeInputFormProps
     };
   }, []);
 
-  const mode: InputMode = manualMode ?? (isSupported && !permissionDenied ? "mic" : "text");
+  const mode: InputMode = manualMode ?? (isSupported && fallbackTrigger === null ? "mic" : "text");
   const fallbackReason: string | null = manualMode
     ? null
     : !isSupported
       ? UNSUPPORTED_REASON
-      : permissionDenied
-        ? PERMISSION_DENIED_REASON
+      : fallbackTrigger !== null
+        ? fallbackTriggerReason(fallbackTrigger)
         : null;
 
   function handleMicClick() {
@@ -118,8 +142,8 @@ export function PracticeInputForm({ disabled, onSubmit }: PracticeInputFormProps
       onError: (reason) => {
         setMicState("idle");
         setInterimTranscript("");
-        if (reason === "not-allowed") {
-          setPermissionDenied(true);
+        if (isFallbackTrigger(reason)) {
+          setFallbackTrigger(reason);
         }
       },
       onEnd: () => {

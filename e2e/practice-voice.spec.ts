@@ -131,6 +131,38 @@ test.describe("Practice page — voice input", () => {
     await expect(page.getByTestId("emily-message-bubble")).toHaveText("Great, how are you today?");
   });
 
+  test("no-microphone-hardware error auto-falls back to text input with a distinct explanation, and text still works", async ({
+    page,
+  }) => {
+    await resetStorage(page);
+    await mockSpeechApis(page);
+    await installScriptedPracticeApi(page, [
+      {
+        verdict: "accepted",
+        reply_en: "Great, how are you today?",
+        reply_zh: "太好了，你今天怎么样？",
+        highlight_key: "natural-paraphrase",
+      },
+    ]);
+    await page.goto(PRACTICE_URL);
+
+    await page.getByTestId("practice-mic-button").click();
+    await page.evaluate(() => window.__mockSpeechRecognition?.emitError("audio-capture"));
+
+    // Distinct from the permission-denied explanation — the learner should
+    // be told specifically that no microphone was detected, not that access
+    // was denied.
+    await expect(page.getByTestId("practice-input-fallback-reason")).toBeVisible();
+    await expect(page.getByTestId("practice-input-fallback-reason")).toContainText("检测不到麦克风设备");
+    await expect(page.getByTestId("practice-text-input")).toBeVisible();
+    await expect(page.getByTestId("practice-mic-button")).toHaveCount(0);
+
+    await page.getByTestId("practice-text-input").fill("Hi Emily!");
+    await page.getByTestId("practice-send-button").click();
+
+    await expect(page.getByTestId("emily-message-bubble")).toHaveText("Great, how are you today?");
+  });
+
   test("when speech recognition is unsupported, the page auto-degrades to text input with an explanation, and the text path still fully works", async ({
     page,
   }) => {
