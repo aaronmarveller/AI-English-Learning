@@ -79,14 +79,32 @@ export function ReviewPageContent() {
         <p className="text-body text-muted">{REVIEW_HEADLINE.supportingZh}</p>
       </div>
 
-      {/* eslint-disable-next-line @next/next/no-img-element -- fixed-aspect
-          decorative photo; next/image's layout machinery buys nothing here. */}
-      <img
-        src="/assets/emily/emily-review.png"
-        alt=""
-        aria-hidden
-        className="aspect-[4/3] w-full rounded-card object-cover object-top"
-      />
+      {/*
+        emily-review.png (like emily-practice.png) is a transparent cutout,
+        not a standalone photo — rendering it alone with object-cover left
+        its transparent margins showing the plain page background instead of
+        a room, unlike every other page's photography. Composited over
+        room-big.png the same way src/components/practice/emily-avatar.tsx
+        does, for the same "photo, not a floating sticker" look.
+      */}
+      <div className="relative w-full overflow-hidden rounded-card" style={{ aspectRatio: "4 / 3" }}>
+        {/* eslint-disable-next-line @next/next/no-img-element -- fixed-aspect
+            decorative composite; next/image's layout machinery buys nothing here. */}
+        <img
+          src="/assets/emily/room-big.png"
+          alt=""
+          aria-hidden
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+        <div aria-hidden className="absolute inset-0 flex items-end justify-center">
+          {/* eslint-disable-next-line @next/next/no-img-element -- see above */}
+          <img
+            src="/assets/emily/emily-review.png"
+            alt=""
+            className="h-[92%] max-w-none object-contain"
+          />
+        </div>
+      </div>
 
       <div
         data-testid="review-feedback-list"

@@ -47,13 +47,29 @@ export function EmilyAvatar({ state }: EmilyAvatarProps) {
           data-testid="emily-avatar"
           data-state={state}
           aria-hidden
-          className="emily-avatar absolute inset-x-0 bottom-0 flex justify-center"
+          className="emily-avatar absolute inset-0 flex items-end justify-center"
         >
+          {/*
+            `h-[92%]` is a percentage height, which only resolves against an
+            ancestor with a *definite* height. The old wrapper used
+            `inset-x-0 bottom-0` with no `top` — an absolutely positioned box
+            with `height: auto` sizes itself *from* its content, so from this
+            img's point of view its containing block's height is 'auto', and
+            per the CSS spec a percentage height against an 'auto' containing
+            block resolves to 'auto' too. The browser then fell back to the
+            image's intrinsic 1254x1254 size, rendering Emily ~5x taller than
+            her frame and pushing almost all of her outside the visible,
+            clipped composite (see e2e/practice-emily-photo.spec.ts). `inset-0`
+            gives this wrapper a definite height (100% of the room photo's
+            own definite aspect-ratio height), which `h-[92%]` can resolve
+            against; `items-end` keeps her feet aligned to the frame's bottom
+            the same way `bottom-0` was meant to.
+          */}
           {/* eslint-disable-next-line @next/next/no-img-element -- see above */}
           <img
             src="/assets/emily/emily-practice.png"
             alt=""
-            className="h-[92%] max-w-none object-contain object-bottom"
+            className="h-[92%] max-w-none object-contain"
           />
         </div>
       </div>
