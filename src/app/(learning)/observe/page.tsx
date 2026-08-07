@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { ContinueButton } from "@/components/continue-button";
 import { SceneVideoPlayer } from "@/components/observe/scene-video-player";
 import { WatchForList } from "@/components/observe/watch-for-list";
+import { StageTag } from "@/components/stage-tag";
 import { OBSERVE_CONTENT } from "@/content/observe";
 
 export const metadata: Metadata = {
@@ -14,8 +15,11 @@ export const metadata: Metadata = {
 export default function ObservePage() {
   return (
     <div className="flex flex-1 flex-col gap-6">
-      <div>
+      <div className="flex flex-col gap-2">
+        <StageTag label="Observe" />
         <h1 className="text-h1">Observe</h1>
+        <h2 className="text-display text-foreground">{OBSERVE_CONTENT.headlineEn}</h2>
+        <p className="text-body-lg text-muted">{OBSERVE_CONTENT.headlineZh}</p>
         <p className="mt-1 text-body text-muted">{OBSERVE_CONTENT.sceneName}</p>
       </div>
 

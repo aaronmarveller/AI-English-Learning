@@ -24,6 +24,9 @@ export type WatchForItem = {
 };
 
 export const OBSERVE_CONTENT = {
+  /** Editorial hero headline (UI draft, 2026-08-06 review). */
+  headlineEn: "Watch how people really communicate.",
+  headlineZh: "看看真实生活中，人们是怎么交流的。",
   sceneName: "邻里偶遇打招呼",
   sceneNameEn: "Neighbors Greeting Each Other",
   video: {
@@ -55,6 +58,8 @@ export const OBSERVE_CONTENT = {
     },
   ],
 } satisfies {
+  headlineEn: string;
+  headlineZh: string;
   sceneName: string;
   sceneNameEn: string;
   video: { src: string; captionsSrc: string; durationSeconds: number };
