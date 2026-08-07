@@ -12,10 +12,13 @@ import { getStepFromPathname, STEP_IDS, STEP_LABELS, useProgress } from "@/lib/p
  * state (current step from the route, completed steps from the progress
  * store) is identical everywhere — see src/lib/progress.ts.
  *
- * Dots are plain equal-size circles (same review round: "进度的UI...是单纯的
- * 四个原点" — not the previous current-step elongated pill): current/
- * completed = solid green, upcoming = white with a thin border so it stays
- * visible against the page's own white background.
+ * Dots are plain equal-size circles (UI draft, 2026-08-07 review round 3:
+ * "进度的UI...是单纯的...原点" — not the previous current-step elongated pill).
+ * Round 5 corrected the color rule: only the *current* step is the solid
+ * green dot — completed steps render identically to upcoming ones (white
+ * with a thin border, visible against the page's own white background),
+ * not green. The earlier version colored completed steps green too, which
+ * looked like "every dot is green" once more than one step was done.
  */
 export function CourseProgressChip() {
   const pathname = usePathname();
@@ -40,7 +43,7 @@ export function CourseProgressChip() {
               aria-current={step === currentStep ? "step" : undefined}
               className={
                 "h-2.5 w-2.5 rounded-full " +
-                (state === "upcoming" ? "border border-border bg-white" : "bg-accent")
+                (state === "current" ? "bg-accent" : "border border-border bg-white")
               }
             >
               <span className="sr-only">
