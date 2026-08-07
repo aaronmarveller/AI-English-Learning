@@ -7,12 +7,17 @@ import type { ReactNode } from "react";
  * (neither page exists in this MVP) but now carry the icon+label treatment
  * the UI draft specifies instead of a bare icon.
  */
-export function TopNav({ left }: { left: ReactNode }) {
+export function TopNav({ left }: { left?: ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <div className="min-w-0">{left}</div>
+      {left ? <div className="min-w-0">{left}</div> : null}
 
-      <nav aria-label="主导航 Main navigation" className="flex shrink-0 items-center gap-4">
+      <nav
+        aria-label="主导航 Main navigation"
+        className={
+          left ? "flex shrink-0 items-center gap-4" : "flex w-full items-center justify-between"
+        }
+      >
         <span className="flex items-center gap-1 text-body-sm font-semibold text-foreground">
           <span aria-hidden>🏠</span>
           <span className="border-b-2 border-primary pb-0.5">Home</span>

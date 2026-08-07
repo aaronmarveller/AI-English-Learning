@@ -17,6 +17,10 @@ export type ComingNextItem = {
    * icons that aren't part of the 12 pending image assets, and treat any
    * missing asset as a same-size-placeholder, don't-block-on-it problem. */
   icon: string;
+  /** Per-row pastel tint (UI draft, 2026-08-07 review: each locked row gets
+   * its own light color instead of a uniform white/opacity-faded card) —
+   * `row` for the row background, `badge` for the icon's circle behind it. */
+  tint: { row: string; badge: string };
 };
 
 export const HOME_CONTENT = {
@@ -35,10 +39,34 @@ export const HOME_CONTENT = {
     promiseZh: "每天 5 分钟，轻松开口说英语。",
   },
   comingNext: [
-    { id: "order-food", nameEn: "Order Food", nameZh: "点餐", icon: "🍜" },
-    { id: "ask-directions", nameEn: "Ask Directions", nameZh: "问路", icon: "🗺️" },
-    { id: "shopping", nameEn: "Shopping", nameZh: "购物", icon: "🛍️" },
-    { id: "hotel-checkin", nameEn: "Hotel Check-in", nameZh: "酒店入住", icon: "🏨" },
+    {
+      id: "order-food",
+      nameEn: "Order Food",
+      nameZh: "点餐",
+      icon: "🍜",
+      tint: { row: "bg-amber-50", badge: "bg-amber-100" },
+    },
+    {
+      id: "ask-directions",
+      nameEn: "Ask Directions",
+      nameZh: "问路",
+      icon: "🗺️",
+      tint: { row: "bg-emerald-50", badge: "bg-emerald-100" },
+    },
+    {
+      id: "shopping",
+      nameEn: "Shopping",
+      nameZh: "购物",
+      icon: "🛍️",
+      tint: { row: "bg-rose-50", badge: "bg-rose-100" },
+    },
+    {
+      id: "hotel-checkin",
+      nameEn: "Hotel Check-in",
+      nameZh: "酒店入住",
+      icon: "🏨",
+      tint: { row: "bg-slate-100", badge: "bg-slate-200" },
+    },
   ] satisfies ComingNextItem[],
   comingNextFooter: "More coming soon",
 } as const;

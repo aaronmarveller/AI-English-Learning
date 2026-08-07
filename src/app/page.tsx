@@ -12,39 +12,55 @@ export default function Home() {
     <>
       <DebugJumpBar />
       <main className="flex flex-1 flex-col gap-6 px-5 py-6">
-        <TopNav
-          left={
+        <TopNav />
+
+        <div className="flex items-center gap-4">
+          <div className="flex min-w-0 flex-1 flex-col gap-3">
             <span className="flex items-center gap-1.5 text-body-sm font-medium text-muted">
               <span aria-hidden>☀️</span>
               Good Morning
             </span>
-          }
-        />
+            <GreetingBanner />
+            <h1 className="text-display text-foreground">{HOME_CONTENT.tagline.headlineEn}</h1>
+            {/* Product tagline + the "every day just 5 minutes" promise —
+                both above the fold (spec.md user story 12). */}
+            <p className="text-body-lg text-foreground">{HOME_CONTENT.tagline.zh}</p>
+            <p className="text-body text-muted">{HOME_CONTENT.tagline.promiseZh}</p>
+          </div>
 
-        <div className="flex flex-col gap-3">
-          <GreetingBanner />
-          <h1 className="text-display text-foreground">{HOME_CONTENT.tagline.headlineEn}</h1>
-          {/* Product tagline + the "every day just 5 minutes" promise —
-              both above the fold (spec.md user story 12). */}
-          <p className="text-body-lg text-foreground">{HOME_CONTENT.tagline.zh}</p>
-          <p className="text-body text-muted">{HOME_CONTENT.tagline.promiseZh}</p>
+          {/* eslint-disable-next-line @next/next/no-img-element -- fixed-aspect
+              decorative crop; next/image's layout machinery buys nothing here. */}
+          <img
+            src="/assets/home/hero.jpg"
+            alt=""
+            aria-hidden
+            className="aspect-[3/4] w-2/5 shrink-0 rounded-card object-cover"
+          />
         </div>
 
-        {/* eslint-disable-next-line @next/next/no-img-element -- fixed-aspect
-            decorative crop; next/image's layout machinery buys nothing here. */}
-        <img
-          src="/assets/home/hero.jpg"
-          alt=""
-          aria-hidden
-          className="aspect-[16/9] w-full rounded-card object-cover"
-        />
+        {/* Shared card shell (UI draft, 2026-08-07 review): header row +
+            MissionCard's photo/text row + the Start button all live inside
+            one bordered/shadowed card, rather than MissionCard carrying its
+            own chrome and the button floating separately at page-bottom. */}
+        <div className="flex flex-col gap-4 rounded-card border border-border bg-card p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-caption font-semibold tracking-wide text-accent uppercase">
+              Today&apos;s Mission
+            </span>
+            <span className="flex items-center gap-1 text-body-sm text-muted">
+              <span aria-hidden>🕐</span>
+              {HOME_CONTENT.course.duration}
+            </span>
+          </div>
 
-        <MissionCard />
+          <MissionCard />
+
+          <StartLessonButton />
+        </div>
 
         <ComingNextList />
 
         <div className="mt-auto flex flex-col gap-4 pt-6">
-          <StartLessonButton />
           <Link
             href="/style-guide"
             className="text-center text-caption text-muted underline-offset-2 hover:underline"
