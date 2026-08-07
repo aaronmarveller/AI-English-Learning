@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ReviewTypingIndicator } from "@/components/review/review-typing-indicator";
+import { StageTag } from "@/components/stage-tag";
+import { REVIEW_HEADLINE } from "@/content/review";
 import { selectFeedback, type FeedbackLine } from "@/lib/feedback-selector";
 import { usePractice } from "@/lib/practice-state";
 import { markStepComplete } from "@/lib/progress";
@@ -69,10 +71,22 @@ export function ReviewPageContent() {
 
   return (
     <div className="flex flex-1 flex-col gap-6">
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-2">
+        <StageTag label="Review" icon="✨" />
         <h1 className="text-h1">Review</h1>
-        <p className="text-body text-muted">Emily 的复盘——听听这次打招呼练习聊得怎么样。</p>
+        <h2 className="text-display text-accent">{REVIEW_HEADLINE.en}</h2>
+        <p className="text-body-lg text-muted">{REVIEW_HEADLINE.zh}</p>
+        <p className="text-body text-muted">{REVIEW_HEADLINE.supportingZh}</p>
       </div>
+
+      {/* eslint-disable-next-line @next/next/no-img-element -- fixed-aspect
+          decorative photo; next/image's layout machinery buys nothing here. */}
+      <img
+        src="/assets/emily/emily-review.png"
+        alt=""
+        aria-hidden
+        className="aspect-[4/3] w-full rounded-card object-cover object-top"
+      />
 
       <div
         data-testid="review-feedback-list"
@@ -83,9 +97,19 @@ export function ReviewPageContent() {
             key={line.id}
             data-testid="review-line"
             data-kind={line.kind}
-            className="w-fit max-w-[90%] self-start rounded-card bg-primary px-4 py-3 text-primary-foreground"
+            className="flex w-fit max-w-[90%] items-start gap-2 self-start"
           >
-            <p className="text-body-lg">{line.textZh}</p>
+            {/* eslint-disable-next-line @next/next/no-img-element -- small
+                decorative avatar crop; next/image buys nothing here. */}
+            <img
+              src="/assets/emily/emily-avatar.png"
+              alt=""
+              aria-hidden
+              className="mt-0.5 h-8 w-8 shrink-0 rounded-full object-cover object-top"
+            />
+            <p className="rounded-card border border-border bg-page px-4 py-3 text-body-lg text-foreground">
+              {line.textZh}
+            </p>
           </div>
         ))}
 
@@ -102,7 +126,7 @@ export function ReviewPageContent() {
           disabled={isRevealing}
           onClick={handleRetry}
           data-testid="retry-button"
-          className="btn-primary w-full"
+          className="btn-outline w-full"
         >
           重练 Retry Lesson
         </button>
@@ -111,7 +135,7 @@ export function ReviewPageContent() {
           disabled={isRevealing}
           onClick={handleContinue}
           data-testid="review-continue-button"
-          className="btn-primary w-full"
+          className="btn-accent w-full"
         >
           继续下一课 Continue
         </button>

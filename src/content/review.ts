@@ -20,6 +20,13 @@
 
 import type { HighlightKey } from "@/content/practice";
 
+/** Editorial hero headline (UI draft, 2026-08-06 review). */
+export const REVIEW_HEADLINE = {
+  en: "Review with Emily.",
+  zh: "艾米丽的课后反馈",
+  supportingZh: "和 AI 话伴复盘今天的学习内容吧，看看你掌握得怎么样，继续进步吧！",
+};
+
 // --- Encouragement (always first, always exactly 1) -----------------------
 
 export const ENCOURAGEMENT_TEMPLATES: string[] = [
