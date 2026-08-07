@@ -33,7 +33,9 @@ export function WatchForList() {
           Watch for
         </h2>
         <p className="text-body text-muted">
-          Notice how they… <span>看看他们是怎么…</span>
+          Notice how they…
+          <br />
+          看看他们是怎么…
         </p>
       </div>
 

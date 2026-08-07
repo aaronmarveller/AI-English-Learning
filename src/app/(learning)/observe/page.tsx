@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { ContinueButton } from "@/components/continue-button";
+import { PinIcon } from "@/components/icons";
 import { SceneVideoPlayer } from "@/components/observe/scene-video-player";
 import { WatchForList } from "@/components/observe/watch-for-list";
 import { StageTag } from "@/components/stage-tag";
@@ -16,8 +17,7 @@ export default function ObservePage() {
   return (
     <div className="flex flex-1 flex-col gap-6">
       <div className="flex flex-col gap-2">
-        <StageTag label="Observe" />
-        <h1 className="text-h1">Observe</h1>
+        <StageTag label="Observe" asHeading />
         <h2 className="text-display text-foreground">{OBSERVE_CONTENT.headlineEn}</h2>
         <p className="text-body-lg text-muted">{OBSERVE_CONTENT.headlineZh}</p>
       </div>
@@ -25,7 +25,7 @@ export default function ObservePage() {
       <hr className="border-border" />
 
       <div className="flex items-center gap-1.5 text-body-sm font-medium text-foreground">
-        <span aria-hidden>📍</span>
+        <PinIcon className="h-4 w-4 shrink-0" />
         {OBSERVE_CONTENT.sceneNameEn}
         <span className="text-muted">· {OBSERVE_CONTENT.sceneName}</span>
       </div>
