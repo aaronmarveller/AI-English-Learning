@@ -2,9 +2,9 @@ import Link from "next/link";
 import { DebugJumpBar } from "@/components/debug-jump-bar";
 import { ComingNextList } from "@/components/home/coming-next-list";
 import { GreetingBanner } from "@/components/home/greeting-banner";
-import { HomeTopBar } from "@/components/home/home-top-bar";
 import { MissionCard } from "@/components/home/mission-card";
 import { StartLessonButton } from "@/components/home/start-lesson-button";
+import { TopNav } from "@/components/top-nav";
 import { HOME_CONTENT } from "@/content/home";
 
 export default function Home() {
@@ -12,7 +12,14 @@ export default function Home() {
     <>
       <DebugJumpBar />
       <main className="flex flex-1 flex-col gap-6 px-5 py-6">
-        <HomeTopBar />
+        <TopNav
+          left={
+            <span className="flex items-center gap-1.5 text-body-sm font-medium text-muted">
+              <span aria-hidden>☀️</span>
+              Good Morning
+            </span>
+          }
+        />
 
         <div className="flex flex-col gap-3">
           <GreetingBanner />

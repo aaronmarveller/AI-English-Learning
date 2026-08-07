@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import type { ReactNode } from "react";
 import { DebugJumpBar } from "@/components/debug-jump-bar";
+import { TopNav } from "@/components/top-nav";
 import { useDebugFlag } from "@/lib/debug";
 import {
   STEP_IDS,
@@ -57,20 +58,22 @@ export default function LearningLayout({ children }: { children: ReactNode }) {
       <DebugJumpBar />
 
       <header className="flex flex-col gap-3 border-b border-border px-5 py-4">
-        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-          <Link
-            href="/"
-            aria-label="返回 Home"
-            data-testid="back-home"
-            className="btn-icon-pressed justify-self-start rounded-button px-2 py-1 text-body-sm text-muted"
-          >
-            <span aria-hidden>←</span> Home
-          </Link>
-          <span className="justify-self-center text-body-sm font-medium text-foreground">
-            Greeting Somebody
-          </span>
-          <span aria-hidden />
-        </div>
+        <TopNav
+          left={
+            <Link
+              href="/"
+              aria-label="返回 Home"
+              data-testid="back-home"
+              className="btn-icon-pressed rounded-button py-1 text-body-sm text-muted"
+            >
+              <span aria-hidden>←</span> Back to Home
+            </Link>
+          }
+        />
+
+        <span className="text-center text-body-sm font-medium text-foreground">
+          Greeting Somebody
+        </span>
 
         <ol
           aria-label="学习进度 Learning progress"
