@@ -7,27 +7,26 @@ import type { ReactNode } from "react";
 import { DebugJumpBar } from "@/components/debug-jump-bar";
 import { TopNav } from "@/components/top-nav";
 import { useDebugFlag } from "@/lib/debug";
-import {
-  STEP_IDS,
-  STEP_LABELS,
-  getStepFromPathname,
-  useProgress,
-} from "@/lib/progress";
+import { getStepFromPathname, useProgress } from "@/lib/progress";
 import { useHasMounted } from "@/lib/use-has-mounted";
 
 /**
  * Shared chrome for the 5 learning pages (Observe/Explore/Notice/Practice/
- * Review): back-to-Home entry, course name, 5 progress dots, and the
- * progressive-learning guard (redirects to Home if the current step's
- * prerequisite isn't complete yet — unless debug mode is active).
+ * Review): back-to-Home entry, persistent nav, and the progressive-learning
+ * guard (redirects to Home if the current step's prerequisite isn't
+ * complete yet — unless debug mode is active).
  *
- * Client component: the guard and progress dots both depend on
- * localStorage, which only exists client-side. `completed` and
- * `debugEnabled` are both backed by useSyncExternalStore (see
- * src/lib/progress.ts and src/lib/debug.ts) so their very first read
- * (server render + hydration) reports the SSR-safe default (no progress,
- * debug off) before correcting to the real localStorage/sessionStorage
- * value.
+ * The course-name chip + 5-dot progress row used to live here too, but
+ * moved into each page's own content (src/components/course-progress.tsx,
+ * rendered below each page's StageTag) per the UI draft's 2026-08-07 review
+ * round 3 feedback that it belongs below the stage pill, not in the shared
+ * header above it.
+ *
+ * Client component: the guard depends on localStorage, which only exists
+ * client-side. `debugEnabled` is backed by useSyncExternalStore (see
+ * src/lib/debug.ts) so its very first read (server render + hydration)
+ * reports the SSR-safe default (debug off) before correcting to the real
+ * sessionStorage value.
  *
  * That correction and our own redirect effect are both plain passive
  * effects on this component, so on a hard reload they can fire in the
@@ -40,7 +39,7 @@ import { useHasMounted } from "@/lib/use-has-mounted";
 export default function LearningLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { completed, isStepUnlocked } = useProgress();
+  const { isStepUnlocked } = useProgress();
   const debugEnabled = useDebugFlag();
 
   const hasMounted = useHasMounted();
@@ -57,7 +56,7 @@ export default function LearningLayout({ children }: { children: ReactNode }) {
     <div className="flex min-h-full flex-1 flex-col overflow-x-hidden">
       <DebugJumpBar />
 
-      <header className="flex flex-col gap-3 border-b border-border px-5 py-4">
+      <header className="border-b border-border px-5 py-4">
         <TopNav
           left={
             <Link
@@ -70,41 +69,6 @@ export default function LearningLayout({ children }: { children: ReactNode }) {
             </Link>
           }
         />
-
-        {/* Course-name chip + progress dots share one row (UI draft,
-            2026-08-07 review) instead of two stacked centered lines. */}
-        <div className="flex items-center justify-between gap-3">
-          <span className="flex w-fit items-center rounded-button bg-accent-soft px-3 py-1 text-body-sm font-medium text-accent">
-            Greeting Somebody
-          </span>
-
-          <ol aria-label="学习进度 Learning progress" className="flex items-center gap-2">
-            {STEP_IDS.map((step, index) => {
-              const state =
-                step === currentStep ? "current" : completed.includes(step) ? "completed" : "upcoming";
-              return (
-                <li
-                  key={step}
-                  data-testid={`progress-dot-${step}`}
-                  data-state={state}
-                  aria-current={step === currentStep ? "step" : undefined}
-                  className={
-                    "h-2 rounded-full transition-all " +
-                    (state === "current"
-                      ? "w-6 bg-accent"
-                      : state === "completed"
-                        ? "w-2 bg-accent"
-                        : "w-2 bg-border")
-                  }
-                >
-                  <span className="sr-only">
-                    {index + 1}. {STEP_LABELS[step]}
-                  </span>
-                </li>
-              );
-            })}
-          </ol>
-        </div>
       </header>
 
       <main className="flex flex-1 flex-col px-5 py-6">

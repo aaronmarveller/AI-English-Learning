@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { CourseProgressChip } from "@/components/course-progress";
 import { AskInChineseSheet } from "@/components/practice/ask-in-chinese-sheet";
 import { ConversationProgressSteps } from "@/components/practice/conversation-progress-steps";
 import { EmilyAvatar, type EmilyAvatarState } from "@/components/practice/emily-avatar";
@@ -190,6 +191,7 @@ export function PracticePageContent() {
     <div className="flex flex-1 flex-col gap-6">
       <div className="flex flex-col gap-2">
         <StageTag label="Practice" icon="🎙" />
+        <CourseProgressChip />
         <h1 className="text-h1">Practice</h1>
         <h2 className="text-display text-foreground">{PRACTICE_HEADLINE.en}</h2>
         <p className="text-body-lg text-muted">{PRACTICE_HEADLINE.zh}</p>

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { CourseProgressChip } from "@/components/course-progress";
 import { ReviewTypingIndicator } from "@/components/review/review-typing-indicator";
 import { StageTag } from "@/components/stage-tag";
 import { REVIEW_HEADLINE } from "@/content/review";
@@ -73,6 +74,7 @@ export function ReviewPageContent() {
     <div className="flex flex-1 flex-col gap-6">
       <div className="flex flex-col gap-2">
         <StageTag label="Review" icon="✨" />
+        <CourseProgressChip />
         <h1 className="text-h1">Review</h1>
         <h2 className="text-display text-accent">{REVIEW_HEADLINE.en}</h2>
         <p className="text-body-lg text-muted">{REVIEW_HEADLINE.zh}</p>

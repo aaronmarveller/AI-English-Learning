@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ContinueButton } from "@/components/continue-button";
+import { CourseProgressChip } from "@/components/course-progress";
 import { ChunkSection } from "@/components/explore/chunk-section";
 import { ExpressionCarousel } from "@/components/explore/expression-carousel";
 import { ResponseLadder } from "@/components/explore/response-ladder";
@@ -42,6 +43,7 @@ export function ExplorePageContent() {
     <div className="flex min-w-0 flex-1 flex-col gap-6">
       <div className="flex flex-col gap-2">
         <StageTag label="Explore" />
+        <CourseProgressChip />
         <h1 className="text-h1">Explore</h1>
         <h2 className="text-display text-foreground">{EXPLORE_HEADLINE.en}</h2>
         <p className="text-body-lg text-muted">{EXPLORE_HEADLINE.zh}</p>

@@ -29,7 +29,7 @@ export const OBSERVE_CONTENT = {
   headlineZh: "看看真实生活中，人们是怎么交流的。",
   sceneName: "邻里偶遇打招呼",
   /** UI draft, 2026-08-07 review: was "Neighbors Greeting Each Other". */
-  sceneNameEn: "Meet a Neighbor",
+  sceneNameEn: "Meeting a Neighbor",
   video: {
     // No video file exists anywhere in this repo yet (spec.md "Further
     // Notes" lists an 18s clip as an already-provided asset, but a repo
