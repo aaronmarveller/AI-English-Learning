@@ -5,7 +5,9 @@ import { ContinueButton } from "@/components/continue-button";
 import { ChunkSection } from "@/components/explore/chunk-section";
 import { ExpressionCarousel } from "@/components/explore/expression-carousel";
 import { ResponseLadder } from "@/components/explore/response-ladder";
+import { StageTag } from "@/components/stage-tag";
 import {
+  EXPLORE_HEADLINE,
   EXPLORE_SECTION_ORDER,
   EXPLORE_SECTIONS,
   RESPONSE_COMBO,
@@ -38,8 +40,11 @@ export function ExplorePageContent() {
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-6">
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-2">
+        <StageTag label="Explore" />
         <h1 className="text-h1">Explore</h1>
+        <h2 className="text-display text-foreground">{EXPLORE_HEADLINE.en}</h2>
+        <p className="text-body-lg text-muted">{EXPLORE_HEADLINE.zh}</p>
         <p className="text-body text-muted">
           按对话的四个环节学习本节的核心表达——学的是成块的话，不是单词。点喇叭听发音，可以反复听。
         </p>

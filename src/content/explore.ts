@@ -12,6 +12,12 @@
 
 import { CONVERSATION_STAGE_LABELS } from "@/content/conversation-stages";
 
+/** Editorial hero headline (UI draft, 2026-08-06 review). */
+export const EXPLORE_HEADLINE = {
+  en: "Learn useful expressions.",
+  zh: "学习真实交流中常用的表达。",
+};
+
 export type ExpressionCard = {
   /** Stable id, also used to derive data-testid hooks for E2E. */
   id: string;
