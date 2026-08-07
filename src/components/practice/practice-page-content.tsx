@@ -8,7 +8,8 @@ import { EmilyAvatar, type EmilyAvatarState } from "@/components/practice/emily-
 import { MessageBubblePair } from "@/components/practice/message-bubble-pair";
 import { PracticeInputForm } from "@/components/practice/practice-input-form";
 import { PracticeTranscriptDrawer } from "@/components/practice/practice-transcript-drawer";
-import { pickRandomOpeningLine, SILENCE_NUDGE } from "@/content/practice";
+import { StageTag } from "@/components/stage-tag";
+import { pickRandomOpeningLine, PRACTICE_HEADLINE, SILENCE_NUDGE } from "@/content/practice";
 import type { ActiveConversationState } from "@/lib/conversation-state-machine";
 import { markStepComplete } from "@/lib/progress";
 import { usePractice } from "@/lib/practice-state";
@@ -187,8 +188,11 @@ export function PracticePageContent() {
 
   return (
     <div className="flex flex-1 flex-col gap-6">
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-2">
+        <StageTag label="Practice" icon="🎙" />
         <h1 className="text-h1">Practice</h1>
+        <h2 className="text-display text-foreground">{PRACTICE_HEADLINE.en}</h2>
+        <p className="text-body-lg text-muted">{PRACTICE_HEADLINE.zh}</p>
         <p className="text-body text-muted">
           用打字和 Emily 完成一次打招呼对话——按自己的节奏来，说得不完美也没关系。
         </p>

@@ -28,6 +28,12 @@ import {
   RESPONSE_COMBO,
 } from "@/content/explore";
 
+/** Editorial hero headline (UI draft, 2026-08-06 review). */
+export const PRACTICE_HEADLINE = {
+  en: "Say hello to Emily.",
+  zh: "和 Emily 真实练习打招呼。",
+};
+
 // --- Opening line (NOT LLM-generated — see spec.md "语音合成") -----------
 
 export type OpeningLine = {

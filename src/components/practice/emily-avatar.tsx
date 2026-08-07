@@ -14,10 +14,11 @@ const STATE_LABEL: Record<EmilyAvatarState, string> = {
 
 /**
  * Emily's avatar, in her 3 states (ticket 08; spec.md "Practice 页交互模型").
- * No illustration asset exists yet (spec.md "Further Notes" > 待用户提供的
- * 交付依赖 lists Emily 立绘 as still-pending) — this renders a placeholder
- * circle with an initial, sized/positioned as the real illustration would
- * be, so the 3-state behavior can ship without blocking on art.
+ * public/assets/emily/{room-big,emily-practice}.png (added after ticket 08
+ * shipped — see the 2026-08-06 UI draft review) are the real illustration:
+ * a living-room backdrop with Emily's cutout composited over it, matching
+ * the UI draft's Practice screen. Room-scale photography, not a small
+ * circular icon, is why this no longer renders as a fixed h-24 w-24 circle.
  *
  * The 3 states are pure CSS, driven by `data-state` (see the
  * `.emily-avatar[data-state=...]` rules in globals.css): idle is a slow
@@ -29,14 +30,32 @@ const STATE_LABEL: Record<EmilyAvatarState, string> = {
  */
 export function EmilyAvatar({ state }: EmilyAvatarProps) {
   return (
-    <div className="flex flex-col items-center gap-2" data-testid="emily-avatar-wrapper">
+    <div className="flex w-full flex-col items-center gap-2" data-testid="emily-avatar-wrapper">
       <div
-        data-testid="emily-avatar"
-        data-state={state}
-        aria-hidden
-        className="emily-avatar flex h-24 w-24 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground"
+        className="relative w-full overflow-hidden rounded-card bg-primary"
+        style={{ aspectRatio: "4 / 3" }}
       >
-        <span className="text-display">E</span>
+        {/* eslint-disable-next-line @next/next/no-img-element -- fixed-aspect
+            decorative composite; next/image's layout machinery buys nothing here. */}
+        <img
+          src="/assets/emily/room-big.png"
+          alt=""
+          aria-hidden
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+        <div
+          data-testid="emily-avatar"
+          data-state={state}
+          aria-hidden
+          className="emily-avatar absolute inset-x-0 bottom-0 flex justify-center"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element -- see above */}
+          <img
+            src="/assets/emily/emily-practice.png"
+            alt=""
+            className="h-[92%] max-w-none object-contain object-bottom"
+          />
+        </div>
       </div>
 
       <div
