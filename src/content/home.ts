@@ -27,10 +27,12 @@ export const HOME_CONTENT = {
     category: "日常社交",
   },
   tagline: {
+    /** Big bilingual hero headline (UI draft, 2026-08-06 review). */
+    headlineEn: "Learn Real English.",
     /** Product proposition, shown above the fold per spec.md user story 12. */
-    zh: "真实场景开口练英语，学一次就能在生活里用上",
+    zh: "学习真实生活中的英语交流。",
     /** The "every day just 5 minutes" promise (spec.md: "每天只要 5 分钟"). */
-    promiseZh: "每天只要 5 分钟",
+    promiseZh: "每天 5 分钟，轻松开口说英语。",
   },
   comingNext: [
     { id: "order-food", nameEn: "Order Food", nameZh: "点餐", icon: "🍜" },

@@ -30,7 +30,7 @@ export function StartLessonButton() {
       onClick={() => router.push(STEP_ROUTES.observe)}
       className="btn-primary w-full"
     >
-      Start Lesson 开始上课
+      Start Lesson 开始学习
     </button>
   );
 }

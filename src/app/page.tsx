@@ -23,13 +23,21 @@ export default function Home() {
 
         <div className="flex flex-col gap-3">
           <GreetingBanner />
+          <h1 className="text-display text-foreground">{HOME_CONTENT.tagline.headlineEn}</h1>
           {/* Product tagline + the "every day just 5 minutes" promise —
               both above the fold (spec.md user story 12). */}
           <p className="text-body-lg text-foreground">{HOME_CONTENT.tagline.zh}</p>
-          <span className="w-fit rounded-button bg-accent-soft px-3 py-1 text-body-sm font-medium text-accent">
-            {HOME_CONTENT.tagline.promiseZh}
-          </span>
+          <p className="text-body text-muted">{HOME_CONTENT.tagline.promiseZh}</p>
         </div>
+
+        {/* eslint-disable-next-line @next/next/no-img-element -- fixed-aspect
+            decorative crop; next/image's layout machinery buys nothing here. */}
+        <img
+          src="/assets/home/hero.jpg"
+          alt=""
+          aria-hidden
+          className="aspect-[16/9] w-full rounded-card object-cover"
+        />
 
         <MissionCard />
 
