@@ -6,6 +6,7 @@ type SceneVideoPlayerProps = {
   src: string;
   captionsSrc: string;
   sceneName: string;
+  poster: string;
 };
 
 /**
@@ -14,8 +15,9 @@ type SceneVideoPlayerProps = {
  * 模块: "使用原生播放器能力，只附英文字幕轨"). This component only adds two
  * things on top of that:
  *
- * 1. A CSS poster/cover (no video-cover image asset exists in this repo —
- *    see src/content/observe.ts) shown until the learner starts playback.
+ * 1. The real scene photo (public/assets/home/mission-thumb.jpg, reused as
+ *    this video's poster — no dedicated video-cover asset exists) shown
+ *    until the learner starts playback.
  * 2. A big "tap to play" overlay for that first-play moment specifically.
  *
  * The overlay's trigger is deliberately a plain element with no ARIA
@@ -28,7 +30,7 @@ type SceneVideoPlayerProps = {
  * DOM entirely and native `<video controls>` (a real, standard control
  * surface) takes over for everything else.
  */
-export function SceneVideoPlayer({ src, captionsSrc, sceneName }: SceneVideoPlayerProps) {
+export function SceneVideoPlayer({ src, captionsSrc, sceneName, poster }: SceneVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [hasStarted, setHasStarted] = useState(false);
 
@@ -58,10 +60,11 @@ export function SceneVideoPlayer({ src, captionsSrc, sceneName }: SceneVideoPlay
       <video
         ref={videoRef}
         data-testid="observe-video"
-        className="h-full w-full max-w-full"
+        className="h-full w-full max-w-full object-cover"
         controls
         playsInline
         preload="metadata"
+        poster={poster}
         onPlay={() => setHasStarted(true)}
       >
         <source src={src} type="video/mp4" />
@@ -106,7 +109,7 @@ export function SceneVideoPlayer({ src, captionsSrc, sceneName }: SceneVideoPlay
           aria-label={`播放视频 Play video: ${sceneName}`}
           onClick={startPlayback}
           onKeyDown={handleOverlayKeyDown}
-          className="group absolute inset-0 flex cursor-pointer flex-col items-center justify-center gap-3 bg-gradient-to-br from-primary to-accent text-center active:brightness-90"
+          className="group absolute inset-0 flex cursor-pointer items-center justify-center active:brightness-90"
         >
           <span
             data-testid="video-play-button"
@@ -115,7 +118,6 @@ export function SceneVideoPlayer({ src, captionsSrc, sceneName }: SceneVideoPlay
           >
             ▶
           </span>
-          <span className="px-6 text-body-sm font-medium text-primary-foreground">{sceneName}</span>
         </div>
       )}
     </div>

@@ -20,13 +20,21 @@ export default function ObservePage() {
         <h1 className="text-h1">Observe</h1>
         <h2 className="text-display text-foreground">{OBSERVE_CONTENT.headlineEn}</h2>
         <p className="text-body-lg text-muted">{OBSERVE_CONTENT.headlineZh}</p>
-        <p className="mt-1 text-body text-muted">{OBSERVE_CONTENT.sceneName}</p>
+      </div>
+
+      <hr className="border-border" />
+
+      <div className="flex items-center gap-1.5 text-body-sm font-medium text-foreground">
+        <span aria-hidden>📍</span>
+        {OBSERVE_CONTENT.sceneNameEn}
+        <span className="text-muted">· {OBSERVE_CONTENT.sceneName}</span>
       </div>
 
       <SceneVideoPlayer
         src={OBSERVE_CONTENT.video.src}
         captionsSrc={OBSERVE_CONTENT.video.captionsSrc}
         sceneName={OBSERVE_CONTENT.sceneName}
+        poster="/assets/home/mission-thumb.jpg"
       />
 
       <WatchForList />

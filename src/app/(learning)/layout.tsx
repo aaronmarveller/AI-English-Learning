@@ -71,39 +71,40 @@ export default function LearningLayout({ children }: { children: ReactNode }) {
           }
         />
 
-        <span className="text-center text-body-sm font-medium text-foreground">
-          Greeting Somebody
-        </span>
+        {/* Course-name chip + progress dots share one row (UI draft,
+            2026-08-07 review) instead of two stacked centered lines. */}
+        <div className="flex items-center justify-between gap-3">
+          <span className="flex w-fit items-center rounded-button bg-accent-soft px-3 py-1 text-body-sm font-medium text-accent">
+            Greeting Somebody
+          </span>
 
-        <ol
-          aria-label="学习进度 Learning progress"
-          className="flex items-center justify-center gap-2"
-        >
-          {STEP_IDS.map((step, index) => {
-            const state =
-              step === currentStep ? "current" : completed.includes(step) ? "completed" : "upcoming";
-            return (
-              <li
-                key={step}
-                data-testid={`progress-dot-${step}`}
-                data-state={state}
-                aria-current={step === currentStep ? "step" : undefined}
-                className={
-                  "h-2 rounded-full transition-all " +
-                  (state === "current"
-                    ? "w-6 bg-accent"
-                    : state === "completed"
-                      ? "w-2 bg-accent"
-                      : "w-2 bg-border")
-                }
-              >
-                <span className="sr-only">
-                  {index + 1}. {STEP_LABELS[step]}
-                </span>
-              </li>
-            );
-          })}
-        </ol>
+          <ol aria-label="学习进度 Learning progress" className="flex items-center gap-2">
+            {STEP_IDS.map((step, index) => {
+              const state =
+                step === currentStep ? "current" : completed.includes(step) ? "completed" : "upcoming";
+              return (
+                <li
+                  key={step}
+                  data-testid={`progress-dot-${step}`}
+                  data-state={state}
+                  aria-current={step === currentStep ? "step" : undefined}
+                  className={
+                    "h-2 rounded-full transition-all " +
+                    (state === "current"
+                      ? "w-6 bg-accent"
+                      : state === "completed"
+                        ? "w-2 bg-accent"
+                        : "w-2 bg-border")
+                  }
+                >
+                  <span className="sr-only">
+                    {index + 1}. {STEP_LABELS[step]}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
       </header>
 
       <main className="flex flex-1 flex-col px-5 py-6">
