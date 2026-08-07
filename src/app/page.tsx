@@ -29,12 +29,15 @@ export default function Home() {
           </div>
 
           {/* eslint-disable-next-line @next/next/no-img-element -- fixed-aspect
-              decorative crop; next/image's layout machinery buys nothing here. */}
+              decorative crop; next/image's layout machinery buys nothing here.
+              aspect-[3/2] matches hero.jpg's native 349x230 (~1.52) ratio —
+              a portrait crop (previously 3/4) was cutting off most of the
+              photo (UI draft review 2026-08-07 feedback). */}
           <img
             src="/assets/home/hero.jpg"
             alt=""
             aria-hidden
-            className="aspect-[3/4] w-2/5 shrink-0 rounded-card object-cover"
+            className="aspect-[3/2] w-2/5 shrink-0 rounded-card object-cover"
           />
         </div>
 

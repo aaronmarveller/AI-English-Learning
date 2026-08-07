@@ -26,6 +26,10 @@ import { STEP_ROUTES } from "@/lib/progress";
  * lives in page.tsx, not here (UI draft, 2026-08-07 review: header, this
  * photo+text row, and the Start button all share one card shell) — this
  * component only owns the clickable photo+text row itself.
+ *
+ * The scene thumbnail (public/assets/home/mission-thumb.jpg) is real —
+ * wired in per the same 2026-08-07 review feedback that flagged the
+ * gradient placeholder as looking like a missing image.
  */
 export function MissionCard() {
   const router = useRouter();
@@ -50,11 +54,13 @@ export function MissionCard() {
       onKeyDown={handleKeyDown}
       className="flex cursor-pointer items-center gap-4 text-left active:scale-[0.98] active:brightness-95"
     >
-      {/* Same-size placeholder standing in for the scene thumbnail — no
-          real image asset exists yet (spec.md Further Notes). */}
-      <div
+      {/* eslint-disable-next-line @next/next/no-img-element -- fixed-aspect
+          decorative crop; next/image's layout machinery buys nothing here. */}
+      <img
+        src="/assets/home/mission-thumb.jpg"
+        alt=""
         aria-hidden
-        className="aspect-square w-28 shrink-0 rounded-card bg-gradient-to-br from-accent-soft to-accent/40"
+        className="aspect-square w-28 shrink-0 rounded-card object-cover"
       />
 
       <div className="flex min-w-0 flex-1 flex-col gap-3">
@@ -66,7 +72,7 @@ export function MissionCard() {
             👋
           </span>
           <div className="flex min-w-0 flex-col">
-            <h2 className="truncate text-h2">{course.nameEn}</h2>
+            <h2 className="text-h2">{course.nameEn}</h2>
             <p className="text-body text-muted">{course.nameZh}</p>
           </div>
         </div>
