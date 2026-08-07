@@ -15,6 +15,12 @@
  * 理解真实交流方式，不是记忆语言形式").
  */
 
+/** Editorial hero headline (UI draft, 2026-08-06 review). */
+export const NOTICE_HEADLINE = {
+  en: "Discover how greetings differ across cultures.",
+  zh: "看看不同文化中，人们是怎么打招呼的。",
+};
+
 export type CulturalInsightCard = {
   /** Stable id, also used to derive data-testid hooks for E2E. */
   id: string;

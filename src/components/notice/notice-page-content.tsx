@@ -4,7 +4,8 @@ import { useState } from "react";
 import { ContinueButton } from "@/components/continue-button";
 import { ChunkSection } from "@/components/explore/chunk-section";
 import { CulturalComparisonBody } from "@/components/notice/cultural-comparison-body";
-import { CULTURAL_INSIGHT_CARDS } from "@/content/notice";
+import { StageTag } from "@/components/stage-tag";
+import { CULTURAL_INSIGHT_CARDS, NOTICE_HEADLINE } from "@/content/notice";
 
 /**
  * Notice page body: 3 Cultural Insight Cards contrasting US and China
@@ -37,8 +38,11 @@ export function NoticePageContent() {
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-6">
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-2">
+        <StageTag label="Notice" />
         <h1 className="text-h1">Notice</h1>
+        <h2 className="text-display text-foreground">{NOTICE_HEADLINE.en}</h2>
+        <p className="text-body-lg text-muted">{NOTICE_HEADLINE.zh}</p>
         <p className="text-body text-muted">
           中美打招呼方式有不少不一样的地方——展开每张卡看看具体差在哪、为什么会这样。
         </p>
