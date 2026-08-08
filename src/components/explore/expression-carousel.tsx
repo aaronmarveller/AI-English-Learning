@@ -9,9 +9,6 @@ type ExpressionCarouselProps = {
   testId: string;
 };
 
-/** Matches the track's `gap-3` (0.75rem) so scroll position maps to card index. */
-const CARD_GAP_PX = 12;
-
 /**
  * Horizontal snap-to-card carousel for 打招呼/问候/结束对话. Pure CSS scroll
  * (Tailwind's `overflow-x-auto` + `snap-x snap-mandatory` on the track,
@@ -32,11 +29,23 @@ export function ExpressionCarousel({ cards, testId }: ExpressionCarouselProps) {
 
   function handleScroll() {
     const track = trackRef.current;
-    const firstCard = track?.children[0] as HTMLElement | undefined;
-    if (!track || !firstCard) return;
+    if (!track) return;
 
-    const step = firstCard.offsetWidth + CARD_GAP_PX;
-    const index = Math.round(track.scrollLeft / step);
+    // Each card is only 65% wide (the rest peeks the next card in), so the
+    // last card's snap-start point sits past the track's native max scroll —
+    // the browser clamps there instead. A fixed per-card step therefore
+    // undercounts the final card and lands the dot in the middle. Mapping
+    // scroll progress as a 0-1 fraction across the full scrollable range
+    // (not a fixed card-width step) keeps index 0 and the last index pinned
+    // to the actual start/end of the scrollable range regardless of peek width.
+    const maxScrollLeft = track.scrollWidth - track.clientWidth;
+    if (maxScrollLeft <= 0) {
+      setActiveIndex(0);
+      return;
+    }
+
+    const fraction = track.scrollLeft / maxScrollLeft;
+    const index = Math.round(fraction * (cards.length - 1));
     setActiveIndex(Math.min(cards.length - 1, Math.max(0, index)));
   }
 
