@@ -42,9 +42,8 @@ export function ExplorePageContent() {
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-6">
       <div className="flex flex-col gap-2">
-        <StageTag label="Explore" />
+        <StageTag label="Explore" asHeading />
         <CourseProgressChip />
-        <h1 className="text-h1">Explore</h1>
         <h2 className="text-display text-foreground">{EXPLORE_HEADLINE.en}</h2>
         <p className="text-body-lg text-muted">{EXPLORE_HEADLINE.zh}</p>
         <p className="text-body text-muted">
@@ -53,6 +52,11 @@ export function ExplorePageContent() {
       </div>
 
       <div className="flex flex-col gap-4">
+        <h2 className="flex items-center gap-2 text-h3 text-foreground">
+          <span aria-hidden>💬</span>
+          Today&apos;s Expressions
+        </h2>
+
         {EXPLORE_SECTION_ORDER.map((key) => {
           const testId = `section-${key}`;
           const open = openSections[key];
@@ -62,6 +66,7 @@ export function ExplorePageContent() {
             return (
               <ChunkSection
                 key={key}
+                icon={section.icon}
                 title={section.title}
                 subtitle={section.subtitle}
                 open={open}
@@ -77,6 +82,7 @@ export function ExplorePageContent() {
           return (
             <ChunkSection
               key={key}
+              icon={section.icon}
               title={section.title}
               subtitle={section.subtitle}
               open={open}
