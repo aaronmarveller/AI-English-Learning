@@ -39,6 +39,12 @@ import { CULTURAL_INSIGHT_CARDS, NOTICE_HEADLINE, NOTICE_HERO_IMAGE } from "@/co
  * the subtitle), per a later round of live QA that wanted the image sized
  * off the full column rather than just the headline text block.
  *
+ * The image itself is unrounded and bleeds to the screen's right edge
+ * (`-mr-5` cancels the shared `<main>` layout's `px-5`, per
+ * src/app/(learning)/layout.tsx) with its left edge faded out via a CSS
+ * mask gradient, rather than a hard rounded-rect edge — matching the
+ * reference mockup's full-bleed treatment (live QA, 2026-08-07).
+ *
  * Split out from page.tsx (a Server Component, so it can keep exporting
  * `metadata`) because the open/closed accordion state needs a Client
  * Component, following the same Server/Client split every learning page
@@ -64,7 +70,7 @@ export function NoticePageContent() {
           src={NOTICE_HERO_IMAGE.src}
           alt={NOTICE_HERO_IMAGE.alt}
           aria-hidden
-          className="h-full w-[38%] shrink-0 rounded-card object-cover"
+          className="-mr-5 h-full w-[42%] shrink-0 object-cover [-webkit-mask-image:linear-gradient(to_right,transparent,black_20%)] [mask-image:linear-gradient(to_right,transparent,black_20%)]"
         />
       </div>
 
