@@ -7,7 +7,16 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   reporter: "line",
   use: {
-    baseURL: "http://127.0.0.1:3000",
+    // localhost, not 127.0.0.1: when reuseExistingServer picks up an
+    // already-running `next dev` process (the common local workflow), dev
+    // mode's cross-origin asset guard (see next.config.ts's
+    // allowedDevOrigins) 403s on-demand-compiled route chunks for any
+    // origin it doesn't recognize — and 127.0.0.1 isn't "localhost" to that
+    // check, even though they're the same machine. That silently starves
+    // <main> of its page bundle, which then reads as every assertion in the
+    // suite timing out. `next start` (production) has no such check, so
+    // this only ever bit the dev-server-reuse path.
+    baseURL: "http://localhost:3000",
     trace: "on-first-retry",
   },
   projects: [
@@ -25,7 +34,7 @@ export default defineConfig({
   ],
   webServer: {
     command: "npm run build && npm run start",
-    url: "http://127.0.0.1:3000",
+    url: "http://localhost:3000",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },
