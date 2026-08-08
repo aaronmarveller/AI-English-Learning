@@ -26,6 +26,8 @@ export type ExpressionCard = {
   tag: string;
   /** Usage-context hint — explicitly NOT a Chinese translation of the expression. */
   hint: string;
+  /** Scene photo illustrating the expression's context. Path under /public. */
+  image: string;
 };
 
 export const GREETING_EXPRESSIONS: ExpressionCard[] = [
@@ -34,18 +36,21 @@ export const GREETING_EXPRESSIONS: ExpressionCard[] = [
     expression: "Hi!",
     tag: "最常用 (Most common)",
     hint: "路上偶遇邻居时最简单直接的招呼",
+    image: "/assets/explore/greeting-hi.jpg",
   },
   {
     id: "greeting-good-morning",
     expression: "Good morning!",
     tag: "根据时间 (Time-based)",
     hint: "早上遇到邻居时用，比 Hi 更正式一点",
+    image: "/assets/explore/greeting-good-morning.jpg",
   },
   {
     id: "greeting-hey-there",
     expression: "Hey there!",
     tag: "随意亲切 (Casual & friendly)",
     hint: "关系比较熟的邻居之间，比较随意",
+    image: "/assets/explore/greeting-hey-there.jpg",
   },
 ];
 
@@ -55,18 +60,21 @@ export const CHECKIN_EXPRESSIONS: ExpressionCard[] = [
     expression: "How are you?",
     tag: "最常用 (Most common)",
     hint: "打完招呼后自然接上的寒暄，不是真的在问近况",
+    image: "/assets/explore/checkin-how-are-you.jpg",
   },
   {
     id: "checkin-hows-it-going",
     expression: "How's it going?",
     tag: "随意 (Casual)",
     hint: "更口语化的问法，朋友邻居之间常用",
+    image: "/assets/explore/checkin-hows-it-going.jpg",
   },
   {
     id: "checkin-hows-your-morning-going",
     expression: "How's your morning going?",
     tag: "根据时间 (Time-based)",
     hint: "早上遇见时可以问，显得更具体、更走心",
+    image: "/assets/explore/checkin-hows-your-morning-going.jpg",
   },
 ];
 
@@ -76,18 +84,21 @@ export const CLOSING_EXPRESSIONS: ExpressionCard[] = [
     expression: "Have a good one!",
     tag: "最常用 (Most common)",
     hint: "结束偶遇时最轻松自然的告别语",
+    image: "/assets/explore/closing-have-a-good-one.jpg",
   },
   {
     id: "closing-see-you-around",
     expression: "See you around!",
     tag: "邻里之间 (Neighborly)",
     hint: "暗示以后还会再遇到，适合邻居关系",
+    image: "/assets/explore/closing-see-you-around.jpg",
   },
   {
     id: "closing-take-care",
     expression: "Take care!",
     tag: "友好关心 (Warm)",
     hint: "带点关心的语气，比 Bye 更有温度",
+    image: "/assets/explore/closing-take-care.jpg",
   },
 ];
 
@@ -140,23 +151,27 @@ export const RESPONSE_COMBO = {
 export const EXPLORE_SECTIONS = {
   greeting: {
     key: "greeting",
+    icon: "👋",
     title: CONVERSATION_STAGE_LABELS.greeting.labelZhLong,
     subtitle: CONVERSATION_STAGE_LABELS.greeting.labelEn,
     expressions: GREETING_EXPRESSIONS,
   },
   checkin: {
     key: "checkin",
+    icon: "😊",
     title: CONVERSATION_STAGE_LABELS.checkin.labelZhLong,
     subtitle: CONVERSATION_STAGE_LABELS.checkin.labelEn,
     expressions: CHECKIN_EXPRESSIONS,
   },
   response: {
     key: "response",
+    icon: "🗣️",
     title: CONVERSATION_STAGE_LABELS.response.labelZhLong,
     subtitle: CONVERSATION_STAGE_LABELS.response.labelEn,
   },
   closing: {
     key: "closing",
+    icon: "🙌",
     title: CONVERSATION_STAGE_LABELS.closing.labelZhLong,
     subtitle: CONVERSATION_STAGE_LABELS.closing.labelEn,
     expressions: CLOSING_EXPRESSIONS,
