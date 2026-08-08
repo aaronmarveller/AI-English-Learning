@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by docs/adr/0003-progress-dots-current-only-green-again.md
 supersedes: course-progress.tsx round-5 UI draft correction (2026-08-07)
 ---
 

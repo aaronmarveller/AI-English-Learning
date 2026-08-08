@@ -58,11 +58,9 @@ export type CulturalInsightCard = {
     china: { src: string; alt: string };
   };
   us: {
-    /** Flag emoji alone — kept separate from `label` so the collapsed
-     * preview strip can prefix it onto `preview.us` without slicing an
-     * emoji grapheme out of a longer string. */
+    /** Flag emoji, rendered standalone in a badge (no "In the US" text —
+     * UI draft, 2026-08-07 review). */
     flag: string;
-    label: string;
     /** Representative phrase shown as this column's headline. */
     phrase: string;
     /** Short checked bullet points, not full sentences. */
@@ -70,7 +68,6 @@ export type CulturalInsightCard = {
   };
   china: {
     flag: string;
-    label: string;
     phrase: string;
     items: string[];
   };
@@ -100,17 +97,15 @@ export const CULTURAL_INSIGHT_CARDS: CulturalInsightCard[] = [
     },
     us: {
       flag: "🇺🇸",
-      label: "🇺🇸 In the US",
       phrase: "Hi! / Hey there!",
       items: ["陌生人", "熟人", "都可以说"],
     },
     china: {
       flag: "🇨🇳",
-      label: "🇨🇳 在中国",
       phrase: "你好",
       items: ["更多用于熟人之间"],
     },
-    why: "在美国这类文化里，简短的问候被当作维持公共空间友好氛围的礼仪动作，不代表要建立关系，不回应反而显得冷淡。而在中文语境里，主动问候通常意味着「我们认识」，所以对陌生人开口的门槛更高——这不是谁更热情或更冷漠，只是问候承载的意思不一样。",
+    why: "美国的问候只是礼仪；中文里主动问候意味着「认识」，门槛更高。",
     preview: {
       us: "👋🌍",
       china: "👋👨‍👩‍👧",
@@ -126,17 +121,15 @@ export const CULTURAL_INSIGHT_CARDS: CulturalInsightCard[] = [
     subtitle: "Does the Chat Go On?",
     us: {
       flag: "🇺🇸",
-      label: "🇺🇸 In the US",
       phrase: "So, how's it going?",
       items: ["再聊几句", "自然过渡", "才算结束"],
     },
     china: {
       flag: "🇨🇳",
-      label: "🇨🇳 在中国",
       phrase: "你好，再见",
       items: ["打完即可", "点头示意", "各走各路"],
     },
-    why: "英语打招呼后接着聊几句，是为了避免「话说一半突然安静」的尴尬——很多英语使用者把突然沉默当成不自然的信号，于是用几句小话题填一下再道别。中文语境里，礼貌到位就可以结束，继续追问反而可能显得没话找话。",
+    why: "英语后聊几句避免冷场；中文礼貌到位即可，追问反而没话找话。",
     preview: {
       us: "😃↔😃",
       china: "😃✓",
@@ -148,17 +141,15 @@ export const CULTURAL_INSIGHT_CARDS: CulturalInsightCard[] = [
     subtitle: "What They Talk About",
     us: {
       flag: "🇺🇸",
-      label: "🇺🇸 In the US",
       phrase: "How are you?",
       items: ["天气", "今天过得怎么样", "周末计划"],
     },
     china: {
       flag: "🇨🇳",
-      label: "🇨🇳 在中国",
       phrase: "吃了吗？去哪儿？最近怎么样？",
       items: ["工作忙不忙", "孩子/家人", "身体好不好"],
     },
-    why: "这类寒暄话题的作用都是打开一个安全、无压力的开场，让对话能往下走而不冒犯任何人——两边文化选的都是「安全话题」这个功能，只是具体聊什么不一样。知道这一点，就不用再纠结要不要认真回答 \"How are you?\"，接一句 \"Good, thanks! And you?\" 就够了。",
+    why: "\"How are you?\" 只是友好问候，不是想了解近况，简单回应即可。",
     preview: {
       us: "☀️☕🐶",
       china: "🍚💼👨‍👩‍👧",
