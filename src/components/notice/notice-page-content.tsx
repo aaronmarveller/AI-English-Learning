@@ -3,10 +3,10 @@
 import { useState } from "react";
 import { ContinueButton } from "@/components/continue-button";
 import { CourseProgressChip } from "@/components/course-progress";
-import { ChunkSection } from "@/components/explore/chunk-section";
 import { CulturalComparisonBody } from "@/components/notice/cultural-comparison-body";
+import { NoticeCard } from "@/components/notice/notice-card";
 import { StageTag } from "@/components/stage-tag";
-import { CULTURAL_INSIGHT_CARDS, NOTICE_HEADLINE } from "@/content/notice";
+import { CULTURAL_INSIGHT_CARDS, NOTICE_HEADLINE, NOTICE_HERO_IMAGE } from "@/content/notice";
 
 /**
  * Notice page body: 3 Cultural Insight Cards contrasting US and China
@@ -17,15 +17,18 @@ import { CULTURAL_INSIGHT_CARDS, NOTICE_HEADLINE } from "@/content/notice";
  * accordion: opening any card collapses whichever other card was open
  * (ticket checklist "展开任一张卡时其余自动收起，同一时刻只有一张展开").
  * That semantic lives entirely in this component's single `openCardId`
- * state variable and how `open`/`onToggle` are computed per card —
- * ChunkSection itself is reused unmodified for its header/ARIA/data-testid
- * shape, exactly as the ticket brief suggests ("单开语义可以完全放在父组件
- * 如何计算 open/onToggle 里，不需要 fork 组件").
+ * state variable and how `open`/`onToggle` are computed per card — NoticeCard
+ * itself (src/components/notice/notice-card.tsx) only renders whatever
+ * open/closed state it's given.
  *
  * The first card starts open by default (ticket checklist "默认展开第一张
  * 卡"). Continue is always reachable without expanding anything — nothing
  * here gates it (user story 41 / ticket checklist "未展开所有卡也能进入
  * Practice").
+ *
+ * `asHeading` on StageTag (UI draft, 2026-08-07 review) makes the "👁
+ * Notice" pill itself the page's accessible h1, matching Explore/Observe —
+ * the mockup has no separate literal "Notice" heading beneath it.
  *
  * Split out from page.tsx (a Server Component, so it can keep exporting
  * `metadata`) because the open/closed accordion state needs a Client
@@ -40,38 +43,46 @@ export function NoticePageContent() {
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-6">
       <div className="flex flex-col gap-2">
-        <StageTag label="Notice" />
+        <StageTag label="Notice" asHeading />
         <CourseProgressChip />
-        <h1 className="text-h1">Notice</h1>
         <h2 className="text-display text-foreground">{NOTICE_HEADLINE.en}</h2>
         <p className="text-body-lg text-muted">{NOTICE_HEADLINE.zh}</p>
         <p className="text-body text-muted">
           中美打招呼方式有不少不一样的地方——展开每张卡看看具体差在哪、为什么会这样。
         </p>
+
+        {/* eslint-disable-next-line @next/next/no-img-element -- fixed-aspect
+            decorative hero illustration; next/image's layout machinery buys nothing here. */}
+        <img
+          src={NOTICE_HERO_IMAGE.src}
+          alt={NOTICE_HERO_IMAGE.alt}
+          aria-hidden
+          className="aspect-[16/10] w-full rounded-card object-cover"
+        />
       </div>
 
       <div className="flex flex-col gap-4">
-        {CULTURAL_INSIGHT_CARDS.map((card) => {
+        {CULTURAL_INSIGHT_CARDS.map((card, index) => {
           const open = openCardId === card.id;
 
           return (
-            <ChunkSection
+            <NoticeCard
               key={card.id}
-              title={card.title}
-              subtitle={card.subtitle}
+              index={index + 1}
+              card={card}
               open={open}
               onToggle={() => setOpenCardId(open ? null : card.id)}
-              testId={card.id}
             >
               <CulturalComparisonBody card={card} />
-            </ChunkSection>
+            </NoticeCard>
           );
         })}
       </div>
 
       <div className="mt-auto pt-6">
         <ContinueButton next="/practice" markStepComplete="notice">
-          继续 Continue
+          开始练习 <span aria-hidden>→</span>
+          <span className="sr-only"> Continue</span>
         </ContinueButton>
       </div>
     </div>
