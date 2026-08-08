@@ -3,19 +3,25 @@ import { AUDIO_MANIFEST } from "@/lib/audio-manifest";
 /**
  * Speech-synthesis adapter (spec.md "三个适配层" > 语音合成).
  *
- * Two playback paths behind the single `speak()` seam — nothing outside
- * this module may touch `window.speechSynthesis` or an `<audio>` element
- * directly:
+ * Three playback paths behind the single `speak()` seam, tried in order —
+ * nothing outside this module may touch `window.speechSynthesis` or an
+ * `<audio>` element directly:
  *
  * 1. Pre-generated audio (ticket 13): if `text` exactly matches an entry in
  *    src/lib/audio-manifest.ts, play its `public/audio/<id>.mp3` file —
  *    zero latency, consistent quality, not dependent on the demo machine's
- *    system voice.
- * 2. Browser synthesis (`window.speechSynthesis`, wired in ticket 09): the
- *    fallback whenever there's no manifest match, or the matched file fails
- *    to load/play (ticket 13 DoD: "文件缺失或模型输出偏离模板时降级到浏览器
- *    语音合成"). This is the ONLY path for Practice's live-generated
- *    conversation replies, which have no fixed pool to pre-generate from.
+ *    system voice or a network round-trip.
+ * 2. Live-generated audio (src/app/api/practice/speak/route.ts): for text
+ *    with no fixed pool to pre-generate from ahead of time — Practice's
+ *    live, per-turn LLM replies are the only such text in this app —
+ *    synthesizes it on demand through the same OpenAI voice the
+ *    pregenerated files use, so it sounds like the same speaker instead of
+ *    dropping to a noticeably more robotic system voice.
+ * 3. Browser synthesis (`window.speechSynthesis`, wired in ticket 09): the
+ *    final fallback whenever neither of the above is available (no
+ *    manifest match AND the live route is unreachable/unconfigured — ticket
+ *    13 DoD: "文件缺失或模型输出偏离模板时降级到浏览器语音合成"), so the app
+ *    still works with zero TTS provider configured.
  */
 
 export type SpeakOptions = {
@@ -107,27 +113,106 @@ function getVoicesOnceReady(): Promise<SpeechSynthesisVoice[]> {
 }
 
 /** The pre-generated `<audio>` element currently playing, if any — tracked so a new `speak()` call or `cancelSpeech()` can stop it. */
-let currentPregeneratedAudio: HTMLAudioElement | null = null;
+let currentAudio: HTMLAudioElement | null = null;
 
 /**
- * Plays the pre-generated file for `text`, if the manifest has one.
- * Resolves `true` on successful playback, `false` if there's no manifest
- * match or the file failed to load/play — the caller falls back to browser
- * synthesis in that case. Never rejects, same contract as `speak()` itself.
+ * `playPregeneratedAudio`'s outcome — deliberately distinguishes "the
+ * browser is refusing any unmuted audio right now" from "this specific file
+ * isn't a usable source", because `speakSegment` needs to treat them very
+ * differently: a genuinely missing/broken file should fall through to the
+ * next tier (live-generated audio, then browser synthesis), but an
+ * autoplay-policy block should NOT — every tier plays through an `<audio>`
+ * element or an equally gesture-gated API, so it would just get blocked
+ * again, and for the live-generated tier that "again" costs a real,
+ * wasted API call for audio this function already has a free file for.
+ * `speakAssertively`'s gesture-triggered retry is what actually resolves a
+ * "blocked" outcome — see practice-page-content.tsx.
  */
-function playPregeneratedAudio(text: string, rate?: number): Promise<boolean> {
-  if (typeof window === "undefined") return Promise.resolve(false);
+type PregeneratedAudioOutcome = "played" | "blocked" | "unavailable";
+
+/**
+ * Plays the pre-generated file for `text`, if the manifest has one. Never
+ * rejects, same contract as `speak()` itself.
+ */
+function playPregeneratedAudio(text: string, rate?: number): Promise<PregeneratedAudioOutcome> {
+  if (typeof window === "undefined") return Promise.resolve("unavailable");
   const path = PREGENERATED_AUDIO_PATHS.get(text);
-  if (!path) return Promise.resolve(false);
+  if (!path) return Promise.resolve("unavailable");
 
   return new Promise((resolve) => {
     const audio = new Audio(path);
     if (rate) audio.playbackRate = rate;
-    currentPregeneratedAudio = audio;
+    currentAudio = audio;
 
-    audio.addEventListener("ended", () => resolve(true), { once: true });
-    audio.addEventListener("error", () => resolve(false), { once: true });
-    audio.play().catch(() => resolve(false));
+    audio.addEventListener("ended", () => resolve("played"), { once: true });
+    audio.addEventListener("error", () => resolve("unavailable"), { once: true });
+    audio.play().catch((error: unknown) => {
+      const blocked = error instanceof DOMException && error.name === "NotAllowedError";
+      resolve(blocked ? "blocked" : "unavailable");
+    });
+  });
+}
+
+/**
+ * Caches each text's live-TTS request (see `playLiveGeneratedAudio`) by its
+ * resolved `Blob`, keyed on the exact text — Practice's live LLM replies are
+ * never repeated verbatim within a session, but the 🔊 Replay button (see
+ * message-bubble-pair.tsx) re-speaks the SAME reply on demand, and this
+ * avoids paying for (and waiting on) a fresh API call every time the learner
+ * replays a line they've already heard. A failed request is never cached
+ * (see `playLiveGeneratedAudio`), so a transient network error doesn't
+ * permanently block that text from ever trying again.
+ */
+const liveAudioCache = new Map<string, Promise<Blob | null>>();
+
+function fetchLiveAudio(text: string): Promise<Blob | null> {
+  const cached = liveAudioCache.get(text);
+  if (cached) return cached;
+
+  const promise = fetch("/api/practice/speak", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  })
+    .then((response) => (response.ok ? response.blob() : null))
+    .catch(() => null);
+  liveAudioCache.set(text, promise);
+  return promise;
+}
+
+/**
+ * Synthesizes `text` on demand through src/app/api/practice/speak/route.ts
+ * (the same OpenAI voice the pregenerated files use) and plays the result —
+ * the middle rung of the pregenerated → live-generated → browser-synthesis
+ * ladder, for text with no fixed pool to pre-generate from ahead of time
+ * (Practice's live, per-turn LLM replies; see this file's top doc comment).
+ * Resolves `true` on successful playback, `false` on any failure (no server
+ * key configured, upstream error, playback error) — the caller falls back
+ * to browser synthesis in that case, same contract as
+ * `playPregeneratedAudio`. Never rejects.
+ */
+async function playLiveGeneratedAudio(text: string, rate?: number): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+
+  const blob = await fetchLiveAudio(text);
+  if (!blob) {
+    liveAudioCache.delete(text);
+    return false;
+  }
+
+  const objectUrl = URL.createObjectURL(blob);
+  return new Promise((resolve) => {
+    const audio = new Audio(objectUrl);
+    if (rate) audio.playbackRate = rate;
+    currentAudio = audio;
+
+    function finish(result: boolean): void {
+      URL.revokeObjectURL(objectUrl);
+      resolve(result);
+    }
+    audio.addEventListener("ended", () => finish(true), { once: true });
+    audio.addEventListener("error", () => finish(false), { once: true });
+    audio.play().catch(() => finish(false));
   });
 }
 
@@ -135,16 +220,23 @@ function playPregeneratedAudio(text: string, rate?: number): Promise<boolean> {
 const SEGMENT_PAUSE_MS = 1000;
 
 /**
- * Speaks one segment through the pregenerated-audio-or-browser-synthesis
- * pipeline. Never rejects. Resolves `true` if audio actually started
- * (pregenerated playback, or the browser accepted the synthesis utterance
- * without erroring), `false` if both paths were unavailable or blocked —
- * `speakAssertively` below uses this to know whether it needs to fall back
- * to the next user interaction.
+ * Speaks one segment through the pregenerated-audio → live-generated-audio →
+ * browser-synthesis pipeline. Never rejects. Resolves `true` if audio
+ * actually started through any of the three, `false` if all three were
+ * unavailable or blocked — `speakAssertively` below uses this to know
+ * whether it needs to fall back to the next user interaction.
  */
 async function speakSegment(text: string, options: SpeakOptions): Promise<boolean> {
-  const playedPregenerated = await playPregeneratedAudio(text, options.rate);
-  if (playedPregenerated) return true;
+  const pregenerated = await playPregeneratedAudio(text, options.rate);
+  if (pregenerated === "played") return true;
+  // An autoplay-policy block applies just as much to the next two tiers
+  // (another `<audio>` element, then browser synthesis) — stop here rather
+  // than pay for a live-TTS call this browser won't let play anyway. See
+  // `PregeneratedAudioOutcome`'s doc comment.
+  if (pregenerated === "blocked") return false;
+
+  const playedLive = await playLiveGeneratedAudio(text, options.rate);
+  if (playedLive) return true;
 
   if (!isSpeechSynthesisSupported()) {
     return false;
@@ -216,23 +308,38 @@ export async function speak(text: string, options: SpeakOptions = {}): Promise<b
 }
 
 /**
+ * User-gesture events that count as "the learner interacted with the page"
+ * for `speakAssertively`'s fallback below. Deliberately more than just
+ * `pointerdown` — real devices vary in which of these a given browser
+ * recognizes as satisfying its autoplay-unlock gesture requirement (e.g.
+ * older/embedded mobile browsers lean on `touchend` or plain `click` more
+ * reliably than `pointerdown`), so every one of them is armed and whichever
+ * fires first wins.
+ */
+const FIRST_INTERACTION_EVENTS = ["pointerdown", "touchend", "click", "keydown"] as const;
+
+/**
  * Speaks `text` "as soon as possible" despite browsers blocking unmuted
  * audio that isn't triggered by a user gesture: tries `speak()` immediately
  * (succeeds outright wherever the browser already grants autoplay — e.g. the
- * user has interacted with this origin before), and only if that attempt
- * comes back blocked, arms a one-time listener for the very next
- * `pointerdown`/`keydown` anywhere in the document and speaks then instead,
- * since that next interaction is a genuine user gesture the browser will
+ * user has interacted with this origin before) while *simultaneously*
+ * listening for the learner's very next interaction anywhere on the page,
+ * and speaks again then if the immediate attempt turns out to have been
+ * blocked — that interaction is a genuine user gesture the browser will
  * always honor.
  *
- * Deliberately waits for the immediate attempt's outcome before arming
- * anything, rather than racing "try immediately" against "listen for the
- * next interaction" — a blocked attempt resolves near-instantly (there's no
- * playback to wait for), so this adds no perceptible delay, and it means the
- * fallback listener only ever exists when it's actually needed. Arming it
- * unconditionally up front would risk a second, unwanted playback: nothing
- * would tell an early tap (e.g. the learner starting to type while the first
- * attempt is still quietly succeeding) that it wasn't the fallback's cue.
+ * The listeners are armed synchronously, up front, rather than only after
+ * learning the immediate attempt was blocked: on a real device the browser's
+ * own block-vs-allow decision isn't necessarily instant (e.g. it may need to
+ * start fetching the file first), so waiting for that outcome before arming
+ * anything left a real window where an eager learner's very first tap — the
+ * one thing this function exists to catch — could land before any listener
+ * existed and be silently lost, with nothing left to prompt a second one.
+ * Arming immediately closes that window at the cost of a rare, harmless
+ * double-attempt (handled below): if the immediate attempt actually
+ * succeeds around the same moment as a stray early tap, the second `speak()`
+ * call simply cancels and restarts the same line (see `speak()`'s own
+ * cancel-before-starting behavior) rather than overlapping it.
  *
  * For call sites that want a line spoken "on load" (Practice's opening line
  * — see practice-page-content.tsx) rather than in direct response to a
@@ -244,23 +351,47 @@ export async function speak(text: string, options: SpeakOptions = {}): Promise<b
  * the page, so there's nothing meaningful for a caller to await.
  */
 export function speakAssertively(text: string, options: SpeakOptions = {}): void {
-  void speak(text, options).then((played) => {
-    if (played || typeof document === "undefined") return;
+  if (typeof document === "undefined") {
+    void speak(text, options);
+    return;
+  }
 
-    function onFirstInteraction(): void {
-      document.removeEventListener("pointerdown", onFirstInteraction);
-      document.removeEventListener("keydown", onFirstInteraction);
-      void speak(text, options);
+  let outcomeKnown = false;
+  let succeeded = false;
+  let interactionHandled = false;
+
+  function removeListeners(): void {
+    for (const event of FIRST_INTERACTION_EVENTS) {
+      document.removeEventListener(event, onFirstInteraction);
     }
-    document.addEventListener("pointerdown", onFirstInteraction, { once: true });
-    document.addEventListener("keydown", onFirstInteraction, { once: true });
+  }
+
+  function onFirstInteraction(): void {
+    if (interactionHandled) return;
+    interactionHandled = true;
+    removeListeners();
+    // If the immediate attempt already succeeded, there's nothing left to
+    // do; otherwise (blocked, or its outcome isn't known yet) this gesture
+    // is the cue to speak now.
+    if (outcomeKnown && succeeded) return;
+    void speak(text, options);
+  }
+
+  for (const event of FIRST_INTERACTION_EVENTS) {
+    document.addEventListener(event, onFirstInteraction, { once: true });
+  }
+
+  void speak(text, options).then((played) => {
+    outcomeKnown = true;
+    succeeded = played;
+    if (played) removeListeners();
   });
 }
 
 /** Stops any in-flight playback (pre-generated audio or browser synthesis) without waiting for it to end naturally. */
 export function cancelSpeech(): void {
-  currentPregeneratedAudio?.pause();
-  currentPregeneratedAudio = null;
+  currentAudio?.pause();
+  currentAudio = null;
   if (!isSpeechSynthesisSupported()) return;
   window.speechSynthesis.cancel();
 }

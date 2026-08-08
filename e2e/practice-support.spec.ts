@@ -322,4 +322,85 @@ test.describe("Practice page — support & recovery", () => {
     await expect(page.getByTestId("emily-message-bubble")).toBeVisible();
     await expect(page.getByTestId("emily-message-zh")).toBeVisible();
   });
+
+  test("the replay button synthesizes Emily's live reply through the live-TTS route", async ({ page }) => {
+    await resetStorage(page);
+    await installScriptedPracticeApi(page, [
+      {
+        verdict: "accepted",
+        reply_en: "Great, how are you today?",
+        reply_zh: "太好了，你今天怎么样？",
+        highlight_key: "natural-paraphrase",
+      },
+    ]);
+    const speakRequestBodies: string[] = [];
+    await page.route("**/api/practice/speak", async (route) => {
+      speakRequestBodies.push(route.request().postData() ?? "");
+      await route.fulfill({ status: 200, contentType: "audio/mpeg", body: Buffer.from([0, 0, 0, 0]) });
+    });
+
+    await page.goto(PRACTICE_URL);
+    await submitReply(page, "Hi Emily!");
+    await expect(page.getByTestId("emily-message-bubble")).toHaveText("Great, how are you today?");
+
+    // Emily's reply has no pregenerated file (it's LLM-generated, fresh
+    // every turn) — replaying it must go through the live-TTS route with
+    // the exact reply text, not straight to browser synthesis.
+    await page.getByTestId("replay-button").click();
+
+    await expect.poll(() => speakRequestBodies.length).toBeGreaterThan(0);
+    expect(JSON.parse(speakRequestBodies[0])).toEqual({ text: "Great, how are you today?" });
+  });
+
+  test("falls back to browser synthesis when the live-TTS route errors", async ({ page }) => {
+    await resetStorage(page);
+    // A minimal fake speechSynthesis, distinct from fixtures.ts's
+    // mockSpeechApis, specifically so this test can count how many times it
+    // was actually invoked (proving the fallback engaged) rather than just
+    // that playback didn't crash.
+    await page.addInitScript(() => {
+      (window as unknown as { __synthSpeakCount: number }).__synthSpeakCount = 0;
+      const fakeSynthesis = {
+        speaking: false,
+        pending: false,
+        paused: false,
+        speak(utterance: SpeechSynthesisUtterance) {
+          (window as unknown as { __synthSpeakCount: number }).__synthSpeakCount += 1;
+          utterance.onend?.(new Event("end") as unknown as SpeechSynthesisEvent);
+        },
+        cancel() {},
+        pause() {},
+        resume() {},
+        getVoices() {
+          return [];
+        },
+      };
+      Object.defineProperty(window, "speechSynthesis", {
+        value: fakeSynthesis,
+        configurable: true,
+        writable: true,
+      });
+    });
+    await installScriptedPracticeApi(page, [
+      {
+        verdict: "accepted",
+        reply_en: "Great, how are you today?",
+        reply_zh: "太好了，你今天怎么样？",
+        highlight_key: "natural-paraphrase",
+      },
+    ]);
+    await page.route("**/api/practice/speak", (route) =>
+      route.fulfill({ status: 500, contentType: "application/json", body: "{}" }),
+    );
+
+    await page.goto(PRACTICE_URL);
+    await submitReply(page, "Hi Emily!");
+    await expect(page.getByTestId("emily-message-bubble")).toHaveText("Great, how are you today?");
+
+    await page.getByTestId("replay-button").click();
+
+    await expect
+      .poll(() => page.evaluate(() => (window as unknown as { __synthSpeakCount: number }).__synthSpeakCount))
+      .toBeGreaterThan(0);
+  });
 });
