@@ -58,16 +58,12 @@ export type CulturalInsightCard = {
     china: { src: string; alt: string };
   };
   us: {
-    /** Flag emoji, rendered standalone in a badge (no "In the US" text —
-     * UI draft, 2026-08-07 review). */
-    flag: string;
     /** Representative phrase shown as this column's headline. */
     phrase: string;
     /** Short checked bullet points, not full sentences. */
     items: string[];
   };
   china: {
-    flag: string;
     phrase: string;
     items: string[];
   };
@@ -96,12 +92,10 @@ export const CULTURAL_INSIGHT_CARDS: CulturalInsightCard[] = [
       },
     },
     us: {
-      flag: "🇺🇸",
       phrase: "Hi! / Hey there!",
       items: ["陌生人", "熟人", "都可以说"],
     },
     china: {
-      flag: "🇨🇳",
       phrase: "你好",
       items: ["更多用于熟人之间"],
     },
@@ -120,12 +114,10 @@ export const CULTURAL_INSIGHT_CARDS: CulturalInsightCard[] = [
     // page; this card's own header button would otherwise match too.
     subtitle: "Does the Chat Go On?",
     us: {
-      flag: "🇺🇸",
       phrase: "So, how's it going?",
       items: ["再聊几句", "自然过渡", "才算结束"],
     },
     china: {
-      flag: "🇨🇳",
       phrase: "你好，再见",
       items: ["打完即可", "点头示意", "各走各路"],
     },
@@ -140,12 +132,10 @@ export const CULTURAL_INSIGHT_CARDS: CulturalInsightCard[] = [
     title: "通常会聊什么",
     subtitle: "What They Talk About",
     us: {
-      flag: "🇺🇸",
       phrase: "How are you?",
       items: ["天气", "今天过得怎么样", "周末计划"],
     },
     china: {
-      flag: "🇨🇳",
       phrase: "吃了吗？去哪儿？最近怎么样？",
       items: ["工作忙不忙", "孩子/家人", "身体好不好"],
     },

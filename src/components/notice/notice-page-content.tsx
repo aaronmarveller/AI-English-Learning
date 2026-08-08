@@ -56,9 +56,6 @@ export function NoticePageContent() {
           <div className="flex min-w-0 flex-1 flex-col gap-1.5">
             <h2 className="text-h2 text-foreground">{NOTICE_HEADLINE.en}</h2>
             <p className="text-body text-muted">{NOTICE_HEADLINE.zh}</p>
-            <p className="text-caption text-muted">
-              中美打招呼方式有不少不一样的地方——展开每张卡看看具体差在哪、为什么会这样。
-            </p>
           </div>
 
           {/* eslint-disable-next-line @next/next/no-img-element -- decorative

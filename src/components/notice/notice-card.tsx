@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { ChinaFlagIcon, UsFlagIcon } from "@/components/notice/flag-icon";
 import type { CulturalInsightCard } from "@/content/notice";
 
 type NoticeCardProps = {
@@ -57,16 +58,12 @@ export function NoticeCard({ index, card, open, onToggle, children }: NoticeCard
         <span className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="text-h3 text-foreground">{card.title}</span>
           {!open ? (
-            <span className="flex items-center gap-2 text-body-sm text-muted">
-              <span aria-hidden>
-                {card.us.flag}
-                {card.preview.us}
-              </span>
+            <span className="flex items-center gap-1.5 text-body-sm text-muted">
+              <UsFlagIcon className="h-2.5 w-auto shrink-0 rounded-[2px]" />
+              <span aria-hidden>{card.preview.us}</span>
               <span className="text-caption">VS</span>
-              <span aria-hidden>
-                {card.china.flag}
-                {card.preview.china}
-              </span>
+              <ChinaFlagIcon className="h-2.5 w-auto shrink-0 rounded-[2px]" />
+              <span aria-hidden>{card.preview.china}</span>
             </span>
           ) : null}
         </span>

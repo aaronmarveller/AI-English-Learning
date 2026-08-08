@@ -19,19 +19,19 @@ export function TopNav({ left }: { left?: ReactNode }) {
       <nav
         aria-label="主导航 Main navigation"
         className={
-          left ? "flex shrink-0 items-center gap-4" : "flex w-full items-center justify-between"
+          left ? "flex shrink-0 items-center gap-3" : "flex w-full items-center justify-between"
         }
       >
-        <span className="flex items-center gap-1 text-body-sm font-semibold text-foreground">
-          <HomeIcon className="h-[18px] w-[18px]" />
+        <span className="flex items-center gap-1 text-caption font-semibold text-foreground">
+          <HomeIcon className="h-3.5 w-3.5" />
           <span className="border-b-2 border-primary pb-0.5">Home</span>
         </span>
-        <span aria-hidden data-testid="progress-stub" className="flex items-center gap-1 text-body-sm text-muted">
-          <ProgressIcon className="h-[18px] w-[18px]" />
+        <span aria-hidden data-testid="progress-stub" className="flex items-center gap-1 text-caption text-muted">
+          <ProgressIcon className="h-3.5 w-3.5" />
           <span>Progress</span>
         </span>
-        <span aria-hidden data-testid="profile-stub" className="flex items-center gap-1 text-body-sm text-muted">
-          <ProfileIcon className="h-[18px] w-[18px]" />
+        <span aria-hidden data-testid="profile-stub" className="flex items-center gap-1 text-caption text-muted">
+          <ProfileIcon className="h-3.5 w-3.5" />
           <span>Profile</span>
         </span>
       </nav>

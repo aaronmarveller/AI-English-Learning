@@ -1,3 +1,4 @@
+import { ChinaFlagIcon, UsFlagIcon } from "@/components/notice/flag-icon";
 import type { CulturalInsightCard } from "@/content/notice";
 
 type CulturalComparisonBodyProps = {
@@ -20,11 +21,14 @@ type CulturalComparisonBodyProps = {
  * guarantees the full row is always visible regardless of the exact source
  * aspect ratio.
  *
- * The flag badge is a standalone chip (flag emoji only, no "In the
- * US"/"在中国" text) per the mockup, and each column's background/phrase
- * color leans toward its flag color (blue for US, red for China) — using
- * Tailwind's generic blue/red scale, not the app's `--color-danger` token,
- * since this is decorative flag theming, not an error state.
+ * The flag badge is a standalone chip (flag icon only, no "In the
+ * US"/"在中国" text) per the mockup — a real SVG icon, not the Unicode flag
+ * emoji (🇺🇸/🇨🇳), since Windows has no flag glyphs and renders those as
+ * bare "US"/"CN" text instead of a flag (live QA, 2026-08-07). Only the
+ * badge itself carries color (blue for US, red for China, via Tailwind's
+ * generic scale, not the app's `--color-danger` token) — the column's own
+ * background stays the same neutral card surface as everywhere else;
+ * coloring the whole column read as too heavy against the mockup.
  *
  * Pure presentational — the parent (NoticeCard) owns the accordion's open
  * state; this only renders what's inside once a card is open.
@@ -53,14 +57,11 @@ export function CulturalComparisonBody({ card }: CulturalComparisonBodyProps) {
 
       <div className="grid grid-cols-[1fr_1fr_1.3fr] gap-2">
         <div
-          className="flex flex-col gap-2 rounded-card border border-blue-100 bg-blue-50 p-2"
+          className="flex flex-col gap-2 rounded-card border border-border bg-card p-2"
           data-testid={`${card.id}-us`}
         >
-          <span
-            aria-hidden
-            className="flex w-fit items-center justify-center rounded-button border border-border bg-white px-1.5 py-0.5 text-body-sm"
-          >
-            {card.us.flag}
+          <span className="flex w-fit items-center justify-center rounded-button bg-blue-50 p-1">
+            <UsFlagIcon className="h-2.5 w-auto rounded-[2px]" />
           </span>
           <span className="text-body-sm font-semibold text-blue-700">{card.us.phrase}</span>
           <ul className="flex flex-col gap-1">
@@ -76,14 +77,11 @@ export function CulturalComparisonBody({ card }: CulturalComparisonBodyProps) {
         </div>
 
         <div
-          className="flex flex-col gap-2 rounded-card border border-red-100 bg-red-50 p-2"
+          className="flex flex-col gap-2 rounded-card border border-border bg-card p-2"
           data-testid={`${card.id}-china`}
         >
-          <span
-            aria-hidden
-            className="flex w-fit items-center justify-center rounded-button border border-border bg-white px-1.5 py-0.5 text-body-sm"
-          >
-            {card.china.flag}
+          <span className="flex w-fit items-center justify-center rounded-button bg-red-50 p-1">
+            <ChinaFlagIcon className="h-2.5 w-auto rounded-[2px]" />
           </span>
           <span className="text-body-sm font-semibold text-red-700">{card.china.phrase}</span>
           <ul className="flex flex-col gap-1">
