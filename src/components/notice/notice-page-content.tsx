@@ -30,11 +30,14 @@ import { CULTURAL_INSIGHT_CARDS, NOTICE_HEADLINE, NOTICE_HERO_IMAGE } from "@/co
  * Notice" pill itself the page's accessible h1, matching Explore/Observe —
  * the mockup has no separate literal "Notice" heading beneath it.
  *
- * The hero headline/subtitle sits in a two-column row next to the hero
- * illustration (not stacked above it) — live QA against the 2026-08-07
- * mockup found the original stacked, full-width-image version read far
- * larger than intended; splitting the row is what actually makes the
- * headline read at mockup scale.
+ * The StageTag/progress-dots/headline column sits in a two-column row next
+ * to the hero illustration (not stacked above it) — live QA against the
+ * 2026-08-07 mockup found the original stacked, full-width-image version
+ * read far larger than intended; splitting the row is what actually makes
+ * the headline read at mockup scale. `items-stretch` + `object-cover` on
+ * the image match its height to that whole left column (StageTag through
+ * the subtitle), per a later round of live QA that wanted the image sized
+ * off the full column rather than just the headline text block.
  *
  * Split out from page.tsx (a Server Component, so it can keep exporting
  * `metadata`) because the open/closed accordion state needs a Client
@@ -48,26 +51,21 @@ export function NoticePageContent() {
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-6">
-      <div className="flex flex-col gap-2">
-        <StageTag label="Notice" asHeading />
-        <CourseProgressChip />
-
-        <div className="flex items-start gap-3">
-          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-            <h2 className="text-h2 text-foreground">{NOTICE_HEADLINE.en}</h2>
-            <p className="text-body text-muted">{NOTICE_HEADLINE.zh}</p>
-          </div>
-
-          {/* eslint-disable-next-line @next/next/no-img-element -- decorative
-              hero illustration, natural aspect ratio; next/image's layout
-              machinery buys nothing here. */}
-          <img
-            src={NOTICE_HERO_IMAGE.src}
-            alt={NOTICE_HERO_IMAGE.alt}
-            aria-hidden
-            className="w-[38%] shrink-0 rounded-card object-contain"
-          />
+      <div className="flex items-stretch gap-3">
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <StageTag label="Notice" asHeading />
+          <CourseProgressChip />
+          <h2 className="text-h2 text-foreground">{NOTICE_HEADLINE.en}</h2>
+          <p className="text-body text-muted">{NOTICE_HEADLINE.zh}</p>
         </div>
+
+        {/* eslint-disable-next-line @next/next/no-img-element -- decorative hero illustration; next/image's layout machinery buys nothing here. */}
+        <img
+          src={NOTICE_HERO_IMAGE.src}
+          alt={NOTICE_HERO_IMAGE.alt}
+          aria-hidden
+          className="h-full w-[38%] shrink-0 rounded-card object-cover"
+        />
       </div>
 
       <div className="flex flex-col gap-4">
