@@ -120,15 +120,27 @@ let currentAudio: HTMLAudioElement | null = null;
  * browser is refusing any unmuted audio right now" from "this specific file
  * isn't a usable source", because `speakSegment` needs to treat them very
  * differently: a genuinely missing/broken file should fall through to the
- * next tier (live-generated audio, then browser synthesis), but an
- * autoplay-policy block should NOT — every tier plays through an `<audio>`
- * element or an equally gesture-gated API, so it would just get blocked
- * again, and for the live-generated tier that "again" costs a real,
- * wasted API call for audio this function already has a free file for.
- * `speakAssertively`'s gesture-triggered retry is what actually resolves a
- * "blocked" outcome — see practice-page-content.tsx.
+ * next tier (live-generated audio, then browser synthesis), but neither an
+ * autoplay-policy block NOR being superseded by a newer `speak()` call
+ * should — every tier plays through an `<audio>` element or an equally
+ * gesture-gated API, so a policy block would just recur, and for the
+ * live-generated tier that "again" costs a real, wasted API call for audio
+ * this function already has a free file for. A superseded attempt isn't a
+ * problem with this file at all: `cancelSpeech()` (called at the top of
+ * every `speak()`) stops whatever's currently playing before starting the
+ * new request, and pausing a still-pending `play()` rejects it with
+ * `AbortError` — a race that's especially live for the opening line, whose
+ * `speakAssertively` immediate-attempt-plus-listener design (see that
+ * function's own doc comment) can have a second `speak()` call for the same
+ * text land while the first is still resolving. Either way,
+ * `speakAssertively`'s gesture-triggered retry (or the newer call that
+ * superseded this one) is what actually gets audio playing — see
+ * practice-page-content.tsx.
  */
-type PregeneratedAudioOutcome = "played" | "blocked" | "unavailable";
+type PregeneratedAudioOutcome = "played" | "interrupted" | "unavailable";
+
+/** DOMException names from a rejected `play()` that mean "don't fall through to another tier" — see `PregeneratedAudioOutcome`. */
+const INTERRUPTED_PLAY_ERROR_NAMES = new Set(["NotAllowedError", "AbortError"]);
 
 /**
  * Plays the pre-generated file for `text`, if the manifest has one. Never
@@ -147,8 +159,8 @@ function playPregeneratedAudio(text: string, rate?: number): Promise<Pregenerate
     audio.addEventListener("ended", () => resolve("played"), { once: true });
     audio.addEventListener("error", () => resolve("unavailable"), { once: true });
     audio.play().catch((error: unknown) => {
-      const blocked = error instanceof DOMException && error.name === "NotAllowedError";
-      resolve(blocked ? "blocked" : "unavailable");
+      const interrupted = error instanceof DOMException && INTERRUPTED_PLAY_ERROR_NAMES.has(error.name);
+      resolve(interrupted ? "interrupted" : "unavailable");
     });
   });
 }
@@ -229,11 +241,10 @@ const SEGMENT_PAUSE_MS = 1000;
 async function speakSegment(text: string, options: SpeakOptions): Promise<boolean> {
   const pregenerated = await playPregeneratedAudio(text, options.rate);
   if (pregenerated === "played") return true;
-  // An autoplay-policy block applies just as much to the next two tiers
-  // (another `<audio>` element, then browser synthesis) — stop here rather
-  // than pay for a live-TTS call this browser won't let play anyway. See
+  // Neither an autoplay-policy block nor being superseded by a newer
+  // `speak()` call is a reason to fall through — see
   // `PregeneratedAudioOutcome`'s doc comment.
-  if (pregenerated === "blocked") return false;
+  if (pregenerated === "interrupted") return false;
 
   const playedLive = await playLiveGeneratedAudio(text, options.rate);
   if (playedLive) return true;
@@ -319,6 +330,23 @@ export async function speak(text: string, options: SpeakOptions = {}): Promise<b
 const FIRST_INTERACTION_EVENTS = ["pointerdown", "touchend", "click", "keydown"] as const;
 
 /**
+ * A control marked with this attribute never counts as the "first
+ * interaction" `speakAssertively` is listening for — see the mic button in
+ * practice-input-form.tsx, marked for exactly this reason: starting speech
+ * *recognition* at the same instant this function starts speech *synthesis*
+ * plays Emily's audio back through the speaker at the exact moment the
+ * microphone starts listening, and on real devices that reliably drowns out
+ * or echo-cancels the learner's own voice out of the recognized transcript.
+ * An excluded interaction is simply ignored (not consumed) — the listeners
+ * stay armed for a later, non-excluded one instead.
+ */
+const AUDIO_UNLOCK_EXEMPT_SELECTOR = "[data-audio-unlock-exempt]";
+
+function isAudioUnlockExempt(event: Event): boolean {
+  return event.target instanceof Element && event.target.closest(AUDIO_UNLOCK_EXEMPT_SELECTOR) !== null;
+}
+
+/**
  * Speaks `text` "as soon as possible" despite browsers blocking unmuted
  * audio that isn't triggered by a user gesture: tries `speak()` immediately
  * (succeeds outright wherever the browser already grants autoplay — e.g. the
@@ -346,14 +374,20 @@ const FIRST_INTERACTION_EVENTS = ["pointerdown", "touchend", "click", "keydown"]
  * click, since a bare `speak()` there silently does nothing on browsers that
  * require a gesture first (most mobile browsers, on a fresh page/session).
  *
- * Fire-and-forget by design (no returned promise) — the eventual playback
- * may happen anywhere from immediately to whenever the learner first taps
- * the page, so there's nothing meaningful for a caller to await.
+ * Fire-and-forget for playback (no returned promise) — the eventual
+ * playback may happen anywhere from immediately to whenever the learner
+ * first taps the page, so there's nothing meaningful for a caller to await.
+ * DOES return a cleanup function, though: since exempt interactions (the mic
+ * button) are ignored rather than consumed, the listeners can otherwise
+ * outlive their usefulness (e.g. a learner who only ever taps the mic across
+ * several restarted conversations, each arming its own fresh set) — a
+ * caller driven by a React effect should return this from the effect so it
+ * runs on cleanup, same as any other effect subscription.
  */
-export function speakAssertively(text: string, options: SpeakOptions = {}): void {
+export function speakAssertively(text: string, options: SpeakOptions = {}): () => void {
   if (typeof document === "undefined") {
     void speak(text, options);
-    return;
+    return () => {};
   }
 
   let outcomeKnown = false;
@@ -366,8 +400,14 @@ export function speakAssertively(text: string, options: SpeakOptions = {}): void
     }
   }
 
-  function onFirstInteraction(): void {
+  function onFirstInteraction(event: Event): void {
     if (interactionHandled) return;
+    // An exempt interaction (the mic button — see AUDIO_UNLOCK_EXEMPT_SELECTOR's
+    // doc comment) isn't consumed: every listener stays armed for a later,
+    // non-exempt one, deliberately not using the DOM's own `{ once: true }`
+    // (which would've auto-removed this listener regardless of the check
+    // below, the exact thing this branch exists to avoid).
+    if (isAudioUnlockExempt(event)) return;
     interactionHandled = true;
     removeListeners();
     // If the immediate attempt already succeeded, there's nothing left to
@@ -378,7 +418,7 @@ export function speakAssertively(text: string, options: SpeakOptions = {}): void
   }
 
   for (const event of FIRST_INTERACTION_EVENTS) {
-    document.addEventListener(event, onFirstInteraction, { once: true });
+    document.addEventListener(event, onFirstInteraction);
   }
 
   void speak(text, options).then((played) => {
@@ -386,6 +426,8 @@ export function speakAssertively(text: string, options: SpeakOptions = {}): void
     succeeded = played;
     if (played) removeListeners();
   });
+
+  return removeListeners;
 }
 
 /** Stops any in-flight playback (pre-generated audio or browser synthesis) without waiting for it to end naturally. */

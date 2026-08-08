@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
+import { IconBoxButton } from "@/components/practice/icon-box-button";
 import {
   isSpeechRecognitionSupported,
   startListening,
@@ -11,6 +12,14 @@ import {
 type PracticeInputFormProps = {
   disabled: boolean;
   onSubmit: (text: string) => void;
+  /**
+   * A boxed action button (built with IconBoxButton, same as the mode
+   * toggle) rendered alongside the mic/text controls — the Ask-in-Chinese
+   * trigger, owned and styled by the parent so this form doesn't need to
+   * know anything about that feature (2026-08-07 UI draft: the two boxed
+   * buttons flank the mic as a matched pair).
+   */
+  asideAction?: ReactNode;
 };
 
 type InputMode = "mic" | "text";
@@ -89,7 +98,7 @@ function useSpeechRecognitionSupport(): boolean {
  * `isSupported` and `fallbackTrigger`. That keeps every fallback rule a
  * pure expression instead of scattered setState calls that could disagree.
  */
-export function PracticeInputForm({ disabled, onSubmit }: PracticeInputFormProps) {
+export function PracticeInputForm({ disabled, onSubmit, asideAction }: PracticeInputFormProps) {
   const isSupported = useSpeechRecognitionSupport();
 
   const [manualMode, setManualMode] = useState<InputMode | null>(null);
@@ -176,41 +185,54 @@ export function PracticeInputForm({ disabled, onSubmit }: PracticeInputFormProps
       ) : null}
 
       {mode === "mic" ? (
-        <div className="flex flex-col items-center gap-2">
-          <button
-            type="button"
-            onClick={handleMicClick}
-            disabled={disabled}
-            data-testid="practice-mic-button"
-            data-state={micState}
-            aria-label="开始说话 Start speaking"
-            className={`btn-icon-pressed flex h-16 w-16 shrink-0 items-center justify-center rounded-full text-h2 disabled:cursor-not-allowed disabled:opacity-40 ${
-              micState === "listening"
-                ? "animate-pulse bg-accent text-accent-foreground"
-                : "bg-accent-soft text-accent"
-            }`}
-          >
-            <span aria-hidden>🎤</span>
-          </button>
-          <p
-            data-testid="practice-mic-status"
-            className="min-h-5 text-center text-body-sm text-muted"
-            role="status"
-          >
-            {micState === "listening"
-              ? interimTranscript.length > 0
-                ? interimTranscript
-                : "正在聆听... Listening..."
-              : "点击麦克风开始说话 Tap the mic to speak"}
-          </p>
-          <button
-            type="button"
+        <div className="flex items-center justify-center gap-3">
+          <IconBoxButton
+            icon="⌨️"
+            lineOne="改用打字"
+            lineTwo="Type instead"
             onClick={handleToggleMode}
             data-testid="practice-input-mode-toggle"
-            className="btn-icon-pressed text-body-sm text-muted underline underline-offset-2"
-          >
-            改用打字 Switch to typing
-          </button>
+          />
+
+          <div className="flex flex-1 flex-col items-center gap-2">
+            <button
+              type="button"
+              onClick={handleMicClick}
+              disabled={disabled}
+              data-testid="practice-mic-button"
+              data-state={micState}
+              // Tapping this button starts the microphone at the same
+              // instant — see src/lib/speech-synthesis.ts's
+              // AUDIO_UNLOCK_EXEMPT_SELECTOR doc comment: playing Emily's
+              // audio out of the speaker at that exact moment reliably
+              // drowns out or echo-cancels the learner's own voice out of
+              // the recognized transcript, so this tap must never double as
+              // the "learner interacted with the page" cue speakAssertively
+              // listens for.
+              data-audio-unlock-exempt
+              aria-label="开始说话 Start speaking"
+              className={`btn-icon-pressed flex h-16 w-16 shrink-0 items-center justify-center rounded-full text-h2 disabled:cursor-not-allowed disabled:opacity-40 ${
+                micState === "listening"
+                  ? "animate-pulse bg-accent text-accent-foreground"
+                  : "bg-accent-soft text-accent"
+              }`}
+            >
+              <span aria-hidden>🎤</span>
+            </button>
+            <p
+              data-testid="practice-mic-status"
+              className="min-h-5 text-center text-body-sm text-muted"
+              role="status"
+            >
+              {micState === "listening"
+                ? interimTranscript.length > 0
+                  ? interimTranscript
+                  : "正在聆听... Listening..."
+                : "点击麦克风开始说话 Tap the mic to speak"}
+            </p>
+          </div>
+
+          {asideAction}
         </div>
       ) : (
         <div className="flex flex-col gap-2">
@@ -234,16 +256,18 @@ export function PracticeInputForm({ disabled, onSubmit }: PracticeInputFormProps
               发送 Send
             </button>
           </form>
-          {isSupported ? (
-            <button
-              type="button"
-              onClick={handleToggleMode}
-              data-testid="practice-input-mode-toggle"
-              className="btn-icon-pressed self-start text-body-sm text-muted underline underline-offset-2"
-            >
-              改用语音 Switch to voice
-            </button>
-          ) : null}
+          <div className="flex items-center gap-3">
+            {isSupported ? (
+              <IconBoxButton
+                icon="🎤"
+                lineOne="改用语音"
+                lineTwo="Switch to voice"
+                onClick={handleToggleMode}
+                data-testid="practice-input-mode-toggle"
+              />
+            ) : null}
+            {asideAction}
+          </div>
         </div>
       )}
     </div>

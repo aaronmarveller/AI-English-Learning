@@ -144,7 +144,7 @@ export function PracticePageContent() {
     if (!emilyMessage || messages.length !== 1) return;
     if (autoSpokenOpeningMessageId === emilyMessage.id) return;
     autoSpokenOpeningMessageId = emilyMessage.id;
-    speakAssertively(emilyMessage.textEn);
+    return speakAssertively(emilyMessage.textEn);
   }, [emilyMessage, messages.length]);
 
   // Silence-timeout nudge: a single-shot timer keyed off the last message's

@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { installScriptedPracticeApi, PRACTICE_URL, resetStorage, submitReply } from "./fixtures";
+import { installScriptedPracticeApi, mockSpeechApis, PRACTICE_URL, resetStorage, submitReply } from "./fixtures";
 
 /**
  * E2E coverage for the Practice page's support & recovery features (ticket
@@ -288,6 +288,48 @@ test.describe("Practice page — support & recovery", () => {
 
     // The learner's first tap anywhere on the page is a genuine user gesture
     // — Emily's opening line plays then instead of staying silent.
+    await page.getByTestId("emily-message-bubble").click();
+    await expect.poll(playCallCount).toBe(2);
+  });
+
+  test("tapping the mic never doubles as the audio-unlock gesture, but a later tap still does", async ({
+    page,
+  }) => {
+    await resetStorage(page);
+    await mockSpeechApis(page);
+    await page.addInitScript(() => {
+      (window as unknown as { __playCallCount: number }).__playCallCount = 0;
+      const originalPlay = HTMLMediaElement.prototype.play;
+      HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
+        const calls = ++(window as unknown as { __playCallCount: number }).__playCallCount;
+        if (calls === 1) return Promise.reject(new DOMException("blocked", "NotAllowedError"));
+        return originalPlay.apply(this);
+      };
+    });
+
+    await page.goto(PRACTICE_URL);
+    await expect(page.getByTestId("emily-message-bubble")).toBeVisible();
+
+    function playCallCount(): Promise<number> {
+      return page.evaluate(() => (window as unknown as { __playCallCount: number }).__playCallCount);
+    }
+
+    // The on-load attempt happens (and is blocked) exactly once.
+    await expect.poll(playCallCount).toBe(1);
+
+    // Tapping the mic starts the microphone right then — it must never also
+    // trigger the fallback replay, since that would play Emily's audio out
+    // of the speaker at the exact moment the mic starts listening (see
+    // AUDIO_UNLOCK_EXEMPT_SELECTOR's doc comment in speech-synthesis.ts).
+    await page.getByTestId("practice-mic-button").click();
+    await expect(page.getByTestId("practice-mic-status")).toHaveText("正在聆听... Listening...");
+    // Give any (incorrect) fallback firing a moment to show up before
+    // asserting it didn't.
+    await page.waitForTimeout(200);
+    expect(await playCallCount()).toBe(1);
+
+    // The exempt tap didn't consume the fallback — a genuinely unrelated one
+    // still triggers it normally.
     await page.getByTestId("emily-message-bubble").click();
     await expect.poll(playCallCount).toBe(2);
   });
