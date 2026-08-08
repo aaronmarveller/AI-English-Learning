@@ -181,9 +181,28 @@ test.describe("Practice page — support & recovery", () => {
     await expect(page.getByTestId("transcript-message")).toHaveCount(3);
   });
 
-  test("Emily's opening line auto-plays as soon as it lands, before the learner does anything", async ({ page }) => {
+  test("Emily's opening line auto-plays (immediately, or via the first-interaction fallback), and never plays again for a later reply", async ({
+    page,
+  }) => {
     await resetStorage(page);
-    const openingAudioRequests = trackRequestsMatching(page, /\/audio\/opening-\d\.mp3$/);
+    // Counts real play() attempts on the opening line's <audio> specifically
+    // (by src), not raw network requests — a blocked attempt still triggers
+    // the browser to fetch the file for buffering even though it never
+    // audibly plays (see the "when the browser blocks autoplay" test below),
+    // so a request count can't distinguish "fetched once, played once" from
+    // "fetched twice because the immediate attempt was blocked and the
+    // fallback replayed it" — both are 2 requests but only the second is a
+    // real bug.
+    await page.addInitScript(() => {
+      (window as unknown as { __openingPlayCount: number }).__openingPlayCount = 0;
+      const originalPlay = HTMLMediaElement.prototype.play;
+      HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
+        if (/\/audio\/opening-\d\.mp3$/.test(this.src)) {
+          (window as unknown as { __openingPlayCount: number }).__openingPlayCount += 1;
+        }
+        return originalPlay.apply(this);
+      };
+    });
     await installScriptedPracticeApi(page, [
       {
         verdict: "accepted",
@@ -194,16 +213,83 @@ test.describe("Practice page — support & recovery", () => {
     ]);
 
     await page.goto(PRACTICE_URL);
-
     await expect(page.getByTestId("emily-message-bubble")).toBeVisible();
-    await expect.poll(() => openingAudioRequests.length).toBeGreaterThan(0);
 
-    // Scoped to the opening line only — a later Emily reply doesn't trigger
-    // a second auto-play (it's only ever heard via the manual replay button).
-    const openingAudioCountAfterOpening = openingAudioRequests.length;
+    // This submit is itself a qualifying "first interaction", covering the
+    // fallback path if the immediate attempt was blocked.
     await submitReply(page, "Hi Emily!");
     await expect(page.getByTestId("emily-message-bubble")).toHaveText("Great, how are you today?");
-    expect(openingAudioRequests.length).toBe(openingAudioCountAfterOpening);
+
+    const openingPlayCount = await page.evaluate(
+      () => (window as unknown as { __openingPlayCount: number }).__openingPlayCount,
+    );
+    // 1 if the immediate attempt succeeded outright, 2 if it was blocked and
+    // the fallback retried it — never more. A 3rd attempt would mean Emily's
+    // later, LLM-generated reply (which has no pregenerated file and speaks
+    // through browser synthesis, not this <audio> path) incorrectly
+    // re-triggered the opening line's audio.
+    expect(openingPlayCount).toBeGreaterThanOrEqual(1);
+    expect(openingPlayCount).toBeLessThanOrEqual(2);
+  });
+
+  test("when the browser blocks autoplay, the opening line plays on the learner's first tap instead", async ({
+    page,
+  }) => {
+    await resetStorage(page);
+    // Simulates a browser that blocks unmuted audio without a prior user
+    // gesture on this origin (most mobile browsers, on a fresh session) —
+    // the very first play() attempt (Practice's on-load autoplay try)
+    // rejects; a later one (triggered by a real click below) succeeds, the
+    // same way a real gesture would unblock the browser's own policy.
+    // speechSynthesis is also forced to fail throughout, so the segment's
+    // overall "did it actually play" signal depends only on the pregenerated
+    // <audio> path every opening line has. `play()` calls are counted onto
+    // `window.__playCallCount` instead of relying on network requests —
+    // `new Audio(src)` alone can trigger a real fetch even when the
+    // subsequent `.play()` is blocked, so a request count can't distinguish
+    // "fetched but blocked" from "actually played".
+    await page.addInitScript(() => {
+      (window as unknown as { __playCallCount: number }).__playCallCount = 0;
+      const originalPlay = HTMLMediaElement.prototype.play;
+      HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
+        const calls = ++(window as unknown as { __playCallCount: number }).__playCallCount;
+        if (calls === 1) return Promise.reject(new DOMException("blocked", "NotAllowedError"));
+        return originalPlay.apply(this);
+      };
+      Object.defineProperty(window, "speechSynthesis", {
+        configurable: true,
+        writable: true,
+        value: {
+          speaking: false,
+          pending: false,
+          paused: false,
+          speak(utterance: SpeechSynthesisUtterance) {
+            utterance.onerror?.(new Event("error") as unknown as SpeechSynthesisErrorEvent);
+          },
+          cancel() {},
+          pause() {},
+          resume() {},
+          getVoices() {
+            return [];
+          },
+        },
+      });
+    });
+
+    await page.goto(PRACTICE_URL);
+    await expect(page.getByTestId("emily-message-bubble")).toBeVisible();
+
+    function playCallCount(): Promise<number> {
+      return page.evaluate(() => (window as unknown as { __playCallCount: number }).__playCallCount);
+    }
+
+    // The on-load autoplay attempt happens (and is blocked) exactly once.
+    await expect.poll(playCallCount).toBe(1);
+
+    // The learner's first tap anywhere on the page is a genuine user gesture
+    // — Emily's opening line plays then instead of staying silent.
+    await page.getByTestId("emily-message-bubble").click();
+    await expect.poll(playCallCount).toBe(2);
   });
 
   test("the restart button clears the conversation and starts over from a fresh opening line", async ({ page }) => {

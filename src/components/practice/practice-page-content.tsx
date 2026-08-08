@@ -16,11 +16,21 @@ import { pickRandomOpeningLine, PRACTICE_HEADLINE, SILENCE_NUDGE } from "@/conte
 import type { ActiveConversationState } from "@/lib/conversation-state-machine";
 import { markStepComplete } from "@/lib/progress";
 import { usePractice } from "@/lib/practice-state";
-import { speak } from "@/lib/speech-synthesis";
+import { speakAssertively } from "@/lib/speech-synthesis";
 import { submitPracticeTurn } from "@/lib/submit-practice-turn";
 
 /** How long Emily's avatar stays in the "talking" state after a new line lands, before settling back to idle. */
 const TALKING_DURATION_MS = 1400;
+
+/**
+ * The opening-line message id `speakAssertively` has already been fired for
+ * (see the effect below) — module-scoped, not a component ref, deliberately:
+ * a `useRef` resets on any full remount of the component (React Strict
+ * Mode's dev-only double-invoke of effects, or a Fast Refresh reload), but
+ * the store-persisted message id doesn't, so keying on it here survives a
+ * remount without risking Emily's opening line audibly playing twice.
+ */
+let autoSpokenOpeningMessageId: string | undefined;
 
 /**
  * How long the learner can go without submitting a reply before Emily sends
@@ -68,10 +78,6 @@ export function PracticePageContent() {
   const [talkingForMessageId, setTalkingForMessageId] = useState<string | undefined>(undefined);
 
   const openingPickedRef = useRef(false);
-  // Guards the opening-line auto-play (below) to fire once per fresh
-  // opening line — reset by handleRestart so a restarted conversation's new
-  // opening line auto-plays again too.
-  const openingSpokenRef = useRef(false);
   // Tracks the in-flight submitPracticeTurn request, if any, so the cleanup
   // effect below can abort it on unmount — same ref-plus-unmount-cleanup
   // shape as practice-input-form.tsx's `controllerRef`/`startListening`.
@@ -126,14 +132,19 @@ export function PracticePageContent() {
   // on a manual 🔊 replay tap. Scoped to the opening line only (messages.length
   // === 1, mirroring MessageBubblePair's own "first message in the
   // conversation" check) — a resumed session that already has turns beyond
-  // the opening line never replays audio on mount. openingSpokenRef guards
-  // against re-firing on unrelated re-renders; handleRestart resets it so a
-  // restarted conversation's fresh opening line auto-plays again too.
+  // the opening line never replays audio on mount. Uses `speakAssertively`,
+  // not `speak`, because most mobile browsers silently block unmuted audio
+  // that isn't triggered by a user gesture — it falls back to the learner's
+  // very next tap/keypress on the page when a bare autoplay attempt is
+  // blocked. Guarded by `autoSpokenOpeningMessageId` (module scope, keyed on
+  // the message's own id) rather than a ref, so a restarted conversation's
+  // new opening line (a genuinely new id) auto-plays again with no manual
+  // reset needed — see handleRestart.
   useEffect(() => {
-    if (openingSpokenRef.current) return;
     if (!emilyMessage || messages.length !== 1) return;
-    openingSpokenRef.current = true;
-    void speak(emilyMessage.textEn);
+    if (autoSpokenOpeningMessageId === emilyMessage.id) return;
+    autoSpokenOpeningMessageId = emilyMessage.id;
+    speakAssertively(emilyMessage.textEn);
   }, [emilyMessage, messages.length]);
 
   // Silence-timeout nudge: a single-shot timer keyed off the last message's
@@ -213,8 +224,9 @@ export function PracticePageContent() {
   // Clean-slate restart, staying on /practice (unlike Review's "重练"
   // button, which navigates back here to trigger the same reset via a fresh
   // mount) — clears the store, then immediately re-seeds a new opening line
-  // so the page never sits without one. openingSpokenRef resets so that new
-  // opening line auto-plays too.
+  // so the page never sits without one. The new line gets a genuinely new
+  // message id, so the auto-play effect above picks it up on its own with no
+  // manual reset needed here.
   function handleRestart() {
     submitControllerRef.current?.abort();
     resetPractice();
@@ -222,7 +234,6 @@ export function PracticePageContent() {
     setErrorMessage(null);
     setIsSubmitting(false);
     setIsAskInChineseOpen(false);
-    openingSpokenRef.current = false;
   }
 
   return (

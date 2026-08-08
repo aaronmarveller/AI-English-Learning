@@ -63,26 +63,23 @@ function playPregeneratedAudio(text: string, rate?: number): Promise<boolean> {
   });
 }
 
-/**
- * Speaks `text` aloud and resolves once playback ends (or immediately, as a
- * no-op, if neither playback path is available — callers don't need to
- * feature-detect first). Never rejects: a synthesis error resolves the same
- * as a normal end, since a failed pronunciation playback shouldn't surface
- * as an app error.
- *
- * Cancels any utterance/audio already in flight (from EITHER playback path)
- * before starting a new one, so repeat clicks (including on a different
- * card, or a click that lands mid-fallback) always restart cleanly instead
- * of overlapping.
- */
-export async function speak(text: string, options: SpeakOptions = {}): Promise<void> {
-  cancelSpeech();
+/** Silence inserted between segments of a "/"-delimited text (see `speak()`). */
+const SEGMENT_PAUSE_MS = 1000;
 
+/**
+ * Speaks one segment through the pregenerated-audio-or-browser-synthesis
+ * pipeline. Never rejects. Resolves `true` if audio actually started
+ * (pregenerated playback, or the browser accepted the synthesis utterance
+ * without erroring), `false` if both paths were unavailable or blocked —
+ * `speakAssertively` below uses this to know whether it needs to fall back
+ * to the next user interaction.
+ */
+async function speakSegment(text: string, options: SpeakOptions): Promise<boolean> {
   const playedPregenerated = await playPregeneratedAudio(text, options.rate);
-  if (playedPregenerated) return;
+  if (playedPregenerated) return true;
 
   if (!isSpeechSynthesisSupported()) {
-    return;
+    return false;
   }
 
   const synth = window.speechSynthesis;
@@ -92,10 +89,99 @@ export async function speak(text: string, options: SpeakOptions = {}): Promise<v
     utterance.lang = options.lang ?? "en-US";
     if (options.rate) utterance.rate = options.rate;
 
-    utterance.onend = () => resolve();
-    utterance.onerror = () => resolve();
+    utterance.onend = () => resolve(true);
+    utterance.onerror = () => resolve(false);
 
     synth.speak(utterance);
+  });
+}
+
+function pause(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Speaks `text` aloud and resolves once playback ends (or immediately, as a
+ * no-op, if neither playback path is available — callers don't need to
+ * feature-detect first). Never rejects: a synthesis error resolves the same
+ * as a normal end, since a failed pronunciation playback shouldn't surface
+ * as an app error. Resolves `true` if audio actually started at any point,
+ * `false` if every segment was blocked/unavailable (e.g. the browser's
+ * autoplay-without-a-user-gesture restriction) — see `speakAssertively`,
+ * which is what most callers that care about this want.
+ *
+ * Cancels any utterance/audio already in flight (from EITHER playback path)
+ * before starting a new one, so repeat clicks (including on a different
+ * card, or a click that lands mid-fallback) always restart cleanly instead
+ * of overlapping.
+ *
+ * `text` containing "/" (e.g. Explore's "Good morning. / Good afternoon. /
+ * Good evening." combo card) is split into segments and spoken one after
+ * another with a fixed silence in between — neither TTS path supports
+ * SSML-style pause markers, so the "/" itself is never sent to either and a
+ * precise gap is inserted here instead. Each segment still goes through the
+ * normal pregenerated-audio-or-browser-fallback lookup independently.
+ */
+export async function speak(text: string, options: SpeakOptions = {}): Promise<boolean> {
+  cancelSpeech();
+
+  const segments = text
+    .split("/")
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  if (segments.length <= 1) {
+    return speakSegment(text, options);
+  }
+
+  let playedAny = false;
+  for (let i = 0; i < segments.length; i++) {
+    const played = await speakSegment(segments[i], options);
+    playedAny = playedAny || played;
+    if (i < segments.length - 1) await pause(SEGMENT_PAUSE_MS);
+  }
+  return playedAny;
+}
+
+/**
+ * Speaks `text` "as soon as possible" despite browsers blocking unmuted
+ * audio that isn't triggered by a user gesture: tries `speak()` immediately
+ * (succeeds outright wherever the browser already grants autoplay — e.g. the
+ * user has interacted with this origin before), and only if that attempt
+ * comes back blocked, arms a one-time listener for the very next
+ * `pointerdown`/`keydown` anywhere in the document and speaks then instead,
+ * since that next interaction is a genuine user gesture the browser will
+ * always honor.
+ *
+ * Deliberately waits for the immediate attempt's outcome before arming
+ * anything, rather than racing "try immediately" against "listen for the
+ * next interaction" — a blocked attempt resolves near-instantly (there's no
+ * playback to wait for), so this adds no perceptible delay, and it means the
+ * fallback listener only ever exists when it's actually needed. Arming it
+ * unconditionally up front would risk a second, unwanted playback: nothing
+ * would tell an early tap (e.g. the learner starting to type while the first
+ * attempt is still quietly succeeding) that it wasn't the fallback's cue.
+ *
+ * For call sites that want a line spoken "on load" (Practice's opening line
+ * — see practice-page-content.tsx) rather than in direct response to a
+ * click, since a bare `speak()` there silently does nothing on browsers that
+ * require a gesture first (most mobile browsers, on a fresh page/session).
+ *
+ * Fire-and-forget by design (no returned promise) — the eventual playback
+ * may happen anywhere from immediately to whenever the learner first taps
+ * the page, so there's nothing meaningful for a caller to await.
+ */
+export function speakAssertively(text: string, options: SpeakOptions = {}): void {
+  void speak(text, options).then((played) => {
+    if (played || typeof document === "undefined") return;
+
+    function onFirstInteraction(): void {
+      document.removeEventListener("pointerdown", onFirstInteraction);
+      document.removeEventListener("keydown", onFirstInteraction);
+      void speak(text, options);
+    }
+    document.addEventListener("pointerdown", onFirstInteraction, { once: true });
+    document.addEventListener("keydown", onFirstInteraction, { once: true });
   });
 }
 
