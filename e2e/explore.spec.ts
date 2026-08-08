@@ -207,6 +207,35 @@ test.describe("Explore page", () => {
     expect(hasHorizontalScroll).toBe(false);
   });
 
+  test("a carousel's pagination dots track the active card as the user scrolls", async ({ page }) => {
+    await resetStorage(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(EXPLORE_URL);
+
+    const dot0 = page.getByTestId("section-greeting-carousel-dot-0");
+    const dot1 = page.getByTestId("section-greeting-carousel-dot-1");
+    const dot2 = page.getByTestId("section-greeting-carousel-dot-2");
+
+    await expect(dot0).toHaveAttribute("data-state", "active");
+    await expect(dot1).toHaveAttribute("data-state", "inactive");
+    await expect(dot2).toHaveAttribute("data-state", "inactive");
+
+    // Nudge the track's scrollLeft to the 2nd card's snap point and fire the
+    // native (non-bubbling) scroll event React's onScroll listens for —
+    // mirrors what a user's swipe produces without needing real touch input.
+    await page.evaluate(() => {
+      const track = document.querySelector('[data-testid="section-greeting-carousel"]');
+      if (!track) throw new Error("carousel track not found");
+      const firstCard = track.children[0] as HTMLElement;
+      track.scrollLeft = firstCard.offsetWidth + 12;
+      track.dispatchEvent(new Event("scroll"));
+    });
+
+    await expect(dot1).toHaveAttribute("data-state", "active");
+    await expect(dot0).toHaveAttribute("data-state", "inactive");
+    await expect(dot2).toHaveAttribute("data-state", "inactive");
+  });
+
   test("the Continue button is reachable without opening any other section or playing anything", async ({
     page,
   }) => {
