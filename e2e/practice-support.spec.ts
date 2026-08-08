@@ -20,12 +20,17 @@ import { installScriptedPracticeApi, PRACTICE_URL, resetStorage, submitReply } f
  * merged).
  */
 
-function trackTurnRequests(page: Page): string[] {
-  const turnRequests: string[] = [];
+/** Collects every request URL matching `pattern`, in order, for later assertion. */
+function trackRequestsMatching(page: Page, pattern: RegExp): string[] {
+  const matched: string[] = [];
   page.on("request", (request) => {
-    if (request.url().includes("/api/practice/turn")) turnRequests.push(request.url());
+    if (pattern.test(request.url())) matched.push(request.url());
   });
-  return turnRequests;
+  return matched;
+}
+
+function trackTurnRequests(page: Page): string[] {
+  return trackRequestsMatching(page, /\/api\/practice\/turn/);
 }
 
 test.describe("Practice page — support & recovery", () => {
@@ -174,5 +179,61 @@ test.describe("Practice page — support & recovery", () => {
 
     // Opening line + learner's echoed turn + Emily's reply.
     await expect(page.getByTestId("transcript-message")).toHaveCount(3);
+  });
+
+  test("Emily's opening line auto-plays as soon as it lands, before the learner does anything", async ({ page }) => {
+    await resetStorage(page);
+    const openingAudioRequests = trackRequestsMatching(page, /\/audio\/opening-\d\.mp3$/);
+    await installScriptedPracticeApi(page, [
+      {
+        verdict: "accepted",
+        reply_en: "Great, how are you today?",
+        reply_zh: "太好了，你今天怎么样？",
+        highlight_key: "natural-paraphrase",
+      },
+    ]);
+
+    await page.goto(PRACTICE_URL);
+
+    await expect(page.getByTestId("emily-message-bubble")).toBeVisible();
+    await expect.poll(() => openingAudioRequests.length).toBeGreaterThan(0);
+
+    // Scoped to the opening line only — a later Emily reply doesn't trigger
+    // a second auto-play (it's only ever heard via the manual replay button).
+    const openingAudioCountAfterOpening = openingAudioRequests.length;
+    await submitReply(page, "Hi Emily!");
+    await expect(page.getByTestId("emily-message-bubble")).toHaveText("Great, how are you today?");
+    expect(openingAudioRequests.length).toBe(openingAudioCountAfterOpening);
+  });
+
+  test("the restart button clears the conversation and starts over from a fresh opening line", async ({ page }) => {
+    await resetStorage(page);
+    await installScriptedPracticeApi(page, [
+      {
+        verdict: "accepted",
+        reply_en: "Great, how are you today?",
+        reply_zh: "太好了，你今天怎么样？",
+        highlight_key: "natural-paraphrase",
+      },
+    ]);
+    await page.goto(PRACTICE_URL);
+
+    await submitReply(page, "Hi Emily!");
+    await expect(page.getByTestId("emily-message-bubble")).toHaveText("Great, how are you today?");
+    await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "current");
+
+    await page.getByTestId("restart-practice-button").click();
+
+    // Back to the very first step, with no learner turn left over from the
+    // discarded conversation.
+    await expect(page.getByTestId("practice-step-greeting")).toHaveAttribute("data-state", "current");
+    await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "upcoming");
+    await expect(page.getByTestId("learner-message-bubble")).toHaveCount(0);
+
+    // A fresh opening line is shown, defaulting to its Chinese caption
+    // expanded — the same "first message in the conversation" treatment as
+    // a brand new session gets.
+    await expect(page.getByTestId("emily-message-bubble")).toBeVisible();
+    await expect(page.getByTestId("emily-message-zh")).toBeVisible();
   });
 });

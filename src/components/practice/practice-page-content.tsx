@@ -6,6 +6,8 @@ import { CourseProgressChip } from "@/components/course-progress";
 import { AskInChineseSheet } from "@/components/practice/ask-in-chinese-sheet";
 import { ConversationProgressSteps } from "@/components/practice/conversation-progress-steps";
 import { EmilyAvatar, type EmilyAvatarState } from "@/components/practice/emily-avatar";
+import { EmilyInfoCard } from "@/components/practice/emily-info-card";
+import { IconBoxButton } from "@/components/practice/icon-box-button";
 import { MessageBubblePair } from "@/components/practice/message-bubble-pair";
 import { PracticeInputForm } from "@/components/practice/practice-input-form";
 import { PracticeTranscriptDrawer } from "@/components/practice/practice-transcript-drawer";
@@ -14,6 +16,7 @@ import { pickRandomOpeningLine, PRACTICE_HEADLINE, SILENCE_NUDGE } from "@/conte
 import type { ActiveConversationState } from "@/lib/conversation-state-machine";
 import { markStepComplete } from "@/lib/progress";
 import { usePractice } from "@/lib/practice-state";
+import { speak } from "@/lib/speech-synthesis";
 import { submitPracticeTurn } from "@/lib/submit-practice-turn";
 
 /** How long Emily's avatar stays in the "talking" state after a new line lands, before settling back to idle. */
@@ -53,6 +56,7 @@ export function PracticePageContent() {
     appendLearnerMessage,
     recordTurnResult,
     appendSupportMessage,
+    resetPractice,
   } = usePractice();
 
   const [avatarState, setAvatarState] = useState<EmilyAvatarState>("idle");
@@ -64,6 +68,10 @@ export function PracticePageContent() {
   const [talkingForMessageId, setTalkingForMessageId] = useState<string | undefined>(undefined);
 
   const openingPickedRef = useRef(false);
+  // Guards the opening-line auto-play (below) to fire once per fresh
+  // opening line — reset by handleRestart so a restarted conversation's new
+  // opening line auto-plays again too.
+  const openingSpokenRef = useRef(false);
   // Tracks the in-flight submitPracticeTurn request, if any, so the cleanup
   // effect below can abort it on unmount — same ref-plus-unmount-cleanup
   // shape as practice-input-form.tsx's `controllerRef`/`startListening`.
@@ -112,6 +120,21 @@ export function PracticePageContent() {
     const timeoutId = setTimeout(() => setAvatarState("idle"), TALKING_DURATION_MS);
     return () => clearTimeout(timeoutId);
   }, [avatarState]);
+
+  // Emily speaks first: auto-plays the opening line's audio as soon as it
+  // lands, so the learner hears her before typing anything, instead of only
+  // on a manual 🔊 replay tap. Scoped to the opening line only (messages.length
+  // === 1, mirroring MessageBubblePair's own "first message in the
+  // conversation" check) — a resumed session that already has turns beyond
+  // the opening line never replays audio on mount. openingSpokenRef guards
+  // against re-firing on unrelated re-renders; handleRestart resets it so a
+  // restarted conversation's fresh opening line auto-plays again too.
+  useEffect(() => {
+    if (openingSpokenRef.current) return;
+    if (!emilyMessage || messages.length !== 1) return;
+    openingSpokenRef.current = true;
+    void speak(emilyMessage.textEn);
+  }, [emilyMessage, messages.length]);
 
   // Silence-timeout nudge: a single-shot timer keyed off the last message's
   // id (or its absence, before the opening line lands) — any new message
@@ -187,48 +210,80 @@ export function PracticePageContent() {
     router.push("/review");
   }
 
+  // Clean-slate restart, staying on /practice (unlike Review's "重练"
+  // button, which navigates back here to trigger the same reset via a fresh
+  // mount) — clears the store, then immediately re-seeds a new opening line
+  // so the page never sits without one. openingSpokenRef resets so that new
+  // opening line auto-plays too.
+  function handleRestart() {
+    submitControllerRef.current?.abort();
+    resetPractice();
+    ensureOpeningMessage(pickRandomOpeningLine());
+    setErrorMessage(null);
+    setIsSubmitting(false);
+    setIsAskInChineseOpen(false);
+    openingSpokenRef.current = false;
+  }
+
   return (
     <div className="flex flex-1 flex-col gap-6">
       <div className="flex flex-col gap-2">
-        <StageTag label="Practice" icon="🎙" />
+        <StageTag label="Practice" icon="🎙" asHeading />
         <CourseProgressChip />
-        <h1 className="text-h1">Practice</h1>
-        <h2 className="text-display text-foreground">{PRACTICE_HEADLINE.en}</h2>
-        <p className="text-body-lg text-muted">{PRACTICE_HEADLINE.zh}</p>
-        <p className="text-body text-muted">
-          用打字和 Emily 完成一次打招呼对话——按自己的节奏来，说得不完美也没关系。
-        </p>
       </div>
 
-      <ConversationProgressSteps current={conversationState} />
+      <EmilyAvatar
+        state={avatarState}
+        topOverlay={<EmilyInfoCard />}
+        headlineOverlay={
+          <div className="flex flex-col gap-1.5">
+            <h2 className="text-h3 leading-tight font-bold text-accent">{PRACTICE_HEADLINE.en}</h2>
+            <p className="text-body-sm font-semibold text-accent">{PRACTICE_HEADLINE.zh}</p>
+            <p className="text-[8px] leading-snug text-foreground/80">
+              和 Emily 进行真实对话练习，
+              <br />
+              建立自信，轻松开口说英语！
+            </p>
+          </div>
+        }
+        bottomOverlay={
+          <MessageBubblePair
+            key={emilyMessage?.id}
+            emilyMessage={emilyMessage ? { textEn: emilyMessage.textEn, textZh: emilyMessage.textZh } : null}
+            learnerMessage={learnerMessage ? { textEn: learnerMessage.textEn, textZh: learnerMessage.textZh } : null}
+            defaultShowChinese={messages.length > 0 && messages[0].id === emilyMessage?.id}
+          />
+        }
+      />
 
-      <div className="flex flex-col items-center gap-4 rounded-card border border-border bg-card p-4">
-        <EmilyAvatar state={avatarState} />
-        <MessageBubblePair
-          key={emilyMessage?.id}
-          emilyMessage={emilyMessage ? { textEn: emilyMessage.textEn, textZh: emilyMessage.textZh } : null}
-          learnerMessage={learnerMessage ? { textEn: learnerMessage.textEn, textZh: learnerMessage.textZh } : null}
-          defaultShowChinese={messages.length > 0 && messages[0].id === emilyMessage?.id}
+      <div className="flex flex-col gap-3 rounded-card border border-border bg-card p-4">
+        <p className="text-center text-body-lg font-semibold text-foreground">
+          <span aria-hidden>🎙</span> Your turn 你的发言
+        </p>
+
+        {errorMessage ? (
+          <p role="alert" data-testid="practice-error" className="text-body-sm text-danger">
+            {errorMessage}
+          </p>
+        ) : null}
+
+        <PracticeInputForm
+          disabled={isComplete || isSubmitting}
+          onSubmit={handleSubmit}
+          asideAction={
+            <IconBoxButton
+              icon="💬"
+              lineOne="中文提问"
+              lineTwo="Ask in Chinese"
+              onClick={() => setIsAskInChineseOpen(true)}
+              disabled={isComplete}
+              data-testid="ask-in-chinese-button"
+            />
+          }
         />
       </div>
 
-      <button
-        type="button"
-        onClick={() => setIsAskInChineseOpen(true)}
-        disabled={isComplete}
-        data-testid="ask-in-chinese-button"
-        className="btn-icon-pressed self-start text-body-sm text-accent underline underline-offset-2 disabled:opacity-50"
-      >
-        中文提问 Ask in Chinese
-      </button>
-
-      {errorMessage ? (
-        <p role="alert" data-testid="practice-error" className="text-body-sm text-danger">
-          {errorMessage}
-        </p>
-      ) : null}
-
-      <PracticeInputForm disabled={isComplete || isSubmitting} onSubmit={handleSubmit} />
+      <ConversationProgressSteps current={conversationState} />
 
       <PracticeTranscriptDrawer />
 
@@ -239,15 +294,23 @@ export function PracticePageContent() {
         />
       ) : null}
 
-      <div className="mt-auto pt-6">
+      <div className="mt-auto flex flex-col gap-3 pt-6">
+        <button
+          type="button"
+          onClick={handleRestart}
+          data-testid="restart-practice-button"
+          className="btn-outline w-full"
+        >
+          重新练习 Restart Practice
+        </button>
         <button
           type="button"
           disabled={!isComplete}
           onClick={handleViewSummary}
           data-testid="view-summary-button"
-          className="btn-primary w-full"
+          className="btn-primary flex w-full items-center justify-center gap-2"
         >
-          查看学习总结 View Summary
+          查看学习总结 View Summary <span aria-hidden>→</span>
         </button>
       </div>
     </div>
