@@ -44,20 +44,20 @@ export function CulturalComparisonBody({ card }: CulturalComparisonBodyProps) {
           <img
             src={card.peopleImage.us.src}
             alt={card.peopleImage.us.alt}
-            className="aspect-[43/20] w-full rounded-card border border-border bg-page object-contain"
+            className="aspect-[43/20] w-full bg-page object-contain"
           />
           {/* eslint-disable-next-line @next/next/no-img-element -- see above */}
           <img
             src={card.peopleImage.china.src}
             alt={card.peopleImage.china.alt}
-            className="aspect-[43/20] w-full rounded-card border border-border bg-page object-contain"
+            className="aspect-[43/20] w-full bg-page object-contain"
           />
         </div>
       ) : null}
 
       <div className="grid grid-cols-[1fr_1fr_1.3fr] gap-2">
         <div
-          className="flex flex-col gap-2 rounded-card border border-border bg-card p-2"
+          className="flex flex-col gap-2 rounded-[8px] border border-border/40 bg-card p-2"
           data-testid={`${card.id}-us`}
         >
           <span className="flex w-fit items-center justify-center rounded-button bg-blue-50 p-1">
@@ -77,7 +77,7 @@ export function CulturalComparisonBody({ card }: CulturalComparisonBodyProps) {
         </div>
 
         <div
-          className="flex flex-col gap-2 rounded-card border border-border bg-card p-2"
+          className="flex flex-col gap-2 rounded-[8px] border border-border/40 bg-card p-2"
           data-testid={`${card.id}-china`}
         >
           <span className="flex w-fit items-center justify-center rounded-button bg-red-50 p-1">
