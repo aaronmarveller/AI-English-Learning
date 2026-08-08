@@ -1,3 +1,7 @@
+---
+status: accepted
+---
+
 # Practice's "response" step accepts a single short phrase, not just the full 3-part combo
 
 The `response` Conversation State originally required the learner's whole turn to combine all three parts of the response combo (acknowledgment + question back + one added detail) in a single reply — a standalone `"And you?"` was deliberately excluded from `acceptedResponses` (ticket 4) so the model wouldn't credit an incomplete turn.
