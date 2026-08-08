@@ -38,6 +38,74 @@ export function isSpeechSynthesisSupported(): boolean {
   );
 }
 
+/**
+ * Name patterns for the higher-quality system voices some platforms offer
+ * alongside their plain default (Edge/Windows' "... Online (Natural)"
+ * voices, Chrome's WaveNet-backed "Google ... English" voices, macOS/iOS's
+ * "(Enhanced)"/"(Premium)" Siri voices) — checked in priority order. The
+ * plain default voice on most platforms reads noticeably more robotic, which
+ * is what browser-synthesis playback sounds like whenever there's no
+ * pregenerated file for the text (every one of Practice's live, per-turn
+ * replies from the LLM — see this file's top doc comment).
+ */
+const PREFERRED_VOICE_NAME_PATTERNS = [/natural/i, /neural/i, /premium/i, /enhanced/i, /google .*english/i, /samantha/i];
+
+/**
+ * Picks the best available voice for `lang` out of `voices`, preferring an
+ * exact-language match and, within that, a name matching
+ * `PREFERRED_VOICE_NAME_PATTERNS` (falling back through the list in order).
+ * Returns `undefined` if nothing in `lang` is available at all — callers
+ * should fall back to the browser's own default voice in that case, not
+ * force a wrong-language one.
+ *
+ * A plain function of its input (no `window`/`SpeechSynthesis` access), so
+ * it's unit-testable without a browser — see speech-synthesis.test.ts.
+ */
+export function pickBestVoiceFrom<V extends { name: string; lang: string }>(
+  voices: readonly V[],
+  lang: string,
+): V | undefined {
+  const langPrefix = lang.split("-")[0].toLowerCase();
+  const matchingLang = voices.filter((voice) => voice.lang.toLowerCase().startsWith(langPrefix));
+
+  for (const pattern of PREFERRED_VOICE_NAME_PATTERNS) {
+    const match = matchingLang.find((voice) => pattern.test(voice.name));
+    if (match) return match;
+  }
+  return matchingLang[0];
+}
+
+/**
+ * Resolves once the browser's voice list is populated — most browsers load
+ * it asynchronously and `getVoices()` returns empty until the `voiceschanged`
+ * event fires, especially on the very first call in a session. Falls back to
+ * whatever `getVoices()` reports after a short timeout if that event never
+ * arrives (some browsers only ever expose a synchronous list and never fire
+ * it), so this never hangs `speakSegment` indefinitely.
+ */
+function getVoicesOnceReady(): Promise<SpeechSynthesisVoice[]> {
+  const synth = window.speechSynthesis;
+  const existing = synth.getVoices();
+  if (existing.length > 0) return Promise.resolve(existing);
+
+  // Some `speechSynthesis` implementations (and test doubles standing in for
+  // one) don't support `addEventListener` at all — nothing left to wait for
+  // in that case beyond whatever `getVoices()` already reported.
+  if (typeof synth.addEventListener !== "function") return Promise.resolve(existing);
+
+  return new Promise((resolve) => {
+    const timeoutId = setTimeout(() => resolve(synth.getVoices()), 500);
+    synth.addEventListener(
+      "voiceschanged",
+      () => {
+        clearTimeout(timeoutId);
+        resolve(synth.getVoices());
+      },
+      { once: true },
+    );
+  });
+}
+
 /** The pre-generated `<audio>` element currently playing, if any — tracked so a new `speak()` call or `cancelSpeech()` can stop it. */
 let currentPregeneratedAudio: HTMLAudioElement | null = null;
 
@@ -83,10 +151,14 @@ async function speakSegment(text: string, options: SpeakOptions): Promise<boolea
   }
 
   const synth = window.speechSynthesis;
+  const lang = options.lang ?? "en-US";
+  const voices = await getVoicesOnceReady();
+  const voice = pickBestVoiceFrom(voices, lang);
 
   return new Promise((resolve) => {
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = options.lang ?? "en-US";
+    utterance.lang = lang;
+    if (voice) utterance.voice = voice;
     if (options.rate) utterance.rate = options.rate;
 
     utterance.onend = () => resolve(true);
