@@ -34,12 +34,15 @@ test.describe("observe page", () => {
     await resetStorage(page);
     await page.goto("/observe?debug=1");
 
-    // Only one plain button on this page — the Continue button — matching
-    // e2e/navigation-spine.spec.ts's assumption that `getByRole("button")`
-    // resolves unambiguously on every learning page.
-    await expect(page.getByRole("button")).toHaveCount(1);
+    // Scoped by name rather than an unscoped role query — same reasoning as
+    // e2e/navigation-spine.spec.ts: TopNav's Progress/Profile stubs are now
+    // real buttons too (tapping either surfaces the "coming soon" toast), so
+    // this page legitimately has more than one <button>. What actually
+    // matters here is that "Continue" itself is unambiguous.
+    const continueButton = page.getByRole("button", { name: /continue/i });
+    await expect(continueButton).toHaveCount(1);
 
-    await page.getByRole("button", { name: /continue/i }).click();
+    await continueButton.click();
     await expect(page).toHaveURL(/\/explore(\?|$)/);
   });
 
