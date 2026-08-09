@@ -25,6 +25,10 @@ export function CulturalComparisonBody({ card }: CulturalComparisonBodyProps) {
         className="flex flex-col gap-1 rounded-card bg-accent-soft p-4"
         data-testid={`${card.id}-us`}
       >
+        {card.images?.us ? (
+          // eslint-disable-next-line @next/next/no-img-element -- editorial card image
+          <img src={card.images.us} alt="" className="aspect-[16/9] w-full rounded-card object-cover" />
+        ) : null}
         <span className="text-body-sm font-medium text-foreground">{card.us.label}</span>
         <p className="text-body text-foreground">{card.us.description}</p>
       </div>
@@ -33,6 +37,10 @@ export function CulturalComparisonBody({ card }: CulturalComparisonBodyProps) {
         className="flex flex-col gap-1 rounded-card border border-border bg-card p-4"
         data-testid={`${card.id}-china`}
       >
+        {card.images?.china ? (
+          // eslint-disable-next-line @next/next/no-img-element -- editorial card image
+          <img src={card.images.china} alt="" className="aspect-[16/9] w-full rounded-card object-cover" />
+        ) : null}
         <span className="text-body-sm font-medium text-foreground">{card.china.label}</span>
         <p className="text-body text-foreground">{card.china.description}</p>
       </div>

@@ -38,6 +38,7 @@ export type CulturalInsightCard = {
   };
   /** The "why" explanation behind the difference — never just stated as fact. */
   why: string;
+  images?: { us: string; china: string };
 };
 
 export const CULTURAL_INSIGHT_CARDS: CulturalInsightCard[] = [
@@ -76,6 +77,10 @@ export const CULTURAL_INSIGHT_CARDS: CulturalInsightCard[] = [
         "打招呼本身就可以是完整的社交动作——说一声「你好」或点头示意，然后各走各的路，是完全正常、不会显得冷淡的收尾方式。",
     },
     why: "为什么：英语打招呼后接着聊几句，是为了避免「话说一半突然安静」的尴尬——很多英语使用者把突然沉默当成不自然的信号，于是用几句小话题填一下再道别。中文语境里，礼貌到位就可以结束，继续追问反而可能显得没话找话。",
+    images: {
+      us: "/assets/notice/keep-chatting-us.webp",
+      china: "/assets/notice/keep-chatting-china.webp",
+    },
   },
   {
     id: "small-talk-topics",
@@ -92,5 +97,9 @@ export const CULTURAL_INSIGHT_CARDS: CulturalInsightCard[] = [
         "问候更多是「吃了吗」「去哪儿呀」这类具体问题，同样也未必是真想知道细节。接着聊的话题往往更贴近具体生活——最近工作忙不忙、孩子怎么样、家里人身体好不好。",
     },
     why: "为什么：这类寒暄话题的作用都是打开一个安全、无压力的开场，让对话能往下走而不冒犯任何人——两边文化选的都是「安全话题」这个功能，只是具体聊什么不一样。知道这一点，就不用再纠结要不要认真回答 \"How are you?\"，接一句 \"Good, thanks! And you?\" 就够了。",
+    images: {
+      us: "/assets/notice/small-talk-topics-us.webp",
+      china: "/assets/notice/small-talk-topics-china.webp",
+    },
   },
 ];

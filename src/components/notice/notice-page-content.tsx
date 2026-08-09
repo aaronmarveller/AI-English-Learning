@@ -32,9 +32,7 @@ import { CULTURAL_INSIGHT_CARDS, NOTICE_HEADLINE } from "@/content/notice";
  * uses (see src/app/(learning)/explore/page.tsx).
  */
 export function NoticePageContent() {
-  const [openCardId, setOpenCardId] = useState<string | null>(
-    CULTURAL_INSIGHT_CARDS[0]?.id ?? null,
-  );
+  const [openCardId, setOpenCardId] = useState<string | null>(null);
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-6">

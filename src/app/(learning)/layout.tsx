@@ -59,6 +59,7 @@ export default function LearningLayout({ children }: { children: ReactNode }) {
 
       <header className="flex flex-col gap-3 border-b border-border px-5 py-4">
         <TopNav
+          showStubNav={false}
           left={
             <Link
               href="/"

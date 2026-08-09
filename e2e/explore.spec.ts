@@ -79,29 +79,25 @@ declare global {
 }
 
 test.describe("Explore page", () => {
-  test("defaults to only 打招呼 expanded; the other three sections start collapsed", async ({
+  test("defaults to all sections collapsed", async ({
     page,
   }) => {
     await resetStorage(page);
     await page.goto(EXPLORE_URL);
 
-    await expect(page.getByTestId("section-greeting")).toHaveAttribute("data-state", "expanded");
+    await expect(page.getByTestId("section-greeting")).toHaveAttribute("data-state", "collapsed");
     await expect(page.getByTestId("section-checkin")).toHaveAttribute("data-state", "collapsed");
     await expect(page.getByTestId("section-response")).toHaveAttribute("data-state", "collapsed");
     await expect(page.getByTestId("section-closing")).toHaveAttribute("data-state", "collapsed");
 
-    // Greeting's cards are visible...
-    await expect(page.getByTestId("expression-card-greeting-hi")).toBeVisible();
-    await expect(page.getByTestId("expression-card-greeting-good-morning")).toBeVisible();
-    await expect(page.getByTestId("expression-card-greeting-hey-there")).toBeVisible();
-
-    // ...the other three sections' cards/bodies are not.
+    // Every section's body is hidden until the learner opens it.
+    await expect(page.getByTestId("section-greeting-body")).not.toBeVisible();
     await expect(page.getByTestId("section-checkin-body")).not.toBeVisible();
     await expect(page.getByTestId("section-response-body")).not.toBeVisible();
     await expect(page.getByTestId("section-closing-body")).not.toBeVisible();
   });
 
-  test("opening two non-Greeting sections independently expands both without collapsing Greeting or each other", async ({
+  test("opening two sections independently expands both", async ({
     page,
   }) => {
     await resetStorage(page);
@@ -110,13 +106,13 @@ test.describe("Explore page", () => {
     await page.getByTestId("section-checkin-header").click();
     await page.getByTestId("section-closing-header").click();
 
-    await expect(page.getByTestId("section-greeting")).toHaveAttribute("data-state", "expanded");
+    await expect(page.getByTestId("section-greeting")).toHaveAttribute("data-state", "collapsed");
     await expect(page.getByTestId("section-checkin")).toHaveAttribute("data-state", "expanded");
     await expect(page.getByTestId("section-closing")).toHaveAttribute("data-state", "expanded");
     // Untouched section stays collapsed.
     await expect(page.getByTestId("section-response")).toHaveAttribute("data-state", "collapsed");
 
-    await expect(page.getByTestId("section-greeting-body")).toBeVisible();
+    await expect(page.getByTestId("section-greeting-body")).not.toBeVisible();
     await expect(page.getByTestId("section-checkin-body")).toBeVisible();
     await expect(page.getByTestId("section-closing-body")).toBeVisible();
   });
@@ -128,10 +124,10 @@ test.describe("Explore page", () => {
     await page.getByTestId("section-checkin-header").click();
     await expect(page.getByTestId("section-checkin")).toHaveAttribute("data-state", "expanded");
 
-    // Toggling Check-in back off shouldn't affect Greeting, which was never touched.
+    // Toggling Check-in back off leaves the untouched Greeting collapsed.
     await page.getByTestId("section-checkin-header").click();
     await expect(page.getByTestId("section-checkin")).toHaveAttribute("data-state", "collapsed");
-    await expect(page.getByTestId("section-greeting")).toHaveAttribute("data-state", "expanded");
+    await expect(page.getByTestId("section-greeting")).toHaveAttribute("data-state", "collapsed");
   });
 
   test("回应 section shows its three steps in fixed ①②③ order, plus a combo card", async ({

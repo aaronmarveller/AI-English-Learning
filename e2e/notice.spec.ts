@@ -16,22 +16,18 @@ import { resetStorage } from "./fixtures";
 const NOTICE_URL = "/notice?debug=1";
 
 test.describe("Notice page", () => {
-  test("defaults to only the first Cultural Insight Card expanded; the other two start collapsed", async ({
+  test("defaults to all Cultural Insight Cards collapsed", async ({
     page,
   }) => {
     await resetStorage(page);
     await page.goto(NOTICE_URL);
 
-    await expect(page.getByTestId("who-greets")).toHaveAttribute("data-state", "expanded");
+    await expect(page.getByTestId("who-greets")).toHaveAttribute("data-state", "collapsed");
     await expect(page.getByTestId("keep-chatting")).toHaveAttribute("data-state", "collapsed");
     await expect(page.getByTestId("small-talk-topics")).toHaveAttribute("data-state", "collapsed");
 
-    // The first card's US/China comparison and "why" explanation are visible...
-    await expect(page.getByTestId("who-greets-us")).toBeVisible();
-    await expect(page.getByTestId("who-greets-china")).toBeVisible();
-    await expect(page.getByTestId("who-greets-why")).toBeVisible();
-
-    // ...the other two cards' bodies are not.
+    // Every card body is hidden until the learner opens it.
+    await expect(page.getByTestId("who-greets-body")).not.toBeVisible();
     await expect(page.getByTestId("keep-chatting-body")).not.toBeVisible();
     await expect(page.getByTestId("small-talk-topics-body")).not.toBeVisible();
   });
@@ -42,7 +38,7 @@ test.describe("Notice page", () => {
     await resetStorage(page);
     await page.goto(NOTICE_URL);
 
-    await expect(page.getByTestId("who-greets")).toHaveAttribute("data-state", "expanded");
+    await expect(page.getByTestId("who-greets")).toHaveAttribute("data-state", "collapsed");
 
     await page.getByTestId("keep-chatting-header").click();
 
@@ -73,8 +69,7 @@ test.describe("Notice page", () => {
     await resetStorage(page);
     await page.goto(NOTICE_URL);
 
-    // Collapse the default-open first card so nothing at all is expanded.
-    await page.getByTestId("who-greets-header").click();
+    // All cards start collapsed, so Continue is immediately available.
     await expect(page.getByTestId("who-greets")).toHaveAttribute("data-state", "collapsed");
     await expect(page.getByTestId("keep-chatting")).toHaveAttribute("data-state", "collapsed");
     await expect(page.getByTestId("small-talk-topics")).toHaveAttribute("data-state", "collapsed");
