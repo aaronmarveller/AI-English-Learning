@@ -149,6 +149,21 @@ export function startListening(callbacks: StartListeningCallbacks): ListeningCon
     if (!result) return;
     const transcript = result[0]?.transcript ?? "";
     callbacks.onResult(transcript, result.isFinal);
+    if (result.isFinal) {
+      // continuous=false is documented to auto-stop the recognizer once a
+      // final result lands, but real implementations vary in how promptly
+      // that actually happens — closing it explicitly here, rather than
+      // trusting that timing, avoids a learner who taps the mic again for
+      // their next turn (well within a couple seconds, in practice) racing a
+      // previous session that hasn't actually released the microphone yet,
+      // which reads as "the mic only ever captures the first turn". Deferred
+      // one microtask so it runs after this dispatch finishes rather than
+      // reentrantly from inside the event handler still delivering this
+      // result (calling stop() synchronously here can end the recognizer
+      // before its own event dispatch has finished notifying every
+      // listener).
+      queueMicrotask(() => recognition.stop());
+    }
   };
 
   recognition.onerror = (event) => {

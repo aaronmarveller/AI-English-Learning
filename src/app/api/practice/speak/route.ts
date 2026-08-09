@@ -14,6 +14,18 @@ import { NextResponse } from "next/server";
  * straight to the browser's own (often noticeably more robotic) speech
  * synthesis.
  *
+ * GET, with `text` as a query param, not POST-with-body: the client
+ * (src/lib/speech-synthesis.ts's playLiveGeneratedAudio) points an
+ * `<audio src>` straight at this URL instead of doing its own
+ * fetch()+blob()+createObjectURL() dance. That used to matter only for
+ * simplicity; on iOS/iPadOS Safari it turned out to matter for correctness —
+ * WebKit's `<audio>` element reliably refused to play a `blob:` (and even a
+ * `data:`) URL built from an in-JS fetch of this exact same audio, with a
+ * `NotSupportedError`, even though the identical bytes played fine from a
+ * plain http(s) URL. A GET endpoint lets the browser fetch the audio itself,
+ * the same way the pregenerated-file tier already does — which real devices
+ * have never had trouble with.
+ *
  * This is the ONLY server-side place `OPENAI_API_KEY` is read for runtime
  * traffic (scripts/generate-audio.ts reads its own copy separately, for the
  * one-off pre-generation script) — Route Handlers run server-side only in
@@ -30,25 +42,27 @@ export const runtime = "nodejs";
 /** Generous but not unbounded — Emily's live replies are always short conversational sentences. */
 const MAX_TEXT_LENGTH = 500;
 
-function parseRequestBody(body: unknown): { text: string } | null {
-  if (typeof body !== "object" || body === null) return null;
-  const b = body as Record<string, unknown>;
-  if (typeof b.text !== "string") return null;
-  const text = b.text.trim();
+/**
+ * Repeat requests for the exact same reply text happen for real: the 🔊
+ * replay button (message-bubble-pair.tsx) re-speaks a line the learner's
+ * already heard. A day is generous enough to cover replays within the same
+ * practice session (this app has no accounts/history beyond that) without
+ * pretending the text→audio mapping is permanent — OpenAI's TTS output for
+ * identical input isn't guaranteed byte-for-byte stable long-term, so this
+ * deliberately isn't `immutable`.
+ */
+const CACHE_CONTROL = "public, max-age=86400";
+
+function parseText(raw: string | null): string | null {
+  if (raw === null) return null;
+  const text = raw.trim();
   if (text.length === 0 || text.length > MAX_TEXT_LENGTH) return null;
-  return { text };
+  return text;
 }
 
-export async function POST(request: Request): Promise<Response> {
-  let rawBody: unknown;
-  try {
-    rawBody = await request.json();
-  } catch {
-    return NextResponse.json({ error: "invalid_json" }, { status: 400 });
-  }
-
-  const parsed = parseRequestBody(rawBody);
-  if (!parsed) {
+export async function GET(request: Request): Promise<Response> {
+  const text = parseText(new URL(request.url).searchParams.get("text"));
+  if (!text) {
     return NextResponse.json({ error: "invalid_request" }, { status: 400 });
   }
 
@@ -61,7 +75,12 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const model = process.env.OPENAI_TTS_MODEL ?? "tts-1";
-  const voice = process.env.OPENAI_TTS_VOICE ?? "alloy";
+  // Must match scripts/generate-audio.ts's own fallback — a live reply and
+  // the pregenerated opening line are meant to sound like the same speaker
+  // (see this file's top doc comment). "shimmer": Emily is written and
+  // illustrated as a woman; "alloy" (the OpenAI SDK's own default) reads as
+  // male/neutral.
+  const voice = process.env.OPENAI_TTS_VOICE ?? "shimmer";
 
   let upstream: Response;
   try {
@@ -71,7 +90,7 @@ export async function POST(request: Request): Promise<Response> {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ model, voice, input: parsed.text, response_format: "mp3" }),
+      body: JSON.stringify({ model, voice, input: text, response_format: "mp3" }),
     });
   } catch (error) {
     console.error("practice/speak: network error calling OpenAI TTS", error);
@@ -85,6 +104,6 @@ export async function POST(request: Request): Promise<Response> {
 
   return new Response(upstream.body, {
     status: 200,
-    headers: { "Content-Type": "audio/mpeg" },
+    headers: { "Content-Type": "audio/mpeg", "Cache-Control": CACHE_CONTROL },
   });
 }

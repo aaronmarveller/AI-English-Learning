@@ -8,6 +8,7 @@ import {
   type ListeningController,
   type SpeechRecognitionErrorReason,
 } from "@/lib/speech-recognition";
+import { setMicListening } from "@/lib/speech-synthesis";
 
 type PracticeInputFormProps = {
   disabled: boolean;
@@ -127,6 +128,29 @@ export function PracticeInputForm({ disabled, onSubmit, asideAction }: PracticeI
 
   function handleMicClick() {
     if (disabled || micState === "listening") return;
+    // Emily now auto-speaks every one of her lines (see
+    // practice-page-content.tsx), so by the time the learner taps the mic
+    // for their next turn, her reply's own audio is very often either
+    // already playing or about to start (its live-TTS fetch may still be in
+    // flight — see speech-synthesis.ts's setMicListening doc comment for
+    // both orderings). Left alone, that audio plays back through the same
+    // microphone the recognizer just started listening on, which real
+    // devices reliably let bleed into (or let echo-cancellation
+    // over-aggressively strip out) the learner's own voice — the same class
+    // of collision ticket/commit 5e94690 already fixed once for the opening
+    // line specifically, now recurring on every turn since every reply
+    // auto-plays. setMicListening(true) both cancels whatever's already
+    // playing right now AND stops any of Emily's audio still in flight from
+    // starting later while this listening session is still active.
+    setMicListening(true);
+    // Defensively release any prior recognition session before starting a
+    // new one. The normal path already closes the previous recognizer
+    // itself (see speech-recognition.ts's startListening, which stops it
+    // once a final result lands), but this is a second, cheap line of
+    // defense — a no-op against an already-stopped recognizer — for any
+    // other path that ends a turn without a clean final result (e.g. an
+    // error).
+    controllerRef.current?.stop();
     setInterimTranscript("");
     setMicState("listening");
 
@@ -136,19 +160,21 @@ export function PracticeInputForm({ disabled, onSubmit, asideAction }: PracticeI
           setInterimTranscript(transcript);
           return;
         }
+        setMicListening(false);
         setMicState("idle");
         setInterimTranscript("");
-        // Deliberately doesn't call controllerRef.current?.stop() here: a
-        // real recognizer already auto-stops itself right after a final
-        // result (continuous=false), and calling stop() reentrantly from
-        // inside the very event handler that's still dispatching that
-        // result is a footgun (it raced e2e/fixtures.ts's mock, which nulls
+        // Not calling controllerRef.current?.stop() here — the recognizer
+        // already stops itself right after a final result (see
+        // speech-recognition.ts's startListening) — and calling it
+        // reentrantly from inside the very event handler that's still
+        // dispatching this result raced e2e/fixtures.ts's mock, which nulls
         // its shared "active recognition" reference synchronously from
-        // inside stop() before the mock had finished dispatching).
+        // inside stop() before the mock had finished dispatching.
         const trimmed = transcript.trim();
         if (trimmed.length > 0) onSubmit(trimmed);
       },
       onError: (reason) => {
+        setMicListening(false);
         setMicState("idle");
         setInterimTranscript("");
         if (isFallbackTrigger(reason)) {
@@ -156,6 +182,7 @@ export function PracticeInputForm({ disabled, onSubmit, asideAction }: PracticeI
         }
       },
       onEnd: () => {
+        setMicListening(false);
         setMicState("idle");
       },
     });
@@ -163,6 +190,7 @@ export function PracticeInputForm({ disabled, onSubmit, asideAction }: PracticeI
 
   function handleToggleMode() {
     controllerRef.current?.stop();
+    setMicListening(false);
     setMicState("idle");
     setInterimTranscript("");
     setManualMode(mode === "mic" ? "text" : "mic");

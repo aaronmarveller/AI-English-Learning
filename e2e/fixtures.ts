@@ -117,12 +117,33 @@ export type ScriptedTurnResponse = {
  * parser treats as authoritative — so this stub keeps exercising the exact
  * client-side parsing code path production traffic does, rather than a
  * special-cased shortcut.
+ *
+ * Emily now auto-speaks every one of her replies, not just the opening line
+ * (see practice-page-content.tsx), so driving even a single scripted turn
+ * through this helper makes the client synthesize that reply's audio via
+ * src/app/api/practice/speak/route.ts (a GET, with the text as a `?text=`
+ * query param — see that route's own doc comment for why it's a GET and not
+ * a POST-with-body). That route is stubbed here too, by default, so specs
+ * that only care about the conversation itself don't silently start
+ * depending on (and paying for) a real OpenAI TTS call. A spec that
+ * specifically wants to assert on the speak request itself (e.g. "the replay
+ * button synthesizes...", "falls back to browser synthesis when...")
+ * registers its own `page.route("**\/api/practice/speak**", ...)` AFTER
+ * calling this — Playwright matches routes in reverse registration order, so
+ * the spec's own handler wins over this default. The trailing `**` (not just
+ * a bare path) matters: the glob must still match once the real `?text=...`
+ * query string is appended, or the route silently falls through to the real
+ * (unmocked, and for a GET, 405) handler instead.
  */
 export async function installScriptedPracticeApi(
   page: Page,
   responses: ScriptedTurnResponse[],
   options: { delayMs?: number } = {},
 ): Promise<void> {
+  await page.route("**/api/practice/speak**", async (route) => {
+    await route.fulfill({ status: 200, contentType: "audio/mpeg", body: Buffer.from([0, 0, 0, 0]) });
+  });
+
   let callIndex = 0;
   await page.route(TURN_ENDPOINT, async (route: Route) => {
     const response = responses[Math.min(callIndex, responses.length - 1)];
@@ -222,17 +243,46 @@ export async function mockSpeechApis(page: Page): Promise<void> {
       onresult: ((event: Event) => void) | null = null;
       onerror: ((event: Event) => void) | null = null;
       onend: (() => void) | null = null;
+      // Whether this instance still (from the mock's point of view) holds
+      // the microphone — false from start() until stop()/abort() releases
+      // it. Models a real constraint this stub used to ignore entirely: a
+      // session that's never explicitly stopped still holds the microphone,
+      // so a different instance starting on top of it fails (see start()
+      // below). This is what let real-world "mic only ever captures the
+      // first turn" bugs slip past this suite — src/lib/speech-recognition.ts's
+      // startListening now stops the recognizer itself as soon as a final
+      // result lands instead of trusting continuous=false's own
+      // (implementation-variable-timing) auto-stop.
+      stopped = true;
 
       start() {
+        if (activeRecognition && activeRecognition !== this && !activeRecognition.stopped) {
+          // Simulates the microphone still being held by a prior session
+          // that was never stopped — silently, via a non-fallback-triggering
+          // error (see practice-input-form.tsx's FallbackTrigger — "aborted"
+          // just resets the mic to idle, it doesn't switch to text input),
+          // matching the reported symptom of the mic quietly doing nothing
+          // on later turns rather than visibly explaining itself. An arrow
+          // function here (not a `this`-aliasing local) picks up `start()`'s
+          // own `this` lexically.
+          queueMicrotask(() => {
+            const event = Object.assign(new Event("error"), { error: "aborted" });
+            this.onerror?.(event);
+            this.dispatchEvent(event);
+          });
+          return;
+        }
         // The module-level controller (emitResult/emitError/emitEnd) needs
         // a reference to whichever instance the app under test last started.
         // eslint-disable-next-line @typescript-eslint/no-this-alias
         activeRecognition = this;
+        this.stopped = false;
         this.onstart?.();
         this.dispatchEvent(new Event("start"));
       }
 
       stop() {
+        this.stopped = true;
         this.onend?.();
         this.dispatchEvent(new Event("end"));
         if (activeRecognition === this) activeRecognition = null;
@@ -247,21 +297,29 @@ export async function mockSpeechApis(page: Page): Promise<void> {
 
     const controller: Window["__mockSpeechRecognition"] = {
       emitResult(transcript, options = {}) {
-        if (!activeRecognition) return;
+        // Snapshotting into a local avoids a reentrancy hazard: a handler
+        // this synchronously invokes (onresult below) may itself call
+        // stop() on the very same instance, which nulls the module-level
+        // `activeRecognition` — reading that shared variable again for the
+        // dispatchEvent call below would then throw instead of finishing
+        // this dispatch.
+        const target = activeRecognition;
+        if (!target) return;
         const alternative = { transcript, confidence: options.confidence ?? 0.9 };
         const result = Object.assign([alternative], { isFinal: options.isFinal ?? true });
         const event = Object.assign(new Event("result"), {
           results: Object.assign([result], { length: 1 }),
           resultIndex: 0,
         });
-        activeRecognition.onresult?.(event);
-        activeRecognition.dispatchEvent(event);
+        target.onresult?.(event);
+        target.dispatchEvent(event);
       },
       emitError(error) {
-        if (!activeRecognition) return;
+        const target = activeRecognition;
+        if (!target) return;
         const event = Object.assign(new Event("error"), { error });
-        activeRecognition.onerror?.(event);
-        activeRecognition.dispatchEvent(event);
+        target.onerror?.(event);
+        target.dispatchEvent(event);
       },
       emitEnd() {
         activeRecognition?.stop();

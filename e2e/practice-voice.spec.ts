@@ -75,6 +75,61 @@ test.describe("Practice page — voice input", () => {
     await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "current");
   });
 
+  test("a second mic turn also captures and submits speech", async ({ page }) => {
+    // Regression coverage: the recognizer used to rely entirely on
+    // continuous=false's own auto-stop after a final result, instead of
+    // explicitly stopping itself (see src/lib/speech-recognition.ts's
+    // startListening). mockSpeechApis's stub now models the real risk that
+    // created — a session that's never explicitly stopped still holds the
+    // microphone, so starting a new one on top of it fails — which is what
+    // makes this test actually exercise the fix instead of trivially
+    // passing regardless of it.
+    await resetStorage(page);
+    await mockSpeechApis(page);
+    // delayMs: without it, the mocked route can resolve fast enough that a
+    // turn fully completes — replacing the learner bubble with Emily's next
+    // line — before the assertions on that transient bubble below even get
+    // their first poll (see installScriptedPracticeApi's own doc comment).
+    await installScriptedPracticeApi(
+      page,
+      [
+        {
+          verdict: "accepted",
+          reply_en: "Great, how are you today?",
+          reply_zh: "太好了，你今天怎么样？",
+          highlight_key: "natural-paraphrase",
+        },
+        {
+          verdict: "accepted",
+          reply_en: "Nice! Have a good one.",
+          reply_zh: "不错！祝你今天愉快。",
+          highlight_key: "natural-paraphrase",
+        },
+      ],
+      { delayMs: 300 },
+    );
+    await page.goto(PRACTICE_URL);
+
+    const micButton = page.getByTestId("practice-mic-button");
+
+    // Turn 1
+    await micButton.click();
+    await expect(micButton).toHaveAttribute("data-state", "listening");
+    await page.evaluate(() => window.__mockSpeechRecognition?.emitResult("Hi there", { isFinal: true }));
+    await expect(page.getByTestId("learner-message-bubble")).toHaveText("Hi there");
+    await expect(page.getByTestId("emily-message-bubble")).toHaveText("Great, how are you today?");
+    await expect(micButton).toHaveAttribute("data-state", "idle");
+
+    // Turn 2 — this is the reported bug: the mic should capture again.
+    await micButton.click();
+    await expect(micButton).toHaveAttribute("data-state", "listening");
+    await page.evaluate(() =>
+      window.__mockSpeechRecognition?.emitResult("I'm good, how about you?", { isFinal: true }),
+    );
+    await expect(page.getByTestId("learner-message-bubble")).toHaveText("I'm good, how about you?");
+    await expect(page.getByTestId("emily-message-bubble")).toHaveText("Nice! Have a good one.");
+  });
+
   test("an interim result is shown live near the mic before the final result is submitted", async ({ page }) => {
     await resetStorage(page);
     await mockSpeechApis(page);

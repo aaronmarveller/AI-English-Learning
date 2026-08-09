@@ -79,7 +79,7 @@ export type CulturalInsightCard = {
 export const CULTURAL_INSIGHT_CARDS: CulturalInsightCard[] = [
   {
     id: "who-greets",
-    title: "会和谁这样打招呼",
+    title: "会和谁这样打招呼？",
     subtitle: "Who You Greet This Way",
     peopleImage: {
       us: {
@@ -92,14 +92,14 @@ export const CULTURAL_INSIGHT_CARDS: CulturalInsightCard[] = [
       },
     },
     us: {
-      phrase: "Hi! / Hey there!",
+      phrase: "How are you?",
       items: ["陌生人", "熟人", "都可以说"],
     },
     china: {
-      phrase: "你好",
+      phrase: "吃了吗？\n去哪儿？\n最近怎么样？",
       items: ["更多用于熟人之间"],
     },
-    why: "美国的问候只是礼仪；中文里主动问候意味着「认识」，门槛更高。",
+    why: '"How are you?" 通常只是一个友好的问候，不是真的想了解你的近况，所以简单回应即可。',
     preview: {
       us: "👋🌍",
       china: "👋👨‍👩‍👧",
@@ -107,21 +107,21 @@ export const CULTURAL_INSIGHT_CARDS: CulturalInsightCard[] = [
   },
   {
     id: "keep-chatting",
-    title: "打完招呼会继续聊吗",
+    title: "打完招呼以后，会继续聊吗？",
     // Deliberately not "...Continue?" — e2e/navigation-spine.spec.ts and
     // e2e/notice.spec.ts both scope their Continue-button query by the
     // accessible-name substring "Continue" and assume it's unique on the
     // page; this card's own header button would otherwise match too.
     subtitle: "Does the Chat Go On?",
     us: {
-      phrase: "So, how's it going?",
-      items: ["再聊几句", "自然过渡", "才算结束"],
+      phrase: "通常会继续聊天",
+      items: ["回应对方", "回问一句", "再聊几句"],
     },
     china: {
-      phrase: "你好，再见",
-      items: ["打完即可", "点头示意", "各走各路"],
+      phrase: "打完招呼后",
+      items: ["有时直接结束", "不一定继续聊天"],
     },
-    why: "英语后聊几句避免冷场；中文礼貌到位即可，追问反而没话找话。",
+    why: "英语里的问候通常只是对话的开始，简单回应后，再继续聊几句会更自然。",
     preview: {
       us: "😃↔😃",
       china: "😃✓",
@@ -129,19 +129,19 @@ export const CULTURAL_INSIGHT_CARDS: CulturalInsightCard[] = [
   },
   {
     id: "small-talk-topics",
-    title: "通常会聊什么",
+    title: "通常会聊什么？",
     subtitle: "What They Talk About",
     us: {
-      phrase: "How are you?",
-      items: ["天气", "今天过得怎么样", "周末计划"],
+      phrase: "常见话题",
+      items: ["天气", "今天怎么样", "周末安排"],
     },
     china: {
-      phrase: "吃了吗？去哪儿？最近怎么样？",
-      items: ["工作忙不忙", "孩子/家人", "身体好不好"],
+      phrase: "常见话题",
+      items: ["吃饭", "工作/学习", "家人"],
     },
-    why: "\"How are you?\" 只是友好问候，不是想了解近况，简单回应即可。",
+    why: "不同文化有不同的聊天习惯。了解这些常见话题，可以帮助你更自然地延续对话。",
     preview: {
-      us: "☀️☕🐶",
+      us: "☀️📅🎉",
       china: "🍚💼👨‍👩‍👧",
     },
   },

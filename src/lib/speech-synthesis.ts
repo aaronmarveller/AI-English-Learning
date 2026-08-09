@@ -116,6 +116,43 @@ function getVoicesOnceReady(): Promise<SpeechSynthesisVoice[]> {
 let currentAudio: HTMLAudioElement | null = null;
 
 /**
+ * Whether speech recognition is currently capturing the learner's mic — see
+ * `setMicListening` below, the sole way this is ever changed.
+ */
+let micListening = false;
+
+/**
+ * Tells this module whether speech recognition is currently listening, so
+ * every playback tier in `speakSegment` can refuse to start audio that would
+ * play back through the speaker and bleed into that same microphone. Called
+ * by practice-input-form.tsx — the sole owner of the mic's lifecycle — at the
+ * same points it already tracks its own `micState`.
+ *
+ * This guards two different orderings of the same speaker-into-microphone
+ * collision (see `AUDIO_UNLOCK_EXEMPT_SELECTOR`'s doc comment below for the
+ * underlying hardware reason this matters):
+ *
+ * - Audio already playing, or requested but not yet audible, when the mic
+ *   starts: handled immediately here, by `cancelSpeech()`. `currentAudio` is
+ *   assigned synchronously by every tier before it ever calls `play()` (see
+ *   `playPregeneratedAudio`/`playLiveGeneratedAudio`), including the
+ *   live-generated tier's own network fetch — which now happens *inside* the
+ *   `<audio>` element itself (the browser fetches `/api/practice/speak`
+ *   directly; see that function's doc comment) rather than as a JS-visible
+ *   `fetch()` this module awaits — so `cancelSpeech()`'s `currentAudio?.pause()`
+ *   correctly reaches it regardless of how far into loading it is.
+ * - The mic is already listening when a *new* `speak()` call is made (e.g.
+ *   the 🔊 replay button while still mid-turn): nothing transitions at that
+ *   moment for `cancelSpeech()` above to react to, so each tier in
+ *   `speakSegment` separately checks `micListening` before starting, right
+ *   next to its own `play()`/`speak()` call.
+ */
+export function setMicListening(listening: boolean): void {
+  micListening = listening;
+  if (listening) cancelSpeech();
+}
+
+/**
  * `playPregeneratedAudio`'s outcome — deliberately distinguishes "the
  * browser is refusing any unmuted audio right now" from "this specific file
  * isn't a usable source", because `speakSegment` needs to treat them very
@@ -150,6 +187,10 @@ function playPregeneratedAudio(text: string, rate?: number): Promise<Pregenerate
   if (typeof window === "undefined") return Promise.resolve("unavailable");
   const path = PREGENERATED_AUDIO_PATHS.get(text);
   if (!path) return Promise.resolve("unavailable");
+  // See setMicListening's doc comment: never start audio the mic would pick
+  // back up. "interrupted" (not "unavailable") so speakSegment doesn't fall
+  // through to the live/browser tiers below — same as an autoplay block.
+  if (micListening) return Promise.resolve("interrupted");
 
   return new Promise((resolve) => {
     const audio = new Audio(path);
@@ -166,33 +207,6 @@ function playPregeneratedAudio(text: string, rate?: number): Promise<Pregenerate
 }
 
 /**
- * Caches each text's live-TTS request (see `playLiveGeneratedAudio`) by its
- * resolved `Blob`, keyed on the exact text — Practice's live LLM replies are
- * never repeated verbatim within a session, but the 🔊 Replay button (see
- * message-bubble-pair.tsx) re-speaks the SAME reply on demand, and this
- * avoids paying for (and waiting on) a fresh API call every time the learner
- * replays a line they've already heard. A failed request is never cached
- * (see `playLiveGeneratedAudio`), so a transient network error doesn't
- * permanently block that text from ever trying again.
- */
-const liveAudioCache = new Map<string, Promise<Blob | null>>();
-
-function fetchLiveAudio(text: string): Promise<Blob | null> {
-  const cached = liveAudioCache.get(text);
-  if (cached) return cached;
-
-  const promise = fetch("/api/practice/speak", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
-  })
-    .then((response) => (response.ok ? response.blob() : null))
-    .catch(() => null);
-  liveAudioCache.set(text, promise);
-  return promise;
-}
-
-/**
  * Synthesizes `text` on demand through src/app/api/practice/speak/route.ts
  * (the same OpenAI voice the pregenerated files use) and plays the result —
  * the middle rung of the pregenerated → live-generated → browser-synthesis
@@ -202,29 +216,34 @@ function fetchLiveAudio(text: string): Promise<Blob | null> {
  * key configured, upstream error, playback error) — the caller falls back
  * to browser synthesis in that case, same contract as
  * `playPregeneratedAudio`. Never rejects.
+ *
+ * Points `<audio src>` straight at the route — a GET, with `text` as a query
+ * param — instead of fetch()-ing it in JS and wrapping the resulting `Blob`
+ * in an object URL first. That used to be how this worked, until it turned
+ * out WebKit's `<audio>` element reliably refuses to play a `blob:` (or even
+ * `data:`) URL built from an in-JS fetch of this exact same audio, with a
+ * `NotSupportedError`, on real iOS/iPadOS Safari — even though the identical
+ * bytes play fine from a plain URL (see the route's own doc comment for how
+ * this was diagnosed). Letting the browser fetch the audio itself, the same
+ * way the pregenerated-file tier already does, sidesteps that entirely. A
+ * repeat request for the same text (the 🔊 replay button,
+ * message-bubble-pair.tsx) is now covered by the route's own Cache-Control
+ * instead of a hand-rolled in-memory cache.
  */
-async function playLiveGeneratedAudio(text: string, rate?: number): Promise<boolean> {
-  if (typeof window === "undefined") return false;
+function playLiveGeneratedAudio(text: string, rate?: number): Promise<boolean> {
+  if (typeof window === "undefined") return Promise.resolve(false);
+  // See setMicListening's doc comment: never start audio the mic would pick
+  // back up.
+  if (micListening) return Promise.resolve(false);
 
-  const blob = await fetchLiveAudio(text);
-  if (!blob) {
-    liveAudioCache.delete(text);
-    return false;
-  }
-
-  const objectUrl = URL.createObjectURL(blob);
   return new Promise((resolve) => {
-    const audio = new Audio(objectUrl);
+    const audio = new Audio(`/api/practice/speak?text=${encodeURIComponent(text)}`);
     if (rate) audio.playbackRate = rate;
     currentAudio = audio;
 
-    function finish(result: boolean): void {
-      URL.revokeObjectURL(objectUrl);
-      resolve(result);
-    }
-    audio.addEventListener("ended", () => finish(true), { once: true });
-    audio.addEventListener("error", () => finish(false), { once: true });
-    audio.play().catch(() => finish(false));
+    audio.addEventListener("ended", () => resolve(true), { once: true });
+    audio.addEventListener("error", () => resolve(false), { once: true });
+    audio.play().catch(() => resolve(false));
   });
 }
 
@@ -257,6 +276,9 @@ async function speakSegment(text: string, options: SpeakOptions): Promise<boolea
   const lang = options.lang ?? "en-US";
   const voices = await getVoicesOnceReady();
   const voice = pickBestVoiceFrom(voices, lang);
+  // getVoicesOnceReady can take up to 500ms (see its own doc comment) — the
+  // same re-check as playLiveGeneratedAudio's, for the same reason.
+  if (micListening) return false;
 
   return new Promise((resolve) => {
     const utterance = new SpeechSynthesisUtterance(text);
@@ -408,6 +430,15 @@ export function speakAssertively(text: string, options: SpeakOptions = {}): () =
     // (which would've auto-removed this listener regardless of the check
     // below, the exact thing this branch exists to avoid).
     if (isAudioUnlockExempt(event)) return;
+    // Likewise not consumed if the mic is still listening at the moment this
+    // otherwise-qualifying interaction fires (e.g. the learner taps
+    // something else while still mid-turn): speaking now would collide with
+    // the mic exactly like any other tier `setMicListening`'s doc comment
+    // describes, but burning the one-shot retry on an attempt that's just
+    // going to be suppressed would leave this text silent for the rest of
+    // the session. Stay armed for a later interaction instead — typically
+    // the very next tap after the mic session ends.
+    if (micListening) return;
     interactionHandled = true;
     removeListeners();
     // If the immediate attempt already succeeded, there's nothing left to

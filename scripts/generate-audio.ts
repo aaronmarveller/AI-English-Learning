@@ -66,7 +66,11 @@ const openaiProvider: TtsProvider = {
   async synthesize(text) {
     const apiKey = requireEnv("OPENAI_API_KEY");
     const model = process.env.OPENAI_TTS_MODEL ?? "tts-1";
-    const voice = process.env.OPENAI_TTS_VOICE ?? "alloy";
+    // Must match src/app/api/practice/speak/route.ts's own fallback — see
+    // that file's top doc comment for why the two need to agree. "shimmer":
+    // Emily is written and illustrated as a woman; "alloy" (the OpenAI SDK's
+    // own default) reads as male/neutral.
+    const voice = process.env.OPENAI_TTS_VOICE ?? "shimmer";
 
     const response = await fetch("https://api.openai.com/v1/audio/speech", {
       method: "POST",

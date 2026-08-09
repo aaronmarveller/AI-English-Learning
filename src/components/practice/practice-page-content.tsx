@@ -16,21 +16,22 @@ import { pickRandomOpeningLine, PRACTICE_HEADLINE, SILENCE_NUDGE } from "@/conte
 import type { ActiveConversationState } from "@/lib/conversation-state-machine";
 import { markStepComplete } from "@/lib/progress";
 import { usePractice } from "@/lib/practice-state";
-import { speakAssertively } from "@/lib/speech-synthesis";
+import { speak, speakAssertively } from "@/lib/speech-synthesis";
 import { submitPracticeTurn } from "@/lib/submit-practice-turn";
 
 /** How long Emily's avatar stays in the "talking" state after a new line lands, before settling back to idle. */
 const TALKING_DURATION_MS = 1400;
 
 /**
- * The opening-line message id `speakAssertively` has already been fired for
- * (see the effect below) — module-scoped, not a component ref, deliberately:
- * a `useRef` resets on any full remount of the component (React Strict
- * Mode's dev-only double-invoke of effects, or a Fast Refresh reload), but
- * the store-persisted message id doesn't, so keying on it here survives a
- * remount without risking Emily's opening line audibly playing twice.
+ * The most recent Emily message id the reply-autoplay effect below has
+ * already fired `speak`/`speakAssertively` for — module-scoped, not a
+ * component ref, deliberately: a `useRef` resets on any full remount of the
+ * component (React Strict Mode's dev-only double-invoke of effects, or a
+ * Fast Refresh reload), but the store-persisted message id doesn't, so
+ * keying on it here survives a remount without risking the same line
+ * audibly playing twice.
  */
-let autoSpokenOpeningMessageId: string | undefined;
+let autoSpokenMessageId: string | undefined;
 
 /**
  * How long the learner can go without submitting a reply before Emily sends
@@ -82,6 +83,19 @@ export function PracticePageContent() {
   // effect below can abort it on unmount — same ref-plus-unmount-cleanup
   // shape as practice-input-form.tsx's `controllerRef`/`startListening`.
   const submitControllerRef = useRef<AbortController | null>(null);
+  // Whether the reply-autoplay effect below has run at least once for this
+  // mount. Its first run must never blindly speak whatever Emily message is
+  // already on screen — a session resumed mid-conversation already has that
+  // message rendered from persisted history, and replaying it out loud on
+  // every page load/refresh isn't something anything here asks for. The
+  // opening line is the one deliberate exception (handled inside the effect
+  // by its own messages.length === 1 check, independent of this ref) since
+  // hearing the greeting again on a refresh before the learner has replied
+  // is the same "nothing has happened yet" state as a fresh start. A ref is
+  // correct here (unlike autoSpokenMessageId above): it resets on Strict
+  // Mode's fake remount same as any other ref, and we want a fresh "haven't
+  // checked yet" on every real mount too.
+  const hasCheckedReplyAutoplayRef = useRef(false);
 
   // Opening line: picked once per mount, only actually applied by
   // ensureOpeningMessage if the transcript is still empty (fresh start). A
@@ -127,24 +141,47 @@ export function PracticePageContent() {
     return () => clearTimeout(timeoutId);
   }, [avatarState]);
 
-  // Emily speaks first: auto-plays the opening line's audio as soon as it
-  // lands, so the learner hears her before typing anything, instead of only
-  // on a manual 🔊 replay tap. Scoped to the opening line only (messages.length
-  // === 1, mirroring MessageBubblePair's own "first message in the
-  // conversation" check) — a resumed session that already has turns beyond
-  // the opening line never replays audio on mount. Uses `speakAssertively`,
-  // not `speak`, because most mobile browsers silently block unmuted audio
-  // that isn't triggered by a user gesture — it falls back to the learner's
-  // very next tap/keypress on the page when a bare autoplay attempt is
-  // blocked. Guarded by `autoSpokenOpeningMessageId` (module scope, keyed on
-  // the message's own id) rather than a ref, so a restarted conversation's
-  // new opening line (a genuinely new id) auto-plays again with no manual
-  // reset needed — see handleRestart.
+  // Emily speaks every one of her lines proactively — the opening line, and
+  // every reply after it — so the learner hears her without ever needing the
+  // manual 🔊 replay tap. The opening line (messages.length === 1, mirroring
+  // MessageBubblePair's own "first message in the conversation" check) is
+  // spoken through `speakAssertively`, not `speak`, because most mobile
+  // browsers silently block unmuted audio that isn't triggered by a user
+  // gesture — it falls back to the learner's very next tap/keypress when a
+  // bare autoplay attempt is blocked. Every later reply arrives only after
+  // the learner has already interacted with the page at least once
+  // (submitting the prior turn), which already satisfies that same
+  // gesture requirement, so a plain `speak()` is enough — and deliberately
+  // so: `speakAssertively`'s document-wide gesture-retry listeners are only
+  // needed for the one line that plays before any interaction has happened.
+  //
+  // `hasCheckedReplyAutoplayRef` distinguishes a genuinely new reply that
+  // arrived during this session from a resumed session's already-persisted
+  // last message (see that ref's own doc comment) — without it, every page
+  // load/refresh mid-conversation would replay Emily's last line out loud.
+  // `autoSpokenMessageId` (module scope, keyed on the message's own id)
+  // guards against speaking the exact same message twice — including across
+  // a restarted conversation's new opening line, a genuinely new id that
+  // auto-plays again with no manual reset needed — see handleRestart.
   useEffect(() => {
-    if (!emilyMessage || messages.length !== 1) return;
-    if (autoSpokenOpeningMessageId === emilyMessage.id) return;
-    autoSpokenOpeningMessageId = emilyMessage.id;
-    return speakAssertively(emilyMessage.textEn);
+    const isOpeningLine = messages.length === 1;
+    // False only on this effect's very first run after mount; true from its
+    // second run onward. Since the dependency array below only re-runs this
+    // effect when emilyMessage or messages.length actually changes, "not the
+    // first run" reliably means a live event happened during this session (a
+    // new reply, a support nudge, or a restart) rather than a resumed
+    // session's already-persisted history rendering for the first time.
+    const isLiveUpdate = hasCheckedReplyAutoplayRef.current;
+    hasCheckedReplyAutoplayRef.current = true;
+
+    if (!emilyMessage || (!isOpeningLine && !isLiveUpdate)) return;
+    if (autoSpokenMessageId === emilyMessage.id) return;
+    autoSpokenMessageId = emilyMessage.id;
+
+    if (isOpeningLine) {
+      return speakAssertively(emilyMessage.textEn);
+    }
+    void speak(emilyMessage.textEn);
   }, [emilyMessage, messages.length]);
 
   // Silence-timeout nudge: a single-shot timer keyed off the last message's

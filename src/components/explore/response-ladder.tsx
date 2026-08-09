@@ -34,6 +34,9 @@ export function ResponseLadder({ steps, combo }: ResponseLadderProps) {
             <div className="flex flex-1 items-start justify-between gap-2 rounded-card border border-border bg-card p-3 mb-3">
               <div className="flex flex-col gap-1">
                 <p className="text-body-lg font-medium text-foreground">{step.expression}</p>
+                <span className="w-fit rounded-button bg-accent-soft px-2 py-1 text-caption text-accent">
+                  {step.tag}
+                </span>
                 <p className="text-body-sm text-muted">{step.hint}</p>
               </div>
               <PronunciationButton text={step.expression} testId={`pronounce-${step.id}`} />

@@ -63,7 +63,9 @@ export function CulturalComparisonBody({ card }: CulturalComparisonBodyProps) {
           <span className="flex w-fit items-center justify-center rounded-button bg-blue-50 p-1">
             <UsFlagIcon className="h-2.5 w-auto rounded-[2px]" />
           </span>
-          <span className="text-body-sm font-semibold text-blue-700">{card.us.phrase}</span>
+          <span className="whitespace-pre-line text-body-sm font-semibold text-blue-700">
+            {card.us.phrase}
+          </span>
           <ul className="flex flex-col gap-1">
             {card.us.items.map((item) => (
               <li key={item} className="flex items-start gap-1 text-caption text-foreground">
@@ -83,7 +85,9 @@ export function CulturalComparisonBody({ card }: CulturalComparisonBodyProps) {
           <span className="flex w-fit items-center justify-center rounded-button bg-red-50 p-1">
             <ChinaFlagIcon className="h-2.5 w-auto rounded-[2px]" />
           </span>
-          <span className="text-body-sm font-semibold text-red-700">{card.china.phrase}</span>
+          <span className="whitespace-pre-line text-body-sm font-semibold text-red-700">
+            {card.china.phrase}
+          </span>
           <ul className="flex flex-col gap-1">
             {card.china.items.map((item) => (
               <li key={item} className="flex items-start gap-1 text-caption text-foreground">

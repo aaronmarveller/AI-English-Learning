@@ -16,10 +16,12 @@
  * next to other text, and a real `<h1>` there would be a layout/semantics
  * mismatch) so the redundant text can be deleted without losing the
  * `getByRole("heading", { name: "Observe" })` a11y contract e2e/observe.spec.ts
- * relies on. Explore and Notice both adopted the same fix once their own UI
- * draft reviews flagged the identical duplicate-heading issue (2026-08-07)
- * — Practice/Review are the only two still pairing this pill with their own
- * separate `<h1>`. Off by default since that's still the majority case.
+ * relies on. Explore, Notice, and Practice (2026-08-07 UI draft — matching
+ * the Practice screen mockup, which has no separate "Practice" heading
+ * either) have all adopted the same fix once their own UI draft reviews
+ * flagged the identical duplicate-heading issue — Review is the only one
+ * still pairing this pill with its own separate `<h1>`. Off by default
+ * since that's still the majority case.
  */
 export function StageTag({
   label,

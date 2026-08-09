@@ -91,9 +91,9 @@ test.describe("Explore page", () => {
     await expect(page.getByTestId("section-closing")).toHaveAttribute("data-state", "collapsed");
 
     // Greeting's cards are visible...
+    await expect(page.getByTestId("expression-card-greeting-hello")).toBeVisible();
     await expect(page.getByTestId("expression-card-greeting-hi")).toBeVisible();
-    await expect(page.getByTestId("expression-card-greeting-good-morning")).toBeVisible();
-    await expect(page.getByTestId("expression-card-greeting-hey-there")).toBeVisible();
+    await expect(page.getByTestId("expression-card-greeting-time-based")).toBeVisible();
 
     // ...the other three sections' cards/bodies are not.
     await expect(page.getByTestId("section-checkin-body")).not.toBeVisible();
@@ -143,11 +143,9 @@ test.describe("Explore page", () => {
     await page.getByTestId("section-response-header").click();
     await expect(page.getByTestId("section-response")).toHaveAttribute("data-state", "expanded");
 
-    await expect(page.getByTestId("response-step-1")).toContainText("Good, thanks!");
-    await expect(page.getByTestId("response-step-2")).toContainText("And you?");
-    await expect(page.getByTestId("response-step-3")).toContainText(
-      "I'm doing pretty good, just heading to work.",
-    );
+    await expect(page.getByTestId("response-step-1")).toContainText("I'm good.");
+    await expect(page.getByTestId("response-step-2")).toContainText("Thank you.");
+    await expect(page.getByTestId("response-step-3")).toContainText("How about you?");
 
     // Order is fixed in the DOM, not just independently present.
     const stepOrder = await page.evaluate(() =>
@@ -159,7 +157,7 @@ test.describe("Explore page", () => {
 
     await expect(page.getByTestId("response-combo")).toBeVisible();
     await expect(page.getByTestId("response-combo")).toContainText(
-      "Good, thanks! And you? I'm doing pretty good, just heading to work.",
+      "I'm good. Thank you. How about you?",
     );
   });
 

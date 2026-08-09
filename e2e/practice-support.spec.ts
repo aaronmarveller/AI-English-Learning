@@ -328,10 +328,210 @@ test.describe("Practice page — support & recovery", () => {
     await page.waitForTimeout(200);
     expect(await playCallCount()).toBe(1);
 
-    // The exempt tap didn't consume the fallback — a genuinely unrelated one
-    // still triggers it normally.
+    // A later, genuinely unrelated tap *while the mic is still listening*
+    // still doesn't trigger the fallback — playing Emily's audio through the
+    // speaker at this point would collide with the mic exactly the same way
+    // (see setMicListening's doc comment) — but it doesn't waste the
+    // one-shot retry opportunity either: the listener stays armed rather
+    // than firing-and-suppressing.
+    await page.getByTestId("emily-message-bubble").click();
+    await page.waitForTimeout(200);
+    expect(await playCallCount()).toBe(1);
+
+    // Once the mic session ends, that same kind of tap finally triggers it.
+    await page.evaluate(() => window.__mockSpeechRecognition?.emitError("no-speech"));
+    await expect(page.getByTestId("practice-mic-button")).toHaveAttribute("data-state", "idle");
     await page.getByTestId("emily-message-bubble").click();
     await expect.poll(playCallCount).toBe(2);
+  });
+
+  test("tapping the mic interrupts Emily's own reply audio instead of letting it keep playing over the recognizer", async ({
+    page,
+  }) => {
+    // Regression coverage: Emily now auto-speaks every reply (not just the
+    // opening line — see practice-page-content.tsx), so by the time the
+    // learner taps the mic for their next turn, her reply's audio is very
+    // often still playing out of the speaker. Left alone, that audio plays
+    // back through the same microphone the recognizer just started listening
+    // on — the same class of collision commit 5e94690 already fixed once for
+    // the opening line specifically, now recurring on every turn. This test
+    // asserts practice-input-form.tsx's handleMicClick actually cuts that
+    // audio off (via setMicListening(true)'s own cancelSpeech() call) rather
+    // than merely not re-triggering it.
+    await resetStorage(page);
+    await mockSpeechApis(page);
+    await page.addInitScript(() => {
+      (window as unknown as { __pauseCallCount: number }).__pauseCallCount = 0;
+      // Overridden rather than left real: a genuine 4-byte fake MP3 (see the
+      // default /api/practice/speak stub in installScriptedPracticeApi)
+      // isn't decodable audio, so a real play() would reject/error almost
+      // immediately — racy to depend on for "still playing when the mic is
+      // tapped". Resolving here and never firing 'ended' keeps the audio
+      // reliably "in progress" (per speech-synthesis.ts's own currentAudio
+      // bookkeeping) for exactly as long as this test needs it to be.
+      HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
+        return Promise.resolve();
+      };
+      const originalPause = HTMLMediaElement.prototype.pause;
+      HTMLMediaElement.prototype.pause = function (this: HTMLMediaElement) {
+        (window as unknown as { __pauseCallCount: number }).__pauseCallCount += 1;
+        return originalPause.apply(this);
+      };
+    });
+    await installScriptedPracticeApi(page, [
+      {
+        verdict: "accepted",
+        reply_en: "Great, how are you today?",
+        reply_zh: "太好了，你今天怎么样？",
+        highlight_key: "natural-paraphrase",
+      },
+    ]);
+
+    await page.goto(PRACTICE_URL);
+    // submitReply drives the always-available text path, switching away
+    // from the default mic mode to do so — switch back afterward so the mic
+    // button below is the same one a learner would actually tap next.
+    await submitReply(page, "Hi Emily!");
+    await expect(page.getByTestId("emily-message-bubble")).toHaveText("Great, how are you today?");
+    await page.getByTestId("practice-input-mode-toggle").click();
+
+    function pauseCallCount(): Promise<number> {
+      return page.evaluate(() => (window as unknown as { __pauseCallCount: number }).__pauseCallCount);
+    }
+
+    // Give the reply's autoplay effect a moment to get from "reply landed"
+    // through the live-TTS fetch to actually calling play() — the point
+    // under test is interrupting audio that's genuinely already under way,
+    // not racing its own startup.
+    await page.waitForTimeout(300);
+    // speak()'s own unconditional cancelSpeech() (called for the opening
+    // line's audio when the reply's speak() call starts) already produced at
+    // least one pause() by this point — reset the counter so the assertion
+    // below can only pass because of the mic click's own cancelSpeech() call.
+    await page.evaluate(() => {
+      (window as unknown as { __pauseCallCount: number }).__pauseCallCount = 0;
+    });
+
+    await page.getByTestId("practice-mic-button").click();
+    await expect(page.getByTestId("practice-mic-button")).toHaveAttribute("data-state", "listening");
+    expect(await pauseCallCount()).toBeGreaterThan(0);
+  });
+
+  test("Emily's reply audio never starts once the mic has already begun listening for the next turn", async ({
+    page,
+  }) => {
+    // Regression coverage for the *other* ordering of the same collision the
+    // previous test guards. That test covers audio already playing when the
+    // mic is tapped (handleMicClick's own cancelSpeech() stops it). This one
+    // covers the opposite, and much more common in practice, ordering: the
+    // learner reads Emily's reply text (rendered immediately) and taps the
+    // mic to respond before her reply's audio (playLiveGeneratedAudio points
+    // <audio src> straight at /api/practice/speak; the browser's own fetch
+    // of that URL is what's still in flight) has even resolved. At tap time
+    // there's nothing yet for cancelSpeech() to *stop*, but play() has
+    // already been called synchronously (see playLiveGeneratedAudio) — so
+    // what actually protects the mic here is that setMicListening(true)'s
+    // cancelSpeech() call pause()s that same, still-loading element, which
+    // must happen before the delayed response below ever lets it start
+    // producing audible frames. Reported symptom: "只要 Emily 主动说话，麦克风
+    // 就收不到；Emily 不说话（需要按重播）时麦克风才正常" — Emily's own autoplay
+    // "winning" this race is exactly what breaks the next mic turn, and which
+    // side wins is effectively random (network timing vs. how fast the
+    // learner reacts).
+    await resetStorage(page);
+    await mockSpeechApis(page);
+    await page.addInitScript(() => {
+      (window as unknown as { __livePauseCallCount: number }).__livePauseCallCount = 0;
+      // Overridden rather than left real, same reasoning as the previous
+      // test: a play() that actually depends on decoding the fake response
+      // body below would reject/error on its own, racy to depend on for
+      // "still trying to play when the mic is tapped". Resolving
+      // unconditionally keeps every <audio> element reliably "in progress"
+      // for exactly as long as this test needs it to be.
+      HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
+        return Promise.resolve();
+      };
+      const originalPause = HTMLMediaElement.prototype.pause;
+      HTMLMediaElement.prototype.pause = function (this: HTMLMediaElement) {
+        // The live-generated-reply tier plays straight from
+        // /api/practice/speak (see playLiveGeneratedAudio) — distinct from
+        // the opening line's static /audio/opening-N.mp3 path — so this
+        // counts only a pause() of the reply's own audio, unaffected by the
+        // opening line's own unrelated audio lifecycle.
+        if (this.src.includes("/api/practice/speak")) {
+          (window as unknown as { __livePauseCallCount: number }).__livePauseCallCount += 1;
+        }
+        return originalPause.apply(this);
+      };
+    });
+    await installScriptedPracticeApi(
+      page,
+      [
+        {
+          verdict: "accepted",
+          reply_en: "Great, how are you today?",
+          reply_zh: "太好了，你今天怎么样？",
+          highlight_key: "natural-paraphrase",
+        },
+        {
+          verdict: "accepted",
+          reply_en: "Nice! Have a good one.",
+          reply_zh: "不错！祝你今天愉快。",
+          highlight_key: "natural-paraphrase",
+        },
+      ],
+      // delayMs: without it, the mocked turn route can resolve fast enough
+      // that turn 2 fully completes — replacing the transient learner bubble
+      // asserted on below with Emily's next line — before that assertion
+      // even gets its first poll (see installScriptedPracticeApi's own doc
+      // comment; the same race practice-voice.spec.ts's "a second mic turn"
+      // test guards against).
+      { delayMs: 300 },
+    );
+    // Overrides installScriptedPracticeApi's own default (immediate)
+    // /api/practice/speak stub — registered after it, so it wins (Playwright
+    // matches routes in reverse registration order) — with a deliberate
+    // delay so there's a real window to tap the mic before this resolves,
+    // modeling the real network latency a live TTS call has.
+    await page.route("**/api/practice/speak**", async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      await route.fulfill({ status: 200, contentType: "audio/mpeg", body: Buffer.from([0, 0, 0, 0]) });
+    });
+
+    await page.goto(PRACTICE_URL);
+    await submitReply(page, "Hi Emily!");
+    await expect(page.getByTestId("emily-message-bubble")).toHaveText("Great, how are you today?");
+    await page.getByTestId("practice-input-mode-toggle").click();
+
+    function livePauseCount(): Promise<number> {
+      return page.evaluate(() => (window as unknown as { __livePauseCallCount: number }).__livePauseCallCount);
+    }
+
+    // Give the reply's autoplay effect a moment to reach its own play() call
+    // (see playLiveGeneratedAudio — synchronous with the effect now, but this
+    // mirrors the previous test's own safety margin) before resetting the
+    // counter — isolates the assertion below to only the mic tap's own
+    // cancelSpeech() call, not speak()'s own unconditional one (already fired
+    // once, for the opening line's audio, when this reply's speak() call
+    // itself started).
+    await page.waitForTimeout(300);
+    await page.evaluate(() => {
+      (window as unknown as { __livePauseCallCount: number }).__livePauseCallCount = 0;
+    });
+
+    // Tap the mic well before the delayed /api/practice/speak response above
+    // resolves — the reply's own <audio> element is still waiting on that
+    // response at this point, never having produced a single audible frame,
+    // so setMicListening(true)'s cancelSpeech() call is the only thing
+    // stopping it from ever starting to play once that response lands.
+    await page.getByTestId("practice-mic-button").click();
+    await expect(page.getByTestId("practice-mic-button")).toHaveAttribute("data-state", "listening");
+    expect(await livePauseCount()).toBeGreaterThan(0);
+
+    // And the mic itself is unaffected by any of this — it's still cleanly
+    // able to capture and submit the learner's next turn.
+    await page.evaluate(() => window.__mockSpeechRecognition?.emitResult("I'm good, thanks", { isFinal: true }));
+    await expect(page.getByTestId("learner-message-bubble")).toHaveText("I'm good, thanks");
   });
 
   test("the restart button clears the conversation and starts over from a fresh opening line", async ({ page }) => {
@@ -375,9 +575,9 @@ test.describe("Practice page — support & recovery", () => {
         highlight_key: "natural-paraphrase",
       },
     ]);
-    const speakRequestBodies: string[] = [];
-    await page.route("**/api/practice/speak", async (route) => {
-      speakRequestBodies.push(route.request().postData() ?? "");
+    const speakRequestTexts: string[] = [];
+    await page.route("**/api/practice/speak**", async (route) => {
+      speakRequestTexts.push(new URL(route.request().url()).searchParams.get("text") ?? "");
       await route.fulfill({ status: 200, contentType: "audio/mpeg", body: Buffer.from([0, 0, 0, 0]) });
     });
 
@@ -390,8 +590,8 @@ test.describe("Practice page — support & recovery", () => {
     // the exact reply text, not straight to browser synthesis.
     await page.getByTestId("replay-button").click();
 
-    await expect.poll(() => speakRequestBodies.length).toBeGreaterThan(0);
-    expect(JSON.parse(speakRequestBodies[0])).toEqual({ text: "Great, how are you today?" });
+    await expect.poll(() => speakRequestTexts.length).toBeGreaterThan(0);
+    expect(speakRequestTexts[0]).toEqual("Great, how are you today?");
   });
 
   test("falls back to browser synthesis when the live-TTS route errors", async ({ page }) => {
@@ -431,7 +631,7 @@ test.describe("Practice page — support & recovery", () => {
         highlight_key: "natural-paraphrase",
       },
     ]);
-    await page.route("**/api/practice/speak", (route) =>
+    await page.route("**/api/practice/speak**", (route) =>
       route.fulfill({ status: 500, contentType: "application/json", body: "{}" }),
     );
 
