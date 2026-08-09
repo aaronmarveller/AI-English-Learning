@@ -29,7 +29,7 @@ import {
  */
 export function ExplorePageContent() {
   const [openSections, setOpenSections] = useState<Record<ExploreSectionKey, boolean>>({
-    greeting: true,
+    greeting: false,
     checkin: false,
     response: false,
     closing: false,
@@ -46,9 +46,6 @@ export function ExplorePageContent() {
         <CourseProgressChip />
         <h2 className="text-display text-foreground">{EXPLORE_HEADLINE.en}</h2>
         <p className="text-body-lg text-muted">{EXPLORE_HEADLINE.zh}</p>
-        <p className="text-body text-muted">
-          按对话的四个环节学习本节的核心表达——学的是成块的话，不是单词。点喇叭听发音，可以反复听。
-        </p>
       </div>
 
       <div className="flex flex-col gap-4">

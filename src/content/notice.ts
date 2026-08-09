@@ -69,6 +69,8 @@ export type CulturalInsightCard = {
   };
   /** The "why" explanation behind the difference — never just stated as fact. */
   why: string;
+  /** Optional US/China editorial images for cards 2 and 3. */
+  images?: { us: string; china: string };
   /** Compact emoji summary shown on the card header while collapsed. */
   preview: {
     us: string;
@@ -126,6 +128,10 @@ export const CULTURAL_INSIGHT_CARDS: CulturalInsightCard[] = [
       us: "😃↔😃",
       china: "😃✓",
     },
+    images: {
+      us: "/assets/notice/keep-chatting-us.webp",
+      china: "/assets/notice/keep-chatting-china.webp",
+    },
   },
   {
     id: "small-talk-topics",
@@ -143,6 +149,10 @@ export const CULTURAL_INSIGHT_CARDS: CulturalInsightCard[] = [
     preview: {
       us: "☀️📅🎉",
       china: "🍚💼👨‍👩‍👧",
+    },
+    images: {
+      us: "/assets/notice/small-talk-topics-us.webp",
+      china: "/assets/notice/small-talk-topics-china.webp",
     },
   },
 ];

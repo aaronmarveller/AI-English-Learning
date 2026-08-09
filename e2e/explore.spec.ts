@@ -79,29 +79,25 @@ declare global {
 }
 
 test.describe("Explore page", () => {
-  test("defaults to only 打招呼 expanded; the other three sections start collapsed", async ({
+  test("defaults to all sections collapsed", async ({
     page,
   }) => {
     await resetStorage(page);
     await page.goto(EXPLORE_URL);
 
-    await expect(page.getByTestId("section-greeting")).toHaveAttribute("data-state", "expanded");
+    await expect(page.getByTestId("section-greeting")).toHaveAttribute("data-state", "collapsed");
     await expect(page.getByTestId("section-checkin")).toHaveAttribute("data-state", "collapsed");
     await expect(page.getByTestId("section-response")).toHaveAttribute("data-state", "collapsed");
     await expect(page.getByTestId("section-closing")).toHaveAttribute("data-state", "collapsed");
 
-    // Greeting's cards are visible...
-    await expect(page.getByTestId("expression-card-greeting-hello")).toBeVisible();
-    await expect(page.getByTestId("expression-card-greeting-hi")).toBeVisible();
-    await expect(page.getByTestId("expression-card-greeting-time-based")).toBeVisible();
-
-    // ...the other three sections' cards/bodies are not.
+    // Every section's body is hidden until the learner opens it.
+    await expect(page.getByTestId("section-greeting-body")).not.toBeVisible();
     await expect(page.getByTestId("section-checkin-body")).not.toBeVisible();
     await expect(page.getByTestId("section-response-body")).not.toBeVisible();
     await expect(page.getByTestId("section-closing-body")).not.toBeVisible();
   });
 
-  test("opening two non-Greeting sections independently expands both without collapsing Greeting or each other", async ({
+  test("opening two sections independently expands both", async ({
     page,
   }) => {
     await resetStorage(page);
@@ -110,13 +106,13 @@ test.describe("Explore page", () => {
     await page.getByTestId("section-checkin-header").click();
     await page.getByTestId("section-closing-header").click();
 
-    await expect(page.getByTestId("section-greeting")).toHaveAttribute("data-state", "expanded");
+    await expect(page.getByTestId("section-greeting")).toHaveAttribute("data-state", "collapsed");
     await expect(page.getByTestId("section-checkin")).toHaveAttribute("data-state", "expanded");
     await expect(page.getByTestId("section-closing")).toHaveAttribute("data-state", "expanded");
     // Untouched section stays collapsed.
     await expect(page.getByTestId("section-response")).toHaveAttribute("data-state", "collapsed");
 
-    await expect(page.getByTestId("section-greeting-body")).toBeVisible();
+    await expect(page.getByTestId("section-greeting-body")).not.toBeVisible();
     await expect(page.getByTestId("section-checkin-body")).toBeVisible();
     await expect(page.getByTestId("section-closing-body")).toBeVisible();
   });
@@ -128,10 +124,10 @@ test.describe("Explore page", () => {
     await page.getByTestId("section-checkin-header").click();
     await expect(page.getByTestId("section-checkin")).toHaveAttribute("data-state", "expanded");
 
-    // Toggling Check-in back off shouldn't affect Greeting, which was never touched.
+    // Toggling Check-in back off leaves the untouched Greeting collapsed.
     await page.getByTestId("section-checkin-header").click();
     await expect(page.getByTestId("section-checkin")).toHaveAttribute("data-state", "collapsed");
-    await expect(page.getByTestId("section-greeting")).toHaveAttribute("data-state", "expanded");
+    await expect(page.getByTestId("section-greeting")).toHaveAttribute("data-state", "collapsed");
   });
 
   test("回应 section shows its three steps in fixed ①②③ order, plus a combo card", async ({
@@ -143,9 +139,11 @@ test.describe("Explore page", () => {
     await page.getByTestId("section-response-header").click();
     await expect(page.getByTestId("section-response")).toHaveAttribute("data-state", "expanded");
 
-    await expect(page.getByTestId("response-step-1")).toContainText("I'm good.");
-    await expect(page.getByTestId("response-step-2")).toContainText("Thank you.");
-    await expect(page.getByTestId("response-step-3")).toContainText("How about you?");
+    await expect(page.getByTestId("response-step-1")).toContainText("Good, thanks!");
+    await expect(page.getByTestId("response-step-2")).toContainText("And you?");
+    await expect(page.getByTestId("response-step-3")).toContainText(
+      "I'm doing pretty good, just heading to work.",
+    );
 
     // Order is fixed in the DOM, not just independently present.
     const stepOrder = await page.evaluate(() =>
@@ -157,7 +155,7 @@ test.describe("Explore page", () => {
 
     await expect(page.getByTestId("response-combo")).toBeVisible();
     await expect(page.getByTestId("response-combo")).toContainText(
-      "I'm good. Thank you. How about you?",
+      "Good, thanks! And you? I'm doing pretty good, just heading to work.",
     );
   });
 
@@ -203,35 +201,6 @@ test.describe("Explore page", () => {
       () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
     );
     expect(hasHorizontalScroll).toBe(false);
-  });
-
-  test("a carousel's pagination dots track the active card as the user scrolls", async ({ page }) => {
-    await resetStorage(page);
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto(EXPLORE_URL);
-
-    const dot0 = page.getByTestId("section-greeting-carousel-dot-0");
-    const dot1 = page.getByTestId("section-greeting-carousel-dot-1");
-    const dot2 = page.getByTestId("section-greeting-carousel-dot-2");
-
-    await expect(dot0).toHaveAttribute("data-state", "active");
-    await expect(dot1).toHaveAttribute("data-state", "inactive");
-    await expect(dot2).toHaveAttribute("data-state", "inactive");
-
-    // Nudge the track's scrollLeft to the 2nd card's snap point and fire the
-    // native (non-bubbling) scroll event React's onScroll listens for —
-    // mirrors what a user's swipe produces without needing real touch input.
-    await page.evaluate(() => {
-      const track = document.querySelector('[data-testid="section-greeting-carousel"]');
-      if (!track) throw new Error("carousel track not found");
-      const firstCard = track.children[0] as HTMLElement;
-      track.scrollLeft = firstCard.offsetWidth + 12;
-      track.dispatchEvent(new Event("scroll"));
-    });
-
-    await expect(dot1).toHaveAttribute("data-state", "active");
-    await expect(dot0).toHaveAttribute("data-state", "inactive");
-    await expect(dot2).toHaveAttribute("data-state", "inactive");
   });
 
   test("the Continue button is reachable without opening any other section or playing anything", async ({

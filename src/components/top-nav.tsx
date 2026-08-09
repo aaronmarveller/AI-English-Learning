@@ -14,14 +14,14 @@ import { HomeIcon, ProfileIcon, ProgressIcon } from "@/components/icons";
  * Icons are src/components/icons.tsx's `currentColor` line-icon set, not
  * emoji (UI draft, 2026-08-07 review) — see that file's docstring for why.
  */
-export function TopNav({ left }: { left?: ReactNode }) {
+export function TopNav({ left, showStubNav = true }: { left?: ReactNode; showStubNav?: boolean }) {
   const { visible, show } = useComingSoonToast();
 
   return (
     <div className="flex items-center justify-between gap-3">
       {left ? <div className="min-w-0">{left}</div> : null}
 
-      <nav
+      {showStubNav ? <nav
         aria-label="主导航 Main navigation"
         className={
           left ? "flex shrink-0 items-center gap-3" : "flex w-full items-center justify-between"
@@ -49,7 +49,7 @@ export function TopNav({ left }: { left?: ReactNode }) {
           <ProfileIcon className="h-3.5 w-3.5" />
           <span>Profile</span>
         </button>
-      </nav>
+      </nav> : null}
 
       <ComingSoonToast visible={visible} />
     </div>

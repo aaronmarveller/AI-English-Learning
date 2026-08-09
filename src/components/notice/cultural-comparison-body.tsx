@@ -55,6 +55,15 @@ export function CulturalComparisonBody({ card }: CulturalComparisonBodyProps) {
         </div>
       ) : null}
 
+      {card.images ? (
+        <div className="grid grid-cols-2 gap-3">
+          {/* eslint-disable-next-line @next/next/no-img-element -- editorial card image */}
+          <img src={card.images.us} alt="" className="aspect-[43/20] w-full bg-page object-contain" />
+          {/* eslint-disable-next-line @next/next/no-img-element -- editorial card image */}
+          <img src={card.images.china} alt="" className="aspect-[43/20] w-full bg-page object-contain" />
+        </div>
+      ) : null}
+
       <div className="grid grid-cols-[1fr_1fr_1.3fr] gap-2">
         <div
           className="flex flex-col gap-2 rounded-[8px] border border-border/40 bg-card p-2"
