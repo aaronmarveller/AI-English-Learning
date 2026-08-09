@@ -27,6 +27,8 @@ export type ExpressionCard = {
   hint: string;
   /** Scene photo illustrating the expression's context. Path under /public. */
   image: string;
+  /** Optional separate phrases rendered with their own pronunciation buttons. */
+  pronunciationTexts?: string[];
 };
 
 export const GREETING_EXPRESSIONS: ExpressionCard[] = [
@@ -50,6 +52,7 @@ export const GREETING_EXPRESSIONS: ExpressionCard[] = [
     tag: "根据时间",
     hint: "根据见面时间实用。",
     image: "/assets/explore/greeting-hey-there.webp",
+    pronunciationTexts: ["Good morning.", "Good afternoon.", "Good evening."],
   },
 ];
 

@@ -51,6 +51,9 @@ export const AUDIO_MANIFEST: AudioManifestEntry[] = [
   // Explore page's 13 pronounceable texts: 3 sections x 3 expressions each,
   // plus the Response section's 3 steps and their 1 combined combo sentence.
   ...GREETING_EXPRESSIONS.map((expression) => ({ id: expression.id, text: expression.expression })),
+  { id: "greeting-good-morning", text: "Good morning." },
+  { id: "greeting-good-afternoon", text: "Good afternoon." },
+  { id: "greeting-good-evening", text: "Good evening." },
   ...CHECKIN_EXPRESSIONS.map((expression) => ({ id: expression.id, text: expression.expression })),
   ...CLOSING_EXPRESSIONS.map((expression) => ({ id: expression.id, text: expression.expression })),
   ...RESPONSE_STEPS.map((step) => ({ id: step.id, text: step.expression })),
