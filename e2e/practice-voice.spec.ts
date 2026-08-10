@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { installScriptedPracticeApi, mockSpeechApis, PRACTICE_URL, resetStorage } from "./fixtures";
+import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
 
 /**
  * E2E coverage for the Practice page's voice input (ticket 09; spec.md
@@ -17,7 +18,14 @@ import { installScriptedPracticeApi, mockSpeechApis, PRACTICE_URL, resetStorage 
  * this file used to keep its own copy per ticket 08's file-ownership
  * boundary, which no longer applies now that both tickets are long since
  * merged).
+ *
+ * Issue #16: the mock no longer supplies Emily's reply text, so assertions
+ * on `emily-message-bubble` check pool membership (imported from
+ * src/content/lesson.ts) instead of a scripted exact string.
  */
+
+const CHECKIN_TEXTS = GREETING_SOMEBODY_LESSON.checkinLines.map((line) => line.en);
+const RESPONSE_ASKED_BACK_TEXTS = GREETING_SOMEBODY_LESSON.responseLines.askedBack.map((line) => line.en);
 
 /**
  * Forces both the standard and vendor-prefixed Web Speech recognition
@@ -37,18 +45,7 @@ test.describe("Practice page — voice input", () => {
   test("a final recognition result is echoed back as the learner's bubble", async ({ page }) => {
     await resetStorage(page);
     await mockSpeechApis(page);
-    await installScriptedPracticeApi(
-      page,
-      [
-        {
-          verdict: "accepted",
-          reply_en: "Great, how are you today?",
-          reply_zh: "太好了，你今天怎么样？",
-          highlight_key: "natural-paraphrase",
-        },
-      ],
-      { delayMs: 300 },
-    );
+    await installScriptedPracticeApi(page, [{ verdict: "accepted" }], { delayMs: 300 });
     await page.goto(PRACTICE_URL);
 
     // Mic is the default, primary input mode with a visible idle state.
@@ -70,9 +67,14 @@ test.describe("Practice page — voice input", () => {
     await expect(micButton).toHaveAttribute("data-state", "idle");
 
     // The conversation actually advanced through the same logic text input
-    // would have triggered.
-    await expect(page.getByTestId("emily-message-bubble")).toHaveText("Great, how are you today?");
+    // would have triggered. Wait on the (retrying) step-state assertion
+    // first — recordTurnResult persists the new state and Emily's reply in
+    // the same store update, so by the time this observes "current" the
+    // reply text has landed too; a one-shot innerText() read right after the
+    // learner bubble assertion can otherwise race ahead of the re-render.
     await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "current");
+    const replyText = await page.getByTestId("emily-message-bubble").innerText();
+    expect(CHECKIN_TEXTS).toContain(replyText);
   });
 
   test("a second mic turn also captures and submits speech", async ({ page }) => {
@@ -92,20 +94,7 @@ test.describe("Practice page — voice input", () => {
     // their first poll (see installScriptedPracticeApi's own doc comment).
     await installScriptedPracticeApi(
       page,
-      [
-        {
-          verdict: "accepted",
-          reply_en: "Great, how are you today?",
-          reply_zh: "太好了，你今天怎么样？",
-          highlight_key: "natural-paraphrase",
-        },
-        {
-          verdict: "accepted",
-          reply_en: "Nice! Have a good one.",
-          reply_zh: "不错！祝你今天愉快。",
-          highlight_key: "natural-paraphrase",
-        },
-      ],
+      [{ verdict: "accepted" }, { verdict: "accepted", learner_asked_back: true }],
       { delayMs: 300 },
     );
     await page.goto(PRACTICE_URL);
@@ -117,8 +106,13 @@ test.describe("Practice page — voice input", () => {
     await expect(micButton).toHaveAttribute("data-state", "listening");
     await page.evaluate(() => window.__mockSpeechRecognition?.emitResult("Hi there", { isFinal: true }));
     await expect(page.getByTestId("learner-message-bubble")).toHaveText("Hi there");
-    await expect(page.getByTestId("emily-message-bubble")).toHaveText("Great, how are you today?");
     await expect(micButton).toHaveAttribute("data-state", "idle");
+    // Wait on the (retrying) step-state assertion before reading the reply
+    // text — recordTurnResult persists the new state and Emily's reply in
+    // the same store update, so this guarantees the text has landed.
+    await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "current");
+    const turn1ReplyText = await page.getByTestId("emily-message-bubble").innerText();
+    expect(CHECKIN_TEXTS).toContain(turn1ReplyText);
 
     // Turn 2 — this is the reported bug: the mic should capture again.
     await micButton.click();
@@ -127,24 +121,15 @@ test.describe("Practice page — voice input", () => {
       window.__mockSpeechRecognition?.emitResult("I'm good, how about you?", { isFinal: true }),
     );
     await expect(page.getByTestId("learner-message-bubble")).toHaveText("I'm good, how about you?");
-    await expect(page.getByTestId("emily-message-bubble")).toHaveText("Nice! Have a good one.");
+    await expect(page.getByTestId("practice-step-response")).toHaveAttribute("data-state", "current");
+    const turn2ReplyText = await page.getByTestId("emily-message-bubble").innerText();
+    expect(RESPONSE_ASKED_BACK_TEXTS).toContain(turn2ReplyText);
   });
 
   test("an interim result is shown live near the mic before the final result is submitted", async ({ page }) => {
     await resetStorage(page);
     await mockSpeechApis(page);
-    await installScriptedPracticeApi(
-      page,
-      [
-        {
-          verdict: "accepted",
-          reply_en: "Great, how are you today?",
-          reply_zh: "太好了，你今天怎么样？",
-          highlight_key: "natural-paraphrase",
-        },
-      ],
-      { delayMs: 300 },
-    );
+    await installScriptedPracticeApi(page, [{ verdict: "accepted" }], { delayMs: 300 });
     await page.goto(PRACTICE_URL);
 
     await page.getByTestId("practice-mic-button").click();
@@ -163,14 +148,7 @@ test.describe("Practice page — voice input", () => {
   }) => {
     await resetStorage(page);
     await mockSpeechApis(page);
-    await installScriptedPracticeApi(page, [
-      {
-        verdict: "accepted",
-        reply_en: "Great, how are you today?",
-        reply_zh: "太好了，你今天怎么样？",
-        highlight_key: "natural-paraphrase",
-      },
-    ]);
+    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
     await page.goto(PRACTICE_URL);
 
     await page.getByTestId("practice-mic-button").click();
@@ -183,7 +161,9 @@ test.describe("Practice page — voice input", () => {
     await page.getByTestId("practice-text-input").fill("Hi Emily!");
     await page.getByTestId("practice-send-button").click();
 
-    await expect(page.getByTestId("emily-message-bubble")).toHaveText("Great, how are you today?");
+    await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "current");
+    const replyText = await page.getByTestId("emily-message-bubble").innerText();
+    expect(CHECKIN_TEXTS).toContain(replyText);
   });
 
   test("no-microphone-hardware error auto-falls back to text input with a distinct explanation, and text still works", async ({
@@ -191,14 +171,7 @@ test.describe("Practice page — voice input", () => {
   }) => {
     await resetStorage(page);
     await mockSpeechApis(page);
-    await installScriptedPracticeApi(page, [
-      {
-        verdict: "accepted",
-        reply_en: "Great, how are you today?",
-        reply_zh: "太好了，你今天怎么样？",
-        highlight_key: "natural-paraphrase",
-      },
-    ]);
+    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
     await page.goto(PRACTICE_URL);
 
     await page.getByTestId("practice-mic-button").click();
@@ -215,7 +188,9 @@ test.describe("Practice page — voice input", () => {
     await page.getByTestId("practice-text-input").fill("Hi Emily!");
     await page.getByTestId("practice-send-button").click();
 
-    await expect(page.getByTestId("emily-message-bubble")).toHaveText("Great, how are you today?");
+    await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "current");
+    const replyText = await page.getByTestId("emily-message-bubble").innerText();
+    expect(CHECKIN_TEXTS).toContain(replyText);
   });
 
   test("when speech recognition is unsupported, the page auto-degrades to text input with an explanation, and the text path still fully works", async ({
@@ -223,18 +198,7 @@ test.describe("Practice page — voice input", () => {
   }) => {
     await resetStorage(page);
     await mockSpeechRecognitionUnsupported(page);
-    await installScriptedPracticeApi(
-      page,
-      [
-        {
-          verdict: "accepted",
-          reply_en: "Great, how are you today?",
-          reply_zh: "太好了，你今天怎么样？",
-          highlight_key: "natural-paraphrase",
-        },
-      ],
-      { delayMs: 300 },
-    );
+    await installScriptedPracticeApi(page, [{ verdict: "accepted" }], { delayMs: 300 });
     await page.goto(PRACTICE_URL);
 
     // No mic UI at all; text input is already the active mode with an
@@ -252,21 +216,15 @@ test.describe("Practice page — voice input", () => {
     await page.getByTestId("practice-send-button").click();
 
     await expect(page.getByTestId("learner-message-bubble")).toHaveText("Hi Emily!");
-    await expect(page.getByTestId("emily-message-bubble")).toHaveText("Great, how are you today?");
     await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "current");
+    const replyText = await page.getByTestId("emily-message-bubble").innerText();
+    expect(CHECKIN_TEXTS).toContain(replyText);
   });
 
   test("the manual mode toggle switches between voice and text even when the mic works fine", async ({ page }) => {
     await resetStorage(page);
     await mockSpeechApis(page);
-    await installScriptedPracticeApi(page, [
-      {
-        verdict: "accepted",
-        reply_en: "Great, how are you today?",
-        reply_zh: "太好了，你今天怎么样？",
-        highlight_key: "natural-paraphrase",
-      },
-    ]);
+    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
     await page.goto(PRACTICE_URL);
 
     await expect(page.getByTestId("practice-mic-button")).toBeVisible();
@@ -280,7 +238,9 @@ test.describe("Practice page — voice input", () => {
     // Text mode works exactly like the standalone text form.
     await page.getByTestId("practice-text-input").fill("Hi Emily!");
     await page.getByTestId("practice-send-button").click();
-    await expect(page.getByTestId("emily-message-bubble")).toHaveText("Great, how are you today?");
+    await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "current");
+    const replyText = await page.getByTestId("emily-message-bubble").innerText();
+    expect(CHECKIN_TEXTS).toContain(replyText);
 
     // Switching back to voice is available too.
     await page.getByTestId("practice-input-mode-toggle").click();

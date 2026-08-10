@@ -99,8 +99,6 @@ export type SubmitTurnResult =
     };
 
 export type SubmitPracticeTurnOptions = {
-  /** Fired zero or more times as Emily's reply streams in, before the final verdict lands. */
-  onPartialReply?: (partialReplyEn: string) => void;
   /** Aborts the in-flight request (e.g. the page is unmounting). */
   signal?: AbortSignal;
 };
@@ -161,16 +159,12 @@ export async function submitPracticeTurn(
       // already carries that role, so `data` is just the plain TurnResult.
       finalResult = {
         verdict: event.verdict,
-        reply_en: event.reply_en,
-        reply_zh: event.reply_zh,
-        highlight_key: event.highlight_key,
+        learner_asked_back: event.learner_asked_back,
       };
     } else if (event.type === "error") {
       if (isKnownStreamErrorReason(event.error)) {
         streamError = event.error;
       }
-    } else {
-      options?.onPartialReply?.(event.reply_en);
     }
   });
 

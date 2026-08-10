@@ -12,12 +12,34 @@ import { MessageBubblePair } from "@/components/practice/message-bubble-pair";
 import { PracticeInputForm } from "@/components/practice/practice-input-form";
 import { PracticeTranscriptDrawer } from "@/components/practice/practice-transcript-drawer";
 import { StageTag } from "@/components/stage-tag";
-import { pickRandomOpeningLine, PRACTICE_HEADLINE, SILENCE_NUDGE } from "@/content/practice";
+import { GREETING_SOMEBODY_LESSON, pickRandomOpeningLine } from "@/content/lesson";
 import type { ActiveConversationState } from "@/lib/conversation-state-machine";
+import { containsChineseText } from "@/lib/detect-chinese-input";
+import { selectEmilyLineForTurn, selectSilenceNudge } from "@/lib/emily-reply-selector";
 import { markStepComplete } from "@/lib/progress";
 import { usePractice } from "@/lib/practice-state";
 import { speak, speakAssertively } from "@/lib/speech-synthesis";
 import { submitPracticeTurn } from "@/lib/submit-practice-turn";
+import { matchesAcceptedResponse } from "@/lib/turn-record";
+
+/**
+ * Placeholder `support_requested` response (issue #18) shown when the
+ * learner types Chinese straight into the main reply box, rather than
+ * tapping "中文提问" (which opens `AskInChineseSheet`'s real 4-part canned
+ * explanation for the current step). Appended via `appendSupportMessage` —
+ * same as the silence nudge — so it never transitions `conversationState`
+ * and never contributes a `highlightKey` to the Learning Summary.
+ *
+ * This is deliberately minimal: issue #19 ("Chinese help becomes a spoken
+ * mode") is the ticket that turns this into a real, current-step-aware
+ * explanation the learner can have a follow-up conversation about. Until
+ * then this just needs to acknowledge the Chinese input without crashing or
+ * ever reaching the Judge.
+ */
+const CHINESE_INPUT_SUPPORT_NUDGE = {
+  en: "Let's try that in English!",
+  zh: "看起来你打的是中文——我们试着用英语说说看吧！需要提示的话，可以点旁边的「中文提问」。",
+};
 
 /** How long Emily's avatar stays in the "talking" state after a new line lands, before settling back to idle. */
 const TALKING_DURATION_MS = 1400;
@@ -96,6 +118,12 @@ export function PracticePageContent() {
   // Mode's fake remount same as any other ref, and we want a fresh "haven't
   // checked yet" on every real mount too.
   const hasCheckedReplyAutoplayRef = useRef(false);
+  // The `.en` text of whichever silence nudge was shown last this mount, or
+  // `undefined` if none has fired yet — `selectSilenceNudge` uses this to
+  // never repeat the same nudge twice in a row (docs/ai-configuration.md
+  // section 3). A ref, not store state: which nudge played last is a purely
+  // local selection concern, not persisted conversation data.
+  const lastNudgeTextRef = useRef<string | undefined>(undefined);
 
   // Opening line: picked once per mount, only actually applied by
   // ensureOpeningMessage if the transcript is still empty (fresh start). A
@@ -197,13 +225,36 @@ export function PracticePageContent() {
   useEffect(() => {
     if (isComplete || isSubmitting) return;
     const timeoutId = setTimeout(() => {
-      appendSupportMessage(SILENCE_NUDGE);
+      // Issue #16 (docs/ai-configuration.md section 3): the silence nudge is
+      // now a 3-line pool, not one fixed line — picked so it never repeats
+      // the immediately preceding nudge's text twice in a row.
+      const nudge = selectSilenceNudge(GREETING_SOMEBODY_LESSON, lastNudgeTextRef.current);
+      lastNudgeTextRef.current = nudge.en;
+      appendSupportMessage(nudge);
     }, SILENCE_TIMEOUT_MS);
     return () => clearTimeout(timeoutId);
   }, [lastMessageId, isComplete, isSubmitting, appendSupportMessage]);
 
   async function handleSubmit(text: string) {
     if (isComplete || isSubmitting) return;
+
+    // Turn Outcome resolution (issue #18; docs/ai-configuration.md section 4;
+    // CONTEXT.md's Turn Outcome glossary entry): Chinese input is detected
+    // here, client-side, BEFORE the Judge is ever called — it resolves
+    // straight to `support_requested` and never becomes a Verdict. The
+    // learner's input is still echoed (same as any other turn) and Emily
+    // still responds, but purely through `appendSupportMessage`, which never
+    // advances `conversationState` and never records a `highlightKey` — a
+    // support_requested Turn contributes nothing to the Learning Summary and
+    // is never seen by the state machine.
+    if (containsChineseText(text)) {
+      setErrorMessage(null);
+      appendLearnerMessage(text);
+      appendSupportMessage(CHINESE_INPUT_SUPPORT_NUDGE);
+      setAvatarState("idle");
+      return;
+    }
+
     const priorState = conversationState as ActiveConversationState;
 
     setErrorMessage(null);
@@ -229,12 +280,33 @@ export function PracticePageContent() {
     );
 
     if (result.ok) {
+      // Issue #16: the model no longer says what Emily says next — only
+      // `verdict` and `learner_asked_back` came back. Emily's line is
+      // selected here, client-side, at random from the Lesson's fixed
+      // Conversation Script pools (never paraphrased or composed).
+      const selected = selectEmilyLineForTurn(
+        GREETING_SOMEBODY_LESSON,
+        priorState,
+        result.data.verdict,
+        result.data.learner_asked_back,
+      );
+      // Issue #20 (#12's "Learning Summary inputs are derived, not
+      // reported"): whether the learner's text matched this state's
+      // Accepted Responses is computed here, client-side, rather than
+      // reported by the model — the same "compare against
+      // Lesson.script[state].acceptedResponses" the system prompt already
+      // hands the model as guidance, but as a real client-side check
+      // feeding the Learning Summary's per-state record.
       recordTurnResult({
         priorState,
         verdict: result.data.verdict,
-        replyEn: result.data.reply_en,
-        replyZh: result.data.reply_zh,
-        highlightKey: result.data.highlight_key,
+        replyEn: selected.line.en,
+        replyZh: selected.line.zh,
+        matchedAcceptedResponse: matchesAcceptedResponse(
+          text,
+          GREETING_SOMEBODY_LESSON.script[priorState].acceptedResponses,
+        ),
+        learnerAskedBack: result.data.learner_asked_back,
       });
       setIsSubmitting(false);
       return;
@@ -271,6 +343,7 @@ export function PracticePageContent() {
     setErrorMessage(null);
     setIsSubmitting(false);
     setIsAskInChineseOpen(false);
+    lastNudgeTextRef.current = undefined;
   }
 
   return (
@@ -285,8 +358,8 @@ export function PracticePageContent() {
         topOverlay={<EmilyInfoCard />}
         headlineOverlay={
           <div className="flex flex-col gap-1.5">
-            <h2 className="text-h3 leading-tight font-bold text-accent">{PRACTICE_HEADLINE.en}</h2>
-            <p className="text-body-sm font-semibold text-accent">{PRACTICE_HEADLINE.zh}</p>
+            <h2 className="text-h3 leading-tight font-bold text-accent">{GREETING_SOMEBODY_LESSON.headline.en}</h2>
+            <p className="text-body-sm font-semibold text-accent">{GREETING_SOMEBODY_LESSON.headline.zh}</p>
             <p className="text-[8px] leading-snug text-foreground/80">
               和 Emily 进行真实对话练习，
               <br />
@@ -299,7 +372,6 @@ export function PracticePageContent() {
             key={emilyMessage?.id}
             emilyMessage={emilyMessage ? { textEn: emilyMessage.textEn, textZh: emilyMessage.textZh } : null}
             learnerMessage={learnerMessage ? { textEn: learnerMessage.textEn, textZh: learnerMessage.textZh } : null}
-            defaultShowChinese={messages.length > 0 && messages[0].id === emilyMessage?.id}
           />
         }
       />
@@ -339,6 +411,16 @@ export function PracticePageContent() {
         <AskInChineseSheet
           conversationState={conversationState as ActiveConversationState}
           onClose={() => setIsAskInChineseOpen(false)}
+          onExitWithEnglishInput={(text) => {
+            // Issue #19 acceptance criterion 6: speaking/typing English
+            // while help mode is open exits help mode automatically, and
+            // the English text is submitted as a normal Practice turn
+            // rather than discarded — this reuses handleSubmit unchanged,
+            // which itself already special-cases Chinese input, so English
+            // text here just flows through the normal Judge path.
+            setIsAskInChineseOpen(false);
+            void handleSubmit(text);
+          }}
         />
       ) : null}
 
@@ -358,7 +440,7 @@ export function PracticePageContent() {
           data-testid="view-summary-button"
           className="btn-primary flex w-full items-center justify-center gap-2"
         >
-          查看学习总结 View Summary <span aria-hidden>→</span>
+          查看学习总结 View Learning Summary <span aria-hidden>→</span>
         </button>
       </div>
     </div>

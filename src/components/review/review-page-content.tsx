@@ -5,33 +5,35 @@ import { useRouter } from "next/navigation";
 import { CourseProgressChip } from "@/components/course-progress";
 import { ReviewTypingIndicator } from "@/components/review/review-typing-indicator";
 import { StageTag } from "@/components/stage-tag";
-import { REVIEW_HEADLINE } from "@/content/review";
+import { LEARNING_SUMMARY_HEADLINE } from "@/content/review";
 import { selectFeedback, type FeedbackLine } from "@/lib/feedback-selector";
 import { usePractice } from "@/lib/practice-state";
 import { markStepComplete } from "@/lib/progress";
 
 /**
- * Review page body (ticket 11; spec.md "Review 页" + "语言口径" > "Review 全
- * 中文叙述 + 英文例句嵌入"; user stories 69-81). Split out from page.tsx (a
+ * Learning Summary body for the internal Review stage. Split out from
+ * page.tsx (a
  * Server Component, so it can keep exporting `metadata`) for the same
  * reason as every other learning page's split — everything here is
  * client-only state (the practice store, the sequential-reveal timer).
  *
  * Sequential "chat" reveal: `selectFeedback` runs once per mount against the
- * practice store's accumulated `highlightKeys` snapshot at that moment, then
- * the resulting lines are revealed one at a time with a short pause + a
- * typing indicator between each (user story 76). Retry and Continue both
- * start disabled and only unlock once every line has been revealed (user
- * story 77) — enforced here, not just visually, via the `disabled` prop.
+ * practice store's accumulated `turnRecords` snapshot at that moment (issue
+ * #20 — one per-state record per accepted state, replacing the old
+ * model-reported `highlightKeys`), then the resulting lines are revealed
+ * one at a time with a short pause + a typing indicator between each (user
+ * story 76). Retry and Continue both start disabled and only unlock once
+ * every line has been revealed (user story 77) — enforced here, not just
+ * visually, via the `disabled` prop.
  */
 export function ReviewPageContent() {
   const router = useRouter();
-  const { highlightKeys, resetPractice } = usePractice();
+  const { turnRecords, resetPractice } = usePractice();
 
-  // Computed exactly once, from the highlightKeys snapshot at mount time —
+  // Computed exactly once, from the turnRecords snapshot at mount time —
   // this is what makes the highlights reflect *this* practice run rather
   // than reshuffling mid-reveal as the timer below triggers re-renders.
-  const [feedbackLines] = useState<FeedbackLine[]>(() => selectFeedback(highlightKeys));
+  const [feedbackLines] = useState<FeedbackLine[]>(() => selectFeedback(turnRecords));
   const [revealedCount, setRevealedCount] = useState(0);
 
   const isRevealing = revealedCount < feedbackLines.length;
@@ -58,7 +60,7 @@ export function ReviewPageContent() {
   function handleRetry() {
     if (isRevealing) return;
     // Clean slate: conversation state back to "greeting", messages and
-    // highlightKeys cleared (spec.md user story 79: "重练时对话是干净的重新
+    // turnRecords cleared (spec.md user story 79: "重练时对话是干净的重新
     // 开始，上次的记录不会串进来").
     resetPractice();
     router.push("/practice");
@@ -73,12 +75,11 @@ export function ReviewPageContent() {
   return (
     <div className="flex flex-1 flex-col gap-6">
       <div className="flex flex-col gap-2">
-        <StageTag label="Review" icon="✨" />
+        <StageTag label="Summary" icon="✨" />
         <CourseProgressChip />
-        <h1 className="text-h1">Review</h1>
-        <h2 className="text-display text-accent">{REVIEW_HEADLINE.en}</h2>
-        <p className="text-body-lg text-muted">{REVIEW_HEADLINE.zh}</p>
-        <p className="text-body text-muted">{REVIEW_HEADLINE.supportingZh}</p>
+        <h1 className="text-display text-accent">{LEARNING_SUMMARY_HEADLINE.en}</h1>
+        <p className="text-body-lg text-muted">{LEARNING_SUMMARY_HEADLINE.zh}</p>
+        <p className="text-body text-muted">{LEARNING_SUMMARY_HEADLINE.supportingZh}</p>
       </div>
 
       {/*
@@ -128,7 +129,7 @@ export function ReviewPageContent() {
               className="mt-0.5 h-8 w-8 shrink-0 rounded-full object-cover object-top"
             />
             <p className="rounded-card border border-border bg-page px-4 py-3 text-body-lg text-foreground">
-              {line.textZh}
+              {line.text}
             </p>
           </div>
         ))}
@@ -136,7 +137,7 @@ export function ReviewPageContent() {
         {isRevealing ? <ReviewTypingIndicator /> : null}
 
         <span className="sr-only" role="status">
-          {isRevealing ? "Emily 正在输入 Typing" : "反馈已全部显示 Feedback complete"}
+          {isRevealing ? "Emily is typing 艾米丽正在输入" : "Learning Summary complete 学习总结已完成"}
         </span>
       </div>
 

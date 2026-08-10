@@ -46,6 +46,13 @@ type EvalCase = {
   category: EvalCategory;
   message: string;
   expected: Verdict;
+  /**
+   * Issue #16: with `reply_en`/`highlight_key` gone, `verdict` is very
+   * nearly the model's only remaining output — `learner_asked_back` is the
+   * other one, and this eval is its only guard against the real API too.
+   * Optional: only asserted when a case sets it.
+   */
+  expectedAskedBack?: boolean;
   /** Extra context surfaced in output for cases worth calling out explicitly. */
   note?: string;
 };
@@ -69,17 +76,35 @@ const EVAL_CASES: EvalCase[] = [
     state: "greeting",
     category: "off-topic",
     message: "Do you like pizza?",
-    expected: "off_topic",
+    expected: "needs_retry",
   },
 
   // --- checkin ---
-  { state: "checkin", category: "whitelist", message: "How are you?", expected: "accepted" },
+  {
+    state: "checkin",
+    category: "whitelist",
+    message: "How are you?",
+    expected: "accepted",
+    // Reciprocating Emily's own question back at her IS asking back —
+    // deliberately not asserting expectedAskedBack: this exact wording is
+    // ambiguous (is the learner echoing Emily's question, or answering with
+    // one?), so this case only pins the verdict.
+  },
   {
     state: "checkin",
     category: "natural-paraphrase",
     message: "Yeah, doing alright",
     expected: "accepted",
+    expectedAskedBack: false,
     note: "ticket 12's explicit acceptance case — the MVP's core technical risk bet",
+  },
+  {
+    state: "checkin",
+    category: "natural-paraphrase",
+    message: "I'm good, thanks! How about you?",
+    expected: "accepted",
+    expectedAskedBack: true,
+    note: "issue #16's learner_asked_back risk bet — a returned question must be detected",
   },
   {
     state: "checkin",
@@ -91,7 +116,7 @@ const EVAL_CASES: EvalCase[] = [
     state: "checkin",
     category: "off-topic",
     message: "What's the capital of France?",
-    expected: "off_topic",
+    expected: "needs_retry",
   },
 
   // --- response ---
@@ -112,7 +137,7 @@ const EVAL_CASES: EvalCase[] = [
     state: "response",
     category: "off-topic",
     message: "What time does the store open?",
-    expected: "off_topic",
+    expected: "needs_retry",
   },
 
   // --- closing ---
@@ -138,7 +163,7 @@ const EVAL_CASES: EvalCase[] = [
     state: "closing",
     category: "off-topic",
     message: "What's your favorite movie?",
-    expected: "off_topic",
+    expected: "needs_retry",
   },
 ];
 
@@ -147,25 +172,28 @@ const EVAL_CASES: EvalCase[] = [
 type EvalOutcome = EvalCase & {
   actual: Verdict | "ERROR";
   pass: boolean;
-  highlightKey?: string;
-  replyEn?: string;
+  learnerAskedBack?: boolean;
   errorMessage?: string;
 };
 
 async function runCase(apiKey: string, testCase: EvalCase): Promise<EvalOutcome> {
   try {
+    // Issue #16: judgeTurn's contract shrank to `{ verdict, learner_asked_back
+    // }` — no more `reply_en`/`highlight_key` to surface for failed cases.
     const result = await judgeTurn({
       apiKey,
       state: testCase.state,
       message: testCase.message,
       history: [],
     });
+    const verdictPassed = result.verdict === testCase.expected;
+    const askedBackPassed =
+      testCase.expectedAskedBack === undefined || result.learner_asked_back === testCase.expectedAskedBack;
     return {
       ...testCase,
       actual: result.verdict,
-      pass: result.verdict === testCase.expected,
-      highlightKey: result.highlight_key,
-      replyEn: result.reply_en,
+      pass: verdictPassed && askedBackPassed,
+      learnerAskedBack: result.learner_asked_back,
     };
   } catch (error) {
     return {
@@ -218,10 +246,13 @@ async function main(): Promise<void> {
   }
   for (const outcome of failures) {
     console.log(`  [${outcome.state}/${outcome.category}] "${outcome.message}"`);
-    console.log(`    expected: ${outcome.expected}`);
-    console.log(`    actual:   ${outcome.actual}${outcome.highlightKey ? ` (highlight_key=${outcome.highlightKey})` : ""}`);
+    console.log(
+      `    expected: ${outcome.expected}${outcome.expectedAskedBack !== undefined ? ` (learner_asked_back=${outcome.expectedAskedBack})` : ""}`,
+    );
+    console.log(
+      `    actual:   ${outcome.actual}${outcome.learnerAskedBack !== undefined ? ` (learner_asked_back=${outcome.learnerAskedBack})` : ""}`,
+    );
     if (outcome.note) console.log(`    note:     ${outcome.note}`);
-    if (outcome.replyEn) console.log(`    Emily replied: "${outcome.replyEn}"`);
     if (outcome.errorMessage) console.log(`    error:    ${outcome.errorMessage}`);
     console.log("");
   }

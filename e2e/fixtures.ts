@@ -77,11 +77,21 @@ export const PRACTICE_URL = "/practice?debug=1";
 /** The LLM proxy route `installScriptedPracticeApi` below stubs. */
 export const TURN_ENDPOINT = "**/api/practice/turn";
 
+/**
+ * Issue #16: the wire contract shrank to exactly two fields. `reply_en`,
+ * `reply_zh`, and `highlight_key` are gone — Emily's line is now picked
+ * client-side from the Lesson's fixed Conversation Script pools (see
+ * src/content/lesson.ts / src/lib/emily-reply-selector.ts), so a spec can no
+ * longer dictate Emily's exact reply text through this stub. Specs that used
+ * to assert `emily-message-bubble` against a scripted `reply_en` now assert
+ * membership in the relevant pool instead (imported straight from
+ * src/content/lesson.ts, so the assertion can never silently drift from the
+ * production content it's checking).
+ */
 export type ScriptedTurnResponse = {
-  verdict: "accepted" | "needs_retry" | "off_topic";
-  reply_en: string;
-  reply_zh: string;
-  highlight_key: string;
+  verdict: "accepted" | "needs_retry";
+  /** Defaults to `false` when omitted — most scripted turns don't ask a question back. */
+  learner_asked_back?: boolean;
 };
 
 /**
@@ -91,8 +101,9 @@ export type ScriptedTurnResponse = {
  * A step up from this module's generic `mockApiRoute` above (which always
  * fulfills every matching request with the *same* fixed response): a
  * Practice conversation needs different verdicts at different points (a few
- * accepted turns, one needs_retry, one off_topic), so the mock has to vary
- * per call.
+ * accepted turns, one needs_retry — including one for off-topic input, which
+ * is judged needs_retry rather than a Verdict of its own, issue #15), so the
+ * mock has to vary per call.
  *
  * `delayMs` is optional and only needed by tests that assert on the
  * *transient* learner bubble mid-turn: without it, the mocked route
@@ -151,11 +162,55 @@ export async function installScriptedPracticeApi(
     if (options.delayMs) {
       await new Promise((resolve) => setTimeout(resolve, options.delayMs));
     }
-    const finalEvent = { type: "final", ...response };
+    const finalEvent = {
+      type: "final",
+      verdict: response.verdict,
+      learner_asked_back: response.learner_asked_back ?? false,
+    };
     await route.fulfill({
       status: 200,
       contentType: "text/event-stream",
       body: `data: ${JSON.stringify(finalEvent)}\n\n`,
+    });
+  });
+}
+
+// --- Scripted Chinese-explanation stub (issue #19) -----------------------
+//
+// Issue #12's Testing Decisions section is explicit that this is "a second
+// stubbed endpoint... alongside the existing turn endpoint... at the same
+// level as the existing stub — it is not a new seam" — so this helper
+// lives right here next to `installScriptedPracticeApi`, follows its exact
+// shape (page.route + a script, saturating on the last entry), and a spec
+// typically calls both together.
+
+/** The Chinese-explanation route (src/app/api/practice/explain/route.ts) this helper stubs. */
+export const EXPLAIN_ENDPOINT = "**/api/practice/explain";
+
+/**
+ * Stubs the Chinese-explanation route with a scripted sequence of plain
+ * JSON responses — one per call, saturating on the last entry, same
+ * pattern as `installScriptedPracticeApi`. Pass `{ fail: true }` for an
+ * entry to simulate a failed call (a non-2xx status) instead, so a spec can
+ * assert the client-side fallback to the canned four-part text (issue #19
+ * acceptance criterion 5).
+ */
+export async function installScriptedChineseExplanationApi(
+  page: Page,
+  responses: ({ answerZh: string } | { fail: true })[],
+): Promise<void> {
+  let callIndex = 0;
+  await page.route(EXPLAIN_ENDPOINT, async (route: Route) => {
+    const response = responses[Math.min(callIndex, responses.length - 1)];
+    callIndex += 1;
+    if ("fail" in response) {
+      await route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ error: "upstream_error" }) });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ answerZh: response.answerZh }),
     });
   });
 }
@@ -197,6 +252,16 @@ type MockSpeechRecognitionController = {
   emitResult: (transcript: string, options?: MockRecognitionResultOptions) => void;
   emitError: (error: string) => void;
   emitEnd: () => void;
+  /**
+   * The `lang` the most recently started recognizer instance was
+   * configured with, or `null` if none has started yet (issue #19: "the
+   * speech mock exposes the recogniser's configured language so a test can
+   * assert it switches to Chinese in help mode and back to English outside
+   * it"). Reflects whichever instance last called `start()` — src/lib/speech-recognition.ts's
+   * `startListening` sets `.lang` before calling `.start()`, so by the time
+   * `onstart`/the "start" event fires this is always current.
+   */
+  getLang: () => string | null;
 };
 
 declare global {
@@ -323,6 +388,9 @@ export async function mockSpeechApis(page: Page): Promise<void> {
       },
       emitEnd() {
         activeRecognition?.stop();
+      },
+      getLang() {
+        return activeRecognition?.lang ?? null;
       },
     };
 

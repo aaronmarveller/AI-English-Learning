@@ -13,15 +13,6 @@ type MessageBubblePairProps = {
   emilyMessage: BubbleMessage | null;
   /** The learner's echoed input for the current turn, or null before they've submitted one. */
   learnerMessage: BubbleMessage | null;
-  /**
-   * Whether Emily's bubble should default to showing its Chinese caption
-   * already expanded (ticket 10; spec.md 语言口径: "例外：第一条 Opening
-   * Message 默认展开中文，降低初次入场门槛"). Every other message defaults to
-   * collapsed. The parent is expected to pass `key={emilyMessage.id}` so this
-   * component remounts (and its internal toggle state resets) on every new
-   * message — see practice-page-content.tsx.
-   */
-  defaultShowChinese?: boolean;
 };
 
 /**
@@ -39,14 +30,13 @@ type MessageBubblePairProps = {
  *
  * Ticket 10 additions (spec.md "Practice 页交互模型" / "语言口径", user
  * stories 48-53): a per-message bilingual subtitle toggle on Emily's bubble
- * (default collapsed, except the very first message in the whole
- * conversation — see `defaultShowChinese`), and an independent replay
+ * (default collapsed for every new message), and an independent replay
  * button that re-speaks Emily's English line via the shared
  * speech-synthesis adapter. Neither one transitions Conversation State —
  * both are purely local UI state inside this component.
  */
-export function MessageBubblePair({ emilyMessage, learnerMessage, defaultShowChinese = false }: MessageBubblePairProps) {
-  const [showChinese, setShowChinese] = useState(defaultShowChinese);
+export function MessageBubblePair({ emilyMessage, learnerMessage }: MessageBubblePairProps) {
+  const [showChinese, setShowChinese] = useState(false);
 
   function handleReplay() {
     if (!emilyMessage) return;

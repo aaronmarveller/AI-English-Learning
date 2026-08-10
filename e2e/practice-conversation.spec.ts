@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { installScriptedPracticeApi, PRACTICE_URL, resetStorage, submitReply } from "./fixtures";
+import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
 
 /**
  * E2E coverage for the Practice page's text-driven conversation core
@@ -9,12 +10,12 @@ import { installScriptedPracticeApi, PRACTICE_URL, resetStorage, submitReply } f
  * else — the pure Conversation State Machine, the practice store, routing —
  * runs real code against a real `next build && next start` server.
  *
- * Filename leaves room for ticket 09/10's `practice-voice.spec.ts` /
- * `practice-support.spec.ts` to land alongside this one without collision.
- *
- * Reached via `?debug=1` (see src/lib/debug.ts / the learning layout's
- * guard) since Practice's normal prerequisite is completing Observe/
- * Explore/Notice, which isn't this ticket's concern to drive through.
+ * Issue #16: the model no longer says what Emily says next — the mock only
+ * ever supplies `verdict` (and, where relevant, `learner_asked_back`).
+ * Emily's actual line is picked client-side at random from the current
+ * Lesson's fixed Conversation Script pools (src/content/lesson.ts), so specs
+ * below assert pool *membership* (`toContain`) instead of an exact scripted
+ * string.
  *
  * The scripted turn-endpoint stub (`installScriptedPracticeApi`) and the
  * text-reply helper (`submitReply`) originated in this file but now live in
@@ -22,6 +23,13 @@ import { installScriptedPracticeApi, PRACTICE_URL, resetStorage, submitReply } f
  * .spec.ts, and review.spec.ts — see that module's doc comments for why
  * (consolidated by issue #10).
  */
+
+const CHECKIN_TEXTS = GREETING_SOMEBODY_LESSON.checkinLines.map((line) => line.en);
+const RESPONSE_DID_NOT_ASK_BACK_TEXTS = GREETING_SOMEBODY_LESSON.responseLines.didNotAskBack.map((line) => line.en);
+const RESPONSE_ASKED_BACK_TEXTS = GREETING_SOMEBODY_LESSON.responseLines.askedBack.map((line) => line.en);
+const CLOSING_TEXTS = GREETING_SOMEBODY_LESSON.closingLines.map((line) => line.en);
+const COMPLETION_TEXTS = [...GREETING_SOMEBODY_LESSON.completionMessages];
+const GREETING_NEEDS_RETRY_TEXTS = GREETING_SOMEBODY_LESSON.script.greeting.needsRetryLines.map((line) => line.en);
 
 test.describe("Practice page — conversation core", () => {
   test("Emily's opening line renders on load with zero calls to the turn endpoint", async ({
@@ -51,45 +59,28 @@ test.describe("Practice page — conversation core", () => {
     await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "upcoming");
   });
 
-  test("verdict accepted advances the conversation state and updates the 4-step indicator", async ({
+  test("verdict accepted advances the conversation state and Emily's line comes from the checkin pool", async ({
     page,
   }) => {
     await resetStorage(page);
-    await installScriptedPracticeApi(page, [
-      {
-        verdict: "accepted",
-        reply_en: "Great, how are you today?",
-        reply_zh: "太好了，你今天怎么样？",
-        highlight_key: "natural-paraphrase",
-      },
-    ]);
+    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
     await page.goto(PRACTICE_URL);
 
     await expect(page.getByTestId("practice-step-greeting")).toHaveAttribute("data-state", "current");
 
     await submitReply(page, "Hi Emily!");
 
-    await expect(page.getByTestId("emily-message-bubble")).toHaveText("Great, how are you today?");
     await expect(page.getByTestId("practice-step-greeting")).toHaveAttribute("data-state", "completed");
     await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "current");
+    const replyText = await page.getByTestId("emily-message-bubble").innerText();
+    expect(CHECKIN_TEXTS).toContain(replyText);
   });
 
   test("the learner's input is echoed as its own bubble while Emily grades it, then the pair is replaced", async ({
     page,
   }) => {
     await resetStorage(page);
-    await installScriptedPracticeApi(
-      page,
-      [
-        {
-          verdict: "accepted",
-          reply_en: "Great, how are you today?",
-          reply_zh: "太好了，你今天怎么样？",
-          highlight_key: "natural-paraphrase",
-        },
-      ],
-      { delayMs: 400 },
-    );
+    await installScriptedPracticeApi(page, [{ verdict: "accepted" }], { delayMs: 400 });
     await page.goto(PRACTICE_URL);
 
     await submitReply(page, "Hey Emily, good morning!");
@@ -100,51 +91,87 @@ test.describe("Practice page — conversation core", () => {
     await expect(page.getByTestId("emily-avatar")).toHaveAttribute("data-state", "thinking");
 
     // Once graded, both bubbles are replaced by the new round: Emily's new
-    // line renders, and the learner bubble is gone until they answer again.
-    await expect(page.getByTestId("emily-message-bubble")).toHaveText("Great, how are you today?");
+    // line renders (from the checkin pool), and the learner bubble is gone
+    // until they answer again.
     await expect(page.getByTestId("learner-message-bubble")).toHaveCount(0);
+    const replyText = await page.getByTestId("emily-message-bubble").innerText();
+    expect(CHECKIN_TEXTS).toContain(replyText);
   });
 
-  test("verdict needs_retry keeps the learner on the same step and shows Emily's encouragement", async ({
+  test("verdict needs_retry keeps the learner on the same step and shows a line from that state's needs_retry pool", async ({
     page,
   }) => {
     await resetStorage(page);
-    await installScriptedPracticeApi(page, [
-      {
-        verdict: "needs_retry",
-        reply_en: "Almost! Try saying hi back to me.",
-        reply_zh: "差一点点！试着跟我打个招呼吧。",
-        highlight_key: "needs-more-practice",
-      },
-    ]);
+    await installScriptedPracticeApi(page, [{ verdict: "needs_retry" }]);
     await page.goto(PRACTICE_URL);
 
     await submitReply(page, "banana");
 
-    await expect(page.getByTestId("emily-message-bubble")).toHaveText("Almost! Try saying hi back to me.");
+    // needs_retry never advances state, so there's no step-attribute change
+    // to wait on the way accepted turns have — wait on the learner bubble
+    // clearing instead (recordTurnResult always clears it once the turn
+    // resolves, verdict either way), which still guarantees the reply text
+    // has landed before a one-shot innerText() read below.
+    await expect(page.getByTestId("learner-message-bubble")).toHaveCount(0);
+    const replyText = await page.getByTestId("emily-message-bubble").innerText();
+    expect(GREETING_NEEDS_RETRY_TEXTS).toContain(replyText);
     await expect(page.getByTestId("practice-step-greeting")).toHaveAttribute("data-state", "current");
     await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "upcoming");
   });
 
-  test("verdict off_topic also keeps the learner on the same step", async ({ page }) => {
+  test("off-topic input is judged needs_retry and keeps the learner on the same step", async ({ page }) => {
+    // Issue #15: off-topic is not a Verdict of its own — a learner who
+    // wanders off the lesson's topic is judged "needs_retry" like any other
+    // unsuccessful attempt.
     await resetStorage(page);
-    await installScriptedPracticeApi(page, [
-      {
-        verdict: "off_topic",
-        reply_en: "Haha, fair! Anyway, would you say hi back?",
-        reply_zh: "哈哈，好吧！话说，要不要跟我打个招呼？",
-        highlight_key: "went-off-topic",
-      },
-    ]);
+    await installScriptedPracticeApi(page, [{ verdict: "needs_retry" }]);
     await page.goto(PRACTICE_URL);
 
     await submitReply(page, "What's the weather like on Mars?");
 
-    await expect(page.getByTestId("emily-message-bubble")).toHaveText(
-      "Haha, fair! Anyway, would you say hi back?",
-    );
+    await expect(page.getByTestId("learner-message-bubble")).toHaveCount(0);
+    const replyText = await page.getByTestId("emily-message-bubble").innerText();
+    expect(GREETING_NEEDS_RETRY_TEXTS).toContain(replyText);
     await expect(page.getByTestId("practice-step-greeting")).toHaveAttribute("data-state", "current");
     await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "upcoming");
+  });
+
+  test("a learner who does not ask back during check-in never hears a 'thanks for asking' line", async ({
+    page,
+  }) => {
+    await resetStorage(page);
+    await installScriptedPracticeApi(page, [
+      { verdict: "accepted" },
+      { verdict: "accepted", learner_asked_back: false },
+    ]);
+    await page.goto(PRACTICE_URL);
+
+    await submitReply(page, "Hi there!");
+    await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "current");
+    await submitReply(page, "I'm good, thanks.");
+    await expect(page.getByTestId("practice-step-response")).toHaveAttribute("data-state", "current");
+
+    const replyText = await page.getByTestId("emily-message-bubble").innerText();
+    expect(RESPONSE_DID_NOT_ASK_BACK_TEXTS).toContain(replyText);
+    expect(RESPONSE_ASKED_BACK_TEXTS).not.toContain(replyText);
+  });
+
+  test("a learner who asks back during check-in always hears an answer", async ({ page }) => {
+    await resetStorage(page);
+    await installScriptedPracticeApi(page, [
+      { verdict: "accepted" },
+      { verdict: "accepted", learner_asked_back: true },
+    ]);
+    await page.goto(PRACTICE_URL);
+
+    await submitReply(page, "Hi there!");
+    await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "current");
+    await submitReply(page, "I'm good, thanks! How about you?");
+    await expect(page.getByTestId("practice-step-response")).toHaveAttribute("data-state", "current");
+
+    const replyText = await page.getByTestId("emily-message-bubble").innerText();
+    expect(RESPONSE_ASKED_BACK_TEXTS).toContain(replyText);
+    expect(RESPONSE_DID_NOT_ASK_BACK_TEXTS).not.toContain(replyText);
   });
 
   test("driving all 4 steps to accepted unlocks View Summary, and clicking it marks practice complete and navigates to /review", async ({
@@ -152,30 +179,10 @@ test.describe("Practice page — conversation core", () => {
   }) => {
     await resetStorage(page);
     await installScriptedPracticeApi(page, [
-      {
-        verdict: "accepted",
-        reply_en: "How are you today?",
-        reply_zh: "你今天怎么样？",
-        highlight_key: "used-whitelist-phrase",
-      },
-      {
-        verdict: "accepted",
-        reply_en: "I'm doing great, thanks! How about you?",
-        reply_zh: "我很好，谢谢！你呢？",
-        highlight_key: "natural-paraphrase",
-      },
-      {
-        verdict: "accepted",
-        reply_en: "That's great to hear! Well, I should get going.",
-        reply_zh: "太好了！好啦，我该走了。",
-        highlight_key: "confident-full-turn",
-      },
-      {
-        verdict: "accepted",
-        reply_en: "Bye! Great chatting with you — go check out your summary!",
-        reply_zh: "拜拜！很高兴和你聊天——去看看你的学习总结吧！",
-        highlight_key: "used-whitelist-phrase",
-      },
+      { verdict: "accepted" },
+      { verdict: "accepted", learner_asked_back: true },
+      { verdict: "accepted" },
+      { verdict: "accepted" },
     ]);
     await page.goto(PRACTICE_URL);
 
@@ -193,10 +200,15 @@ test.describe("Practice page — conversation core", () => {
     await submitReply(page, "Good, thanks! And you? I'm doing pretty good, just heading to work.");
     await expect(page.getByTestId("practice-step-closing")).toHaveAttribute("data-state", "current");
     await expect(viewSummaryButton).toBeDisabled();
+    const closingLineText = await page.getByTestId("emily-message-bubble").innerText();
+    expect(CLOSING_TEXTS).toContain(closingLineText);
 
     await submitReply(page, "Have a good one!");
     await expect(page.getByTestId("practice-step-closing")).toHaveAttribute("data-state", "completed");
     await expect(viewSummaryButton).toBeEnabled();
+
+    const completionText = await page.getByTestId("emily-message-bubble").innerText();
+    expect(COMPLETION_TEXTS).toContain(completionText);
 
     // The text input is disabled once the conversation is complete.
     await expect(page.getByTestId("practice-text-input")).toBeDisabled();
@@ -243,7 +255,10 @@ test.describe("Practice page — conversation core", () => {
               state: "checkin",
             },
           ],
-          highlightKeys: ["used-whitelist-phrase"],
+          turnRecords: [
+            { state: "greeting", passedFirstTry: true, matchedAcceptedResponse: true, learnerAskedBack: false },
+          ],
+          attemptCounts: { greeting: 1 },
         }),
       );
     });

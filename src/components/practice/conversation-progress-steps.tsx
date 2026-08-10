@@ -1,5 +1,5 @@
 import { ACTIVE_CONVERSATION_STATES, type ConversationState } from "@/lib/conversation-state-machine";
-import { PRACTICE_SCRIPT } from "@/content/practice";
+import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
 
 type ConversationProgressStepsProps = {
   current: ConversationState;
@@ -73,10 +73,10 @@ export function ConversationProgressSteps({ current }: ConversationProgressSteps
                   "text-caption font-medium " + (state === "completed" ? "text-accent" : "text-foreground")
                 }
               >
-                {PRACTICE_SCRIPT[step].labelEn}
+                {GREETING_SOMEBODY_LESSON.script[step].labelEn}
               </span>
               <span className={"text-caption " + (state === "completed" ? "text-accent" : "text-muted")}>
-                {PRACTICE_SCRIPT[step].labelZh}
+                {GREETING_SOMEBODY_LESSON.script[step].labelZh}
               </span>
             </span>
           </li>

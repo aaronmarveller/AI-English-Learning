@@ -57,8 +57,16 @@ declare global {
   }
 }
 
-/** Recognition language: fixed at en-US since all Practice conversation input is English. */
-const RECOGNITION_LANG = "en-US";
+/**
+ * Recognition language. Issue #19 (docs/ai-configuration.md section 6:
+ * "Speech recognition language is mode-dependent: English for the
+ * conversation, Chinese while in help mode") made this mode-dependent
+ * rather than a single fixed constant — `startListening`'s caller now picks
+ * one of these two via the `lang` option below, instead of this module
+ * always assuming English.
+ */
+export const ENGLISH_RECOGNITION_LANG = "en-US";
+export const CHINESE_RECOGNITION_LANG = "zh-CN";
 
 /**
  * Distinct failure reasons a caller may want to branch on. "not-allowed"
@@ -120,18 +128,32 @@ function toErrorReason(rawError: string): SpeechRecognitionErrorReason {
   }
 }
 
+export type StartListeningOptions = {
+  /**
+   * Which language the recognizer listens for. Defaults to
+   * `ENGLISH_RECOGNITION_LANG` — every existing caller (the main Practice
+   * conversation input) keeps working unchanged. Issue #19's Chinese help
+   * mode is the one caller that passes `CHINESE_RECOGNITION_LANG` instead,
+   * while help mode is open.
+   */
+  lang?: string;
+};
+
 /**
- * Starts listening for English speech and streams results/errors/end to
- * `callbacks` — the caller never touches the raw recognizer. Returns a
- * controller whose `stop()` ends listening early (e.g. the learner switches
- * to text mode mid-listen).
+ * Starts listening for speech in the given language and streams
+ * results/errors/end to `callbacks` — the caller never touches the raw
+ * recognizer. Returns a controller whose `stop()` ends listening early
+ * (e.g. the learner switches to text mode mid-listen).
  *
  * Callers should feature-detect first via `isSpeechRecognitionSupported()`;
  * calling this when unsupported reports an "other" error on the next
  * microtask instead of throwing, so a caller that forgets the check still
  * fails soft.
  */
-export function startListening(callbacks: StartListeningCallbacks): ListeningController {
+export function startListening(
+  callbacks: StartListeningCallbacks,
+  options: StartListeningOptions = {},
+): ListeningController {
   const Recognition = getRecognitionConstructor();
   if (!Recognition) {
     queueMicrotask(() => callbacks.onError("other", "unsupported"));
@@ -139,7 +161,7 @@ export function startListening(callbacks: StartListeningCallbacks): ListeningCon
   }
 
   const recognition = new Recognition();
-  recognition.lang = RECOGNITION_LANG;
+  recognition.lang = options.lang ?? ENGLISH_RECOGNITION_LANG;
   recognition.interimResults = true;
   recognition.continuous = false;
   recognition.maxAlternatives = 1;

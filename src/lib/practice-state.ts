@@ -10,7 +10,8 @@ import {
   type ConversationState,
   type Verdict,
 } from "@/lib/conversation-state-machine";
-import type { HighlightKey, OpeningLine, SupportNudge } from "@/content/practice";
+import { isStateTurnRecord, type StateTurnRecord } from "@/lib/turn-record";
+import type { OpeningLine, SupportNudge } from "@/content/lesson";
 
 /**
  * Practice conversation store (ticket 08) — built on the same shared
@@ -22,13 +23,28 @@ import type { HighlightKey, OpeningLine, SupportNudge } from "@/content/practice
  * This module owns *persisted conversation state*: the current
  * ConversationState, the turn-by-turn message history (populated here so
  * ticket 10's transcript drawer has data to render, even though this ticket
- * doesn't render the full log itself), and the accumulated highlight_key
- * list. It wraps the pure state machine in src/lib/conversation-state-machine.ts
- * — this module is the only place that calls `nextConversationState` and
- * persists the result — but never does the network call itself; the LLM
- * request is the Practice page component's job (see
+ * doesn't render the full log itself), and the accumulated per-state
+ * `turnRecords` the Learning Summary derives from (issue #20). It wraps the
+ * pure state machine in src/lib/conversation-state-machine.ts — this module
+ * is the only place that calls `nextConversationState` and persists the
+ * result — but never does the network call itself; the LLM request is the
+ * Practice page component's job (see
  * src/components/practice/practice-page-content.tsx), which then reports the
  * result back here via `recordTurnResult`.
+ *
+ * Issue #20 (#12's "Learning Summary inputs are derived, not reported"):
+ * replaced the old model-reported `highlightKeys: HighlightKey[]` list with
+ * `turnRecords: StateTurnRecord[]` (src/lib/turn-record.ts) — one record per
+ * Conversation State that was ever accepted, carrying whether it was passed
+ * first try, whether the reply matched an Accepted Response, and whether
+ * the learner asked back. `attemptCounts` is new bookkeeping this store
+ * needs to compute `passedFirstTry` itself: how many times the learner has
+ * submitted against each state so far, incremented on every turn regardless
+ * of verdict. Pre-issue-#20 persisted data (the old `highlightKeys` shape)
+ * has no `turnRecords` field at all — `deserialize` below treats that
+ * mismatch as "no saved state" and discards the whole snapshot rather than
+ * trying to salvage individual fields (see #12's Further Notes: "In-flight
+ * practice sessions will reset").
  */
 
 export type PracticeMessage = {
@@ -36,17 +52,20 @@ export type PracticeMessage = {
   role: "emily" | "learner";
   /** English text — always populated. */
   textEn: string;
-  /** Chinese translation. Populated for Emily's messages (from `reply_zh` /
-   * the opening line's `zh`); empty string for the learner's own echoed input. */
+  /** Chinese translation. Populated for Emily's messages (from the selected
+   * Conversation Script line's `zh` — see src/lib/emily-reply-selector.ts —
+   * or the opening line's `zh`); empty string for the learner's own echoed input. */
   textZh: string;
   /** The Conversation State active when this message was produced. */
   state: ConversationState;
 };
 
-type PracticeStoreState = {
+export type PracticeStoreState = {
   conversationState: ConversationState;
   messages: PracticeMessage[];
-  highlightKeys: HighlightKey[];
+  turnRecords: StateTurnRecord[];
+  /** How many times the learner has submitted against each active state so far (all verdicts, not just accepted) — used to compute a newly-accepted record's `passedFirstTry`. */
+  attemptCounts: Partial<Record<ActiveConversationState, number>>;
 };
 
 const STORAGE_KEY = "greeting-somebody:practice";
@@ -59,7 +78,8 @@ const STORAGE_KEY = "greeting-somebody:practice";
 const INITIAL_STATE: PracticeStoreState = {
   conversationState: "greeting",
   messages: [],
-  highlightKeys: [],
+  turnRecords: [],
+  attemptCounts: {},
 };
 
 function isPracticeMessage(value: unknown): value is PracticeMessage {
@@ -74,18 +94,43 @@ function isPracticeMessage(value: unknown): value is PracticeMessage {
   );
 }
 
-function deserialize(raw: string): PracticeStoreState {
+/** Sanitizes a persisted `attemptCounts` value, dropping anything that isn't a number keyed by a real active state. Never fails the whole deserialize on its own — unlike `turnRecords`, a malformed `attemptCounts` isn't evidence of a pre-issue-#20 shape, so it degrades to "no attempts recorded yet" instead of discarding the rest of the snapshot. */
+function sanitizeAttemptCounts(value: unknown): Partial<Record<ActiveConversationState, number>> {
+  if (typeof value !== "object" || value === null) return {};
+  const v = value as Record<string, unknown>;
+  const result: Partial<Record<ActiveConversationState, number>> = {};
+  for (const state of ACTIVE_CONVERSATION_STATES) {
+    if (typeof v[state] === "number") result[state] = v[state];
+  }
+  return result;
+}
+
+/**
+ * Issue #20 (#12's Further Notes: "In-flight practice sessions will
+ * reset"): `turnRecords` is the one field that must be present and
+ * well-shaped for this snapshot to be trusted at all — its absence (the old
+ * `highlightKeys` shape) or corruption is treated as "no saved state"
+ * rather than a partial-recovery case, discarding the whole snapshot
+ * (falling back to `INITIAL_STATE`, same as a JSON.parse failure) instead
+ * of crashing or silently mixing old and new shapes.
+ */
+/** Exported for practice-state.test.ts's discard-safely coverage (the persisted-store factory's own `serialize`/`deserialize` contract is otherwise private per store). */
+export function deserialize(raw: string): PracticeStoreState {
   const parsed: unknown = JSON.parse(raw);
   if (typeof parsed !== "object" || parsed === null) return INITIAL_STATE;
   const p = parsed as Record<string, unknown>;
+
+  if (!Array.isArray(p.turnRecords) || !p.turnRecords.every(isStateTurnRecord)) {
+    return INITIAL_STATE;
+  }
+
   const conversationState = isConversationState(p.conversationState)
     ? p.conversationState
     : INITIAL_STATE.conversationState;
   const messages = Array.isArray(p.messages) ? p.messages.filter(isPracticeMessage) : [];
-  const highlightKeys = Array.isArray(p.highlightKeys)
-    ? p.highlightKeys.filter((k): k is HighlightKey => typeof k === "string")
-    : [];
-  return { conversationState, messages, highlightKeys };
+  const turnRecords = p.turnRecords;
+  const attemptCounts = sanitizeAttemptCounts(p.attemptCounts);
+  return { conversationState, messages, turnRecords, attemptCounts };
 }
 
 function serialize(state: PracticeStoreState): string {
@@ -114,15 +159,16 @@ function nextMessageId(): string {
  *
  * `stateOverrides` lets a caller update the other top-level store fields in
  * the same persist call — only `recordTurnResult` needs this, to advance
- * `conversationState`/`highlightKeys` alongside appending Emily's reply.
- * Everything else distinct about each caller (ensureOpeningMessage's no-op
- * guard when messages already exist, recordTurnResult's
- * `nextConversationState` call) stays in the caller, not here.
+ * `conversationState`/`turnRecords`/`attemptCounts` alongside appending
+ * Emily's reply. Everything else distinct about each caller
+ * (ensureOpeningMessage's no-op guard when messages already exist,
+ * recordTurnResult's `nextConversationState` call) stays in the caller, not
+ * here.
  */
 function appendMessage(
   current: PracticeStoreState,
   input: { role: PracticeMessage["role"]; textEn: string; textZh: string; state: ConversationState },
-  stateOverrides: Partial<Pick<PracticeStoreState, "conversationState" | "highlightKeys">> = {},
+  stateOverrides: Partial<Pick<PracticeStoreState, "conversationState" | "turnRecords" | "attemptCounts">> = {},
 ): void {
   const message: PracticeMessage = { id: nextMessageId(), ...input };
   store.persist({ ...current, ...stateOverrides, messages: [...current.messages, message] });
@@ -160,30 +206,66 @@ export function appendLearnerMessage(text: string): void {
  * Records the server's structured result for the just-submitted learner
  * turn: advances (or holds) `conversationState` via the pure state machine,
  * appends Emily's reply as a message tagged with the state the turn was
- * judged against, and accumulates `highlightKey`. Returns the resulting
- * ConversationState so the caller can act on it (e.g. know immediately that
- * the conversation just completed) without waiting on a re-render.
+ * judged against, bumps that state's attempt count, and — only when the
+ * turn was accepted — appends a `StateTurnRecord` for `priorState` to
+ * `turnRecords` (issue #20; see src/lib/turn-record.ts). A `needs_retry`
+ * turn still bumps `attemptCounts` (so a later accepted attempt in the same
+ * state can correctly compute `passedFirstTry: false`) but never itself
+ * contributes a record — only an accepted state produces a highlight
+ * candidate.
+ *
+ * `matchedAcceptedResponse` and `learnerAskedBack` are passed straight
+ * through from the caller (practice-page-content.tsx), which already has
+ * both: the former from comparing the learner's raw text against
+ * `Lesson.script[priorState].acceptedResponses`
+ * (src/lib/turn-record.ts's `matchesAcceptedResponse`), the latter from the
+ * Judge's `learner_asked_back`. This module stays ignorant of `Lesson`
+ * content — it only assembles the record, it doesn't compute any part of
+ * it.
+ *
+ * Returns the resulting ConversationState so the caller can act on it (e.g.
+ * know immediately that the conversation just completed) without waiting on
+ * a re-render.
  */
 export function recordTurnResult(input: {
   priorState: ActiveConversationState;
   verdict: Verdict;
   replyEn: string;
   replyZh: string;
-  highlightKey: HighlightKey;
+  matchedAcceptedResponse: boolean;
+  learnerAskedBack: boolean;
 }): ConversationState {
   const current = store.getSnapshot();
   const resultingState = nextConversationState(input.priorState, input.verdict);
+
+  const priorAttempts = current.attemptCounts[input.priorState] ?? 0;
+  const attempts = priorAttempts + 1;
+  const attemptCounts = { ...current.attemptCounts, [input.priorState]: attempts };
+
+  const turnRecords =
+    input.verdict === "accepted"
+      ? [
+          ...current.turnRecords,
+          {
+            state: input.priorState,
+            passedFirstTry: attempts === 1,
+            matchedAcceptedResponse: input.matchedAcceptedResponse,
+            learnerAskedBack: input.learnerAskedBack,
+          } satisfies StateTurnRecord,
+        ]
+      : current.turnRecords;
+
   appendMessage(
     current,
     { role: "emily", textEn: input.replyEn, textZh: input.replyZh, state: input.priorState },
-    { conversationState: resultingState, highlightKeys: [...current.highlightKeys, input.highlightKey] },
+    { conversationState: resultingState, turnRecords, attemptCounts },
   );
   return resultingState;
 }
 
 /**
  * Appends an Emily message without touching `conversationState` or
- * `highlightKeys` — for support features that must never transition the
+ * `turnRecords` — for support features that must never transition the
  * conversation (ticket 10's silence-timeout nudge; spec.md user story 62:
  * "20 秒没说话时 Emily 只轻轻推一下、不催也不给答案"). Unlike
  * `recordTurnResult`, this never calls `nextConversationState` — the learner
@@ -203,7 +285,7 @@ export function appendSupportMessage(input: SupportNudge): void {
 
 /** Clears the conversation back to a clean start — ticket 11's Retry button will call this. */
 export function resetPractice(): void {
-  store.persist({ conversationState: "greeting", messages: [], highlightKeys: [] });
+  store.persist({ conversationState: "greeting", messages: [], turnRecords: [], attemptCounts: {} });
 }
 
 /**
@@ -218,7 +300,7 @@ export function usePractice() {
   return {
     conversationState: state.conversationState,
     messages: state.messages,
-    highlightKeys: state.highlightKeys,
+    turnRecords: state.turnRecords,
     isComplete: state.conversationState === "complete",
     ensureOpeningMessage,
     appendLearnerMessage,

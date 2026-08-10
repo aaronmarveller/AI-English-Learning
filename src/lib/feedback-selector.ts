@@ -1,49 +1,61 @@
 /**
- * Feedback selection module (ticket 11; spec.md "模块划分" > "Feedback 选择
- * 模块 — 纯函数，输入本次练习累积的表现标记，输出四段反馈"). Pure function,
- * same discipline as src/lib/conversation-state-machine.ts: no React, no
- * localStorage, no fetch — just `HighlightKey[]` in, `FeedbackLine[]` out.
+ * Feedback selection module (issue #20; issue #12's "Learning Summary
+ * inputs are derived, not reported"). Pure function, same discipline as
+ * src/lib/conversation-state-machine.ts: no React, no localStorage, no
+ * fetch — just `StateTurnRecord[]` in, `FeedbackLine[]` out.
  *
  * Randomness choice: rather than reaching for a hidden module-level RNG (or
  * a seed parameter that would leak a testing concern into the production
  * signature), `random` is an injectable `() => number` defaulting to
  * `Math.random`. That keeps the function pure and trivially swappable for a
- * deterministic fake if this repo ever grows a unit-test runner; today (per
- * spec.md "Testing Decisions", this repo has none) the E2E seam
- * (e2e/review.spec.ts) instead asserts on *shape* — fixed ordering, fixed
- * counts, and that the rendered highlight text always comes from the pool
- * belonging to a key actually present in `highlightKeys` — rather than
- * pinning exact random output.
+ * deterministic fake — see feedback-selector.test.ts, which pins the
+ * Overall guarantee, one-per-group, and first-try-ranking rules exactly
+ * because this is injectable.
  *
- * Fixed output contract (this ticket's own checklist):
- *   1 encouragement → 2-3 highlights → 1 suggestion → 1 closing, in that
- *   exact order, every time — even when `highlightKeys` is empty (e.g. a
+ * Fixed output contract (AI Configuration section ⑥):
+ *   1 praise → 2-3 highlights → 1 suggestion → 1 closing, in that
+ *   exact order, every time — even when `turnRecords` is empty (e.g. a
  *   learner reaches /review?debug=1 without having played Practice), via
  *   src/content/review.ts's generic fallback pools.
+ *
+ * Highlight groups (issue #20 acceptance criteria; #12's own table):
+ *   - Greeting    ← the `greeting` state's record
+ *   - Check-in    ← the `checkin` state's record
+ *   - Conversation ← the `response` and `closing` states' records combined
+ *     (at most one highlight from this group, even though two states feed it)
+ *   - Overall     ← the run as a whole; contributed whenever every one of
+ *     the 4 active states has a record (i.e. the learner completed the
+ *     conversation), regardless of ranking below
+ *
+ * Selection rules (issue #20 acceptance criteria):
+ *   - 2-3 highlights shown
+ *   - completing all four states always contributes one Overall highlight
+ *   - at most one highlight per group
+ *   - states passed first-try rank above states that needed a retry, when
+ *     there are more eligible groups than slots
  */
 
-import type { HighlightKey } from "@/content/practice";
+import { ACTIVE_CONVERSATION_STATES } from "@/lib/conversation-state-machine";
+import type { StateTurnRecord } from "@/lib/turn-record";
 import {
   CLOSING_TEMPLATES,
-  ENCOURAGEMENT_TEMPLATES,
+  PRAISE_TEMPLATES,
   GENERIC_GROWTH_SUGGESTION_TEMPLATES,
   GENERIC_HIGHLIGHT_TEMPLATES,
   HIGHLIGHT_TEMPLATES,
   NEEDS_MORE_PRACTICE_SUGGESTION_TEMPLATES,
-  WENT_OFF_TOPIC_SUGGESTION_TEMPLATES,
 } from "@/content/review";
 
-export type FeedbackLineKind = "encouragement" | "highlight" | "suggestion" | "closing";
+export type FeedbackLineKind = "praise" | "highlight" | "suggestion" | "closing";
 
 export type FeedbackLine = {
   id: string;
   kind: FeedbackLineKind;
-  /** Chinese narration, with any English example phrase embedded verbatim inline. */
-  textZh: string;
+  /** English feedback selected from AI Configuration's template library. */
+  text: string;
 };
 
-/** The subset of HighlightKey values that are genuinely positive/highlight-worthy and have a template pool above — see the doc comments on HIGHLIGHT_KEYS in src/content/practice.ts. The remaining 2 keys ("needs-more-practice", "went-off-topic") are diagnostic-only and feed suggestions instead — see `selectSuggestionPool` below. */
-const POSITIVE_HIGHLIGHT_KEYS = Object.keys(HIGHLIGHT_TEMPLATES) as (keyof typeof HIGHLIGHT_TEMPLATES)[];
+export type HighlightGroup = keyof typeof HIGHLIGHT_TEMPLATES;
 
 /** How many highlight lines to show — the ticket's own fixed range. */
 const HIGHLIGHT_COUNT_OPTIONS = [2, 3] as const;
@@ -63,42 +75,96 @@ function pickDistinct<T>(pool: readonly T[], count: number, random: () => number
   return shuffled.slice(0, Math.min(count, shuffled.length));
 }
 
+type GroupCandidate = { group: HighlightGroup; passedFirstTry: boolean };
+
 /**
- * Builds the 2-3 highlight lines, reflecting the distinct positive markers
- * this conversation's `highlightKeys` actually contains (this ticket's core
- * requirement: "亮点依据 Practice 累积的表现标记选择，反映本次真实表现而非
- * 固定文案").
+ * Builds the set of eligible highlight groups from this run's accumulated
+ * per-state records — at most one candidate per group (Greeting, Check-in,
+ * Conversation, Overall), per the "at most one highlight per group" rule.
  */
-function selectHighlightTexts(highlightKeys: HighlightKey[], count: number, random: () => number): string[] {
-  const distinctPositiveKeys = POSITIVE_HIGHLIGHT_KEYS.filter((key) => highlightKeys.includes(key));
+function buildGroupCandidates(turnRecords: StateTurnRecord[]): GroupCandidate[] {
+  const byState = new Map(turnRecords.map((record) => [record.state, record]));
+  const candidates: GroupCandidate[] = [];
 
-  if (distinctPositiveKeys.length === 0) {
-    // No positive marker ever fired (including the "empty conversation"
-    // case) — fall back to generic-but-still-positive copy rather than
-    // rendering nothing.
-    return pickDistinct(GENERIC_HIGHLIGHT_TEMPLATES, count, random);
+  const greeting = byState.get("greeting");
+  if (greeting) candidates.push({ group: "greeting", passedFirstTry: greeting.passedFirstTry });
+
+  const checkin = byState.get("checkin");
+  if (checkin) candidates.push({ group: "checkin", passedFirstTry: checkin.passedFirstTry });
+
+  const conversationRecords = [byState.get("response"), byState.get("closing")].filter(
+    (record): record is StateTurnRecord => record !== undefined,
+  );
+  if (conversationRecords.length > 0) {
+    candidates.push({
+      group: "conversation",
+      passedFirstTry: conversationRecords.some((record) => record.passedFirstTry),
+    });
   }
 
-  if (distinctPositiveKeys.length === 1) {
-    // Only ONE distinct positive signal fired across the whole conversation
-    // (e.g. every accepted turn happened to tag "natural-paraphrase") — draw
-    // several *differently worded* variants from that single key's pool so
-    // the learner doesn't see one sentence repeated verbatim.
-    return pickDistinct(HIGHLIGHT_TEMPLATES[distinctPositiveKeys[0]], count, random);
+  const completedAllFourStates = ACTIVE_CONVERSATION_STATES.every((state) => byState.has(state));
+  if (completedAllFourStates) {
+    // Overall's guarantee is unconditional on completion — it doesn't
+    // compete on first-try ranking for its own inclusion, only (like every
+    // other group) for which of the 2-3 *slots* the caller below assigns it
+    // first.
+    candidates.push({ group: "overall", passedFirstTry: true });
   }
 
-  // Multiple distinct positive signals fired — pick up to `count` of the
-  // keys that actually occurred, one phrasing variant per key, so the
-  // highlights reflect the *range* of what went well.
-  const chosenKeys = pickDistinct(distinctPositiveKeys, count, random);
-  const texts = chosenKeys.map((key) => pickOne(HIGHLIGHT_TEMPLATES[key], random));
+  return candidates;
+}
 
-  // Fewer distinct keys were available than `count` (e.g. 2 keys fired but
-  // the roll wanted 3 highlights) — top up with a second, different variant
-  // from one of the already-chosen keys rather than falling short.
+/**
+ * Picks up to `count` groups to actually show, honoring: Overall is always
+ * included first when eligible (the "completing all four states always
+ * contributes one Overall highlight" guarantee), then the remaining slots
+ * are filled from the other eligible groups, first-try-passed ones ranked
+ * ahead of retry-needed ones (with ties broken via the injected `random`).
+ */
+function selectHighlightGroups(
+  turnRecords: StateTurnRecord[],
+  count: number,
+  random: () => number,
+): GroupCandidate[] {
+  const candidates = buildGroupCandidates(turnRecords);
+  const overall = candidates.find((candidate) => candidate.group === "overall");
+  const others = candidates.filter((candidate) => candidate.group !== "overall");
+
+  const firstTryOthers = pickDistinct(
+    others.filter((candidate) => candidate.passedFirstTry),
+    others.length,
+    random,
+  );
+  const retryOthers = pickDistinct(
+    others.filter((candidate) => !candidate.passedFirstTry),
+    others.length,
+    random,
+  );
+  const rankedOthers = [...firstTryOthers, ...retryOthers];
+
+  const selected: GroupCandidate[] = [];
+  if (overall) selected.push(overall);
+  for (const candidate of rankedOthers) {
+    if (selected.length >= count) break;
+    selected.push(candidate);
+  }
+
+  return selected.slice(0, count);
+}
+
+/**
+ * Builds the 2-3 highlight lines, reflecting the distinct groups this
+ * conversation's `turnRecords` actually earned. Tops up with generic
+ * (still-positive) copy when fewer than `count` groups are eligible — an
+ * incomplete run (e.g. a learner reaching /review mid-conversation) must
+ * still show the fixed 2-3 highlight count.
+ */
+function selectHighlightTexts(turnRecords: StateTurnRecord[], count: number, random: () => number): string[] {
+  const groups = selectHighlightGroups(turnRecords, count, random);
+  const texts = groups.map((candidate) => pickOne(HIGHLIGHT_TEMPLATES[candidate.group], random));
+
   while (texts.length < count) {
-    const key = pickOne(chosenKeys, random);
-    const unused = HIGHLIGHT_TEMPLATES[key].filter((text) => !texts.includes(text));
+    const unused = GENERIC_HIGHLIGHT_TEMPLATES.filter((text) => !texts.includes(text));
     if (unused.length === 0) break;
     texts.push(pickOne(unused, random));
   }
@@ -107,56 +173,53 @@ function selectHighlightTexts(highlightKeys: HighlightKey[], count: number, rand
 }
 
 /**
- * Picks the single suggestion, grounded in whichever diagnostic signal
- * ("needs-more-practice" or "went-off-topic") occurred EARLIEST in the
- * conversation, if either occurred at all — always positively framed as
- * "下次试试" (this ticket: "建议以「下次试试」的正向措辞给出，不强调错误、不
- * 使用负面评价"). Falls back to a generic positive-growth suggestion when
- * neither diagnostic signal ever fired (a clean run).
+ * Picks the single suggestion, grounded in whether any state needed a retry
+ * anywhere in the conversation (issue #20 acceptance criteria: "the
+ * suggestion is chosen by whether any state needed a retry"). Every option
+ * comes from AI Configuration's positive, beginner-friendly suggestion
+ * library. A clean, all-first-try run receives a generic growth suggestion.
+ *
+ * Issue #15: the off-topic suggestion pool is deleted along with the
+ * Verdict that fed it — off-topic attempts are `needs_retry`
+ * (docs/ai-configuration.md section 4), which already feeds this same
+ * "needed a retry" signal, so there is nothing separate to branch on.
  */
-function selectSuggestionPool(highlightKeys: HighlightKey[]): string[] {
-  const needsMoreIndex = highlightKeys.indexOf("needs-more-practice");
-  const offTopicIndex = highlightKeys.indexOf("went-off-topic");
-
-  if (needsMoreIndex === -1 && offTopicIndex === -1) {
-    return GENERIC_GROWTH_SUGGESTION_TEMPLATES;
-  }
-  if (offTopicIndex === -1 || (needsMoreIndex !== -1 && needsMoreIndex <= offTopicIndex)) {
-    return NEEDS_MORE_PRACTICE_SUGGESTION_TEMPLATES;
-  }
-  return WENT_OFF_TOPIC_SUGGESTION_TEMPLATES;
+function selectSuggestionPool(turnRecords: StateTurnRecord[]): string[] {
+  const neededRetrySomewhere = turnRecords.some((record) => !record.passedFirstTry);
+  return neededRetrySomewhere ? NEEDS_MORE_PRACTICE_SUGGESTION_TEMPLATES : GENERIC_GROWTH_SUGGESTION_TEMPLATES;
 }
 
 /**
- * Selects this run's 4-part Chinese feedback, in fixed order: 1
- * encouragement → 2-3 highlights → 1 suggestion → 1 closing.
+ * Selects this run's 4-part English Learning Summary, in fixed order: 1
+ * praise → 2-3 highlights → 1 suggestion → 1 closing.
  *
- * @param highlightKeys The current practice run's accumulated `highlightKey`
- *   list (`usePractice().highlightKeys`), one per learner turn, in order.
+ * @param turnRecords The current practice run's accumulated per-state
+ *   records (`usePractice().turnRecords`) — one entry per Conversation
+ *   State that was ever accepted, in the order it was accepted.
  * @param random Injectable RNG, defaulting to `Math.random` — see this
  *   file's doc comment for why.
  */
 export function selectFeedback(
-  highlightKeys: HighlightKey[],
+  turnRecords: StateTurnRecord[],
   random: () => number = Math.random,
 ): FeedbackLine[] {
   const lines: FeedbackLine[] = [
-    { id: "encouragement", kind: "encouragement", textZh: pickOne(ENCOURAGEMENT_TEMPLATES, random) },
+    { id: "praise", kind: "praise", text: pickOne(PRAISE_TEMPLATES, random) },
   ];
 
   const highlightCount = pickOne(HIGHLIGHT_COUNT_OPTIONS, random);
-  const highlightTexts = selectHighlightTexts(highlightKeys, highlightCount, random);
-  highlightTexts.forEach((textZh, index) => {
-    lines.push({ id: `highlight-${index}`, kind: "highlight", textZh });
+  const highlightTexts = selectHighlightTexts(turnRecords, highlightCount, random);
+  highlightTexts.forEach((text, index) => {
+    lines.push({ id: `highlight-${index}`, kind: "highlight", text });
   });
 
   lines.push({
     id: "suggestion",
     kind: "suggestion",
-    textZh: pickOne(selectSuggestionPool(highlightKeys), random),
+    text: pickOne(selectSuggestionPool(turnRecords), random),
   });
 
-  lines.push({ id: "closing", kind: "closing", textZh: pickOne(CLOSING_TEMPLATES, random) });
+  lines.push({ id: "closing", kind: "closing", text: pickOne(CLOSING_TEMPLATES, random) });
 
   return lines;
 }

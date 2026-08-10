@@ -1,5 +1,5 @@
 /**
- * Small "👁 Observe / Explore / Notice / 🎙 Practice / ✨ Review" label shown
+ * Small "👁 Observe / Explore / Notice / 🎙 Practice / ✨ Summary" label shown
  * above each learning page's editorial headline (UI draft, 2026-08-06
  * review). Purely decorative labeling by default — the page's own <h1> is
  * the thing e2e coverage and the outer 5-dot progress header key off.
@@ -19,9 +19,8 @@
  * relies on. Explore, Notice, and Practice (2026-08-07 UI draft — matching
  * the Practice screen mockup, which has no separate "Practice" heading
  * either) have all adopted the same fix once their own UI draft reviews
- * flagged the identical duplicate-heading issue — Review is the only one
- * still pairing this pill with its own separate `<h1>`. Off by default
- * since that's still the majority case.
+ * flagged the identical duplicate-heading issue. Off by default since
+ * that's still the majority case.
  */
 export function StageTag({
   label,

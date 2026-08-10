@@ -39,7 +39,7 @@ export const STEP_LABELS: Record<StepId, string> = {
   explore: "Explore",
   notice: "Notice",
   practice: "Practice",
-  review: "Review",
+  review: "Learning Summary",
 };
 
 const STORAGE_KEY = "greeting-somebody:progress";

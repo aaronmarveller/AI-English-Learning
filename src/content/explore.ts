@@ -80,24 +80,33 @@ export const CHECKIN_EXPRESSIONS: ExpressionCard[] = [
   },
 ];
 
+// Punctuation deliberately matches GREETING_SOMEBODY_LESSON.closingLines
+// (src/content/lesson.ts) verbatim, exclamation marks and all — issue #17
+// (issue #12's Further Notes: "Punctuation is load-bearing in the audio
+// manifest"). Audio lookup (src/lib/audio-manifest.ts) is exact text
+// matching with a duplicate-text guard that throws at module load; before
+// this, these three expressions used a trailing "." where the Closing pool
+// used "!" — same words, two separate recordings. Standardising here on the
+// AI Configuration form's punctuation lets Explore reuse the Closing pool's
+// single recording instead of needing its own.
 export const CLOSING_EXPRESSIONS: ExpressionCard[] = [
   {
     id: "closing-see-you",
-    expression: "See you.",
+    expression: "See you!",
     tag: "最常用",
     hint: "最简单、最常见的结束语。",
     image: "/assets/explore/closing-see-you-around.webp",
   },
   {
     id: "closing-have-a-nice-day",
-    expression: "Have a nice day.",
+    expression: "Have a nice day!",
     tag: "很礼貌",
     hint: "适合结束对话时使用。",
     image: "/assets/explore/closing-have-a-good-one.webp",
   },
   {
     id: "closing-take-care",
-    expression: "Take care.",
+    expression: "Take care!",
     tag: "更温暖",
     hint: "表达关心，让结束语更自然。",
     image: "/assets/explore/closing-take-care.webp",

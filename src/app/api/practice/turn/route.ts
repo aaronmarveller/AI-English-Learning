@@ -33,17 +33,17 @@ import type { HistoryTurn, PracticeTurnStreamEvent } from "@/lib/practice-turn-p
  * Response (issue #5 — real streaming instead of one blocking
  * response after the whole model call completes): `text/event-stream`
  * (Server-Sent Events). The stream opens immediately (before `judgeTurn`'s
- * promise even resolves) and carries zero or more events, one JSON payload
- * per `data:` line:
+ * promise resolves) and carries exactly one event, one JSON payload per
+ * `data:` line:
  *
- *   - `{"type":"partial","reply_en":string}` — zero or more, as the forced
- *     tool call's `reply_en` field streams in from the model. Purely a
- *     progress signal; never authoritative and never itself committed to
- *     the Practice store.
- *   - `{"type":"final","verdict":...,"reply_en":...,"reply_zh":...,
- *     "highlight_key":...}` — exactly one, once the complete response has
- *     been validated. This is the only event the client commits to the
- *     Practice store.
+ *   - `{"type":"final","verdict":...,"learner_asked_back":...}` — exactly
+ *     one, once the complete response has been validated. This is the only
+ *     event the client commits to the Practice store. Issue #16 removed the
+ *     `partial` event entirely — Emily's reply text is no longer
+ *     model-generated (the client selects it from the current Lesson's
+ *     Conversation Script pools; see src/lib/emily-reply-selector.ts), so
+ *     there's no `reply_en` left to stream progress for. The stream stays as
+ *     transport for `final`/`error` regardless.
  *   - `{"type":"error","error":string}` — exactly one, in place of `final`,
  *     if `judgeTurn` rejects (`InvalidModelOutputError` or an upstream API
  *     error). HTTP status is always 200 by the time any of this is known,
@@ -51,8 +51,8 @@ import type { HistoryTurn, PracticeTurnStreamEvent } from "@/lib/practice-turn-p
  *     stream body instead, and the client treats an `error` event the same
  *     way it used to treat a non-2xx status or a malformed body.
  *
- * Exactly one of `final`/`error` is ever sent, always as the last event,
- * and the stream is closed immediately after.
+ * Exactly one of `final`/`error` is ever sent, and the stream is closed
+ * immediately after.
  */
 
 // Route Handlers run on the Node.js runtime by default in the App Router,
@@ -113,19 +113,12 @@ export async function POST(request: Request): Promise<Response> {
       }
 
       try {
-        const result = await judgeTurn(
-          {
-            apiKey,
-            state: parsed.state,
-            message: parsed.message,
-            history: parsed.history,
-          },
-          {
-            onPartialReply: (partialReplyEn) => {
-              sendEvent({ type: "partial", reply_en: partialReplyEn });
-            },
-          },
-        );
+        const result = await judgeTurn({
+          apiKey,
+          state: parsed.state,
+          message: parsed.message,
+          history: parsed.history,
+        });
         sendEvent({ type: "final", ...result });
       } catch (error) {
         if (error instanceof InvalidModelOutputError) {
