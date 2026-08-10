@@ -23,17 +23,17 @@ import { submitPracticeTurn } from "@/lib/submit-practice-turn";
 import { matchesAcceptedResponse } from "@/lib/turn-record";
 
 /**
- * Placeholder `support_requested` response (issue #18) shown when the
- * learner types Chinese straight into the main reply box, rather than
- * tapping "中文提问" (which opens `AskInChineseSheet`'s real 4-part canned
- * explanation for the current step). Appended via `appendSupportMessage` —
- * same as the silence nudge — so it never transitions `conversationState`
- * and never contributes a `highlightKey` to the Learning Summary.
+ * `support_requested` response (issue #18) shown when the learner types
+ * Chinese straight into the main reply box, rather than tapping "中文提问"
+ * (which opens `AskInChineseSheet`'s real help mode — issue #19 — with its
+ * own 4-part canned explanation and Chinese follow-up conversation for the
+ * current step). Appended via `appendSupportMessage` — same as the silence
+ * nudge — so it never transitions `conversationState` and never contributes
+ * a turn record to the Learning Summary.
  *
- * This is deliberately minimal: issue #19 ("Chinese help becomes a spoken
- * mode") is the ticket that turns this into a real, current-step-aware
- * explanation the learner can have a follow-up conversation about. Until
- * then this just needs to acknowledge the Chinese input without crashing or
+ * Deliberately minimal: typing Chinese into the main reply box only nudges
+ * the learner toward the help button rather than opening a full explanation
+ * itself, so it just needs to acknowledge the input without crashing or
  * ever reaching the Judge.
  */
 const CHINESE_INPUT_SUPPORT_NUDGE = {
