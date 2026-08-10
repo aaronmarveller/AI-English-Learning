@@ -90,6 +90,7 @@ export function AskInChineseSheet({ conversationState, onClose, onExitWithEnglis
 
   const controllerRef = useRef<ListeningController | null>(null);
   const micListeningOwnerRef = useRef<MicListeningOwner | null>(null);
+  const listeningSessionRef = useRef(0);
   const spokenFollowUpIdsRef = useRef(new Set<string>());
   const isSupported = typeof window !== "undefined" && isSpeechRecognitionSupported();
   const isEmilySpeaking = useSyncExternalStore(
@@ -104,9 +105,34 @@ export function AskInChineseSheet({ conversationState, onClose, onExitWithEnglis
     micListeningOwnerRef.current = null;
   }
 
+  function finishListeningSession(sessionId: number, stopRecognition = false): boolean {
+    if (listeningSessionRef.current !== sessionId) return false;
+    listeningSessionRef.current += 1;
+    const controller = controllerRef.current;
+    controllerRef.current = null;
+    releaseOwnedMic();
+    setIsListening(false);
+    setInterimTranscript("");
+    if (stopRecognition) controller?.stop();
+    return true;
+  }
+
+  function stopCurrentListening() {
+    listeningSessionRef.current += 1;
+    const controller = controllerRef.current;
+    controllerRef.current = null;
+    releaseOwnedMic();
+    setIsListening(false);
+    setInterimTranscript("");
+    controller?.stop();
+  }
+
   useEffect(() => {
     return () => {
-      controllerRef.current?.stop();
+      listeningSessionRef.current += 1;
+      const controller = controllerRef.current;
+      controllerRef.current = null;
+      controller?.stop();
       releaseOwnedMic();
     };
   }, []);
@@ -165,9 +191,13 @@ export function AskInChineseSheet({ conversationState, onClose, onExitWithEnglis
   }
 
   function handleMicClick() {
-    if (isListening || isAsking || getSpeakingSnapshot()) return;
-    controllerRef.current?.stop();
-    releaseOwnedMic();
+    if (isAsking || getSpeakingSnapshot()) return;
+    if (isListening) {
+      stopCurrentListening();
+      return;
+    }
+    const sessionId = listeningSessionRef.current + 1;
+    listeningSessionRef.current = sessionId;
     micListeningOwnerRef.current = acquireMicListening();
     setInterimTranscript("");
     setIsListening(true);
@@ -175,23 +205,19 @@ export function AskInChineseSheet({ conversationState, onClose, onExitWithEnglis
     controllerRef.current = startListening(
       {
         onResult: (transcript, isFinal) => {
+          if (listeningSessionRef.current !== sessionId) return;
           if (!isFinal) {
             setInterimTranscript(transcript);
             return;
           }
-          releaseOwnedMic();
-          setIsListening(false);
-          setInterimTranscript("");
+          if (!finishListeningSession(sessionId)) return;
           void handleFollowUp(transcript);
         },
         onError: () => {
-          releaseOwnedMic();
-          setIsListening(false);
-          setInterimTranscript("");
+          finishListeningSession(sessionId, true);
         },
         onEnd: () => {
-          releaseOwnedMic();
-          setIsListening(false);
+          finishListeningSession(sessionId);
         },
       },
       { lang: CHINESE_RECOGNITION_LANG },
@@ -307,7 +333,7 @@ export function AskInChineseSheet({ conversationState, onClose, onExitWithEnglis
                 disabled={isAsking || isEmilySpeaking}
                 data-testid="ask-in-chinese-mic-button"
                 data-state={isListening ? "listening" : "idle"}
-                aria-label="用中文提问 Ask in Chinese by voice"
+                aria-label={isListening ? "停止中文录音 Stop listening" : "用中文提问 Ask in Chinese by voice"}
                 className={`btn-icon-pressed flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-h3 disabled:cursor-not-allowed disabled:opacity-40 ${
                   isListening ? "animate-pulse bg-accent text-accent-foreground" : "bg-accent-soft text-accent"
                 }`}

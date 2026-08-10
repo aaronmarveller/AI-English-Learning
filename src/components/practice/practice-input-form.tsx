@@ -130,6 +130,7 @@ export function PracticeInputForm({ disabled, onSubmit, asideAction }: PracticeI
 
   const controllerRef = useRef<ListeningController | null>(null);
   const micListeningOwnerRef = useRef<MicListeningOwner | null>(null);
+  const listeningSessionRef = useRef(0);
   const consecutiveNoSpeechCountRef = useRef(0);
 
   function resetNoSpeechCount() {
@@ -143,10 +144,35 @@ export function PracticeInputForm({ disabled, onSubmit, asideAction }: PracticeI
     micListeningOwnerRef.current = null;
   }
 
+  function finishListeningSession(sessionId: number, stopRecognition = false): boolean {
+    if (listeningSessionRef.current !== sessionId) return false;
+    listeningSessionRef.current += 1;
+    const controller = controllerRef.current;
+    controllerRef.current = null;
+    releaseOwnedMic();
+    setMicState("idle");
+    setInterimTranscript("");
+    if (stopRecognition) controller?.stop();
+    return true;
+  }
+
+  function stopCurrentListening() {
+    listeningSessionRef.current += 1;
+    const controller = controllerRef.current;
+    controllerRef.current = null;
+    releaseOwnedMic();
+    setMicState("idle");
+    setInterimTranscript("");
+    controller?.stop();
+  }
+
   // Stop any in-flight recognition if the learner navigates away mid-listen.
   useEffect(() => {
     return () => {
-      controllerRef.current?.stop();
+      listeningSessionRef.current += 1;
+      const controller = controllerRef.current;
+      controllerRef.current = null;
+      controller?.stop();
       releaseOwnedMic();
     };
   }, []);
@@ -161,7 +187,11 @@ export function PracticeInputForm({ disabled, onSubmit, asideAction }: PracticeI
         : null;
 
   function handleMicClick() {
-    if (disabled || getSpeakingSnapshot() || micState === "listening") return;
+    if (disabled || getSpeakingSnapshot()) return;
+    if (micState === "listening") {
+      stopCurrentListening();
+      return;
+    }
     // Emily now auto-speaks every one of her lines (see
     // practice-page-content.tsx), so by the time the learner taps the mic
     // for their next turn, her reply's own audio is very often either
@@ -176,29 +206,23 @@ export function PracticeInputForm({ disabled, onSubmit, asideAction }: PracticeI
     // auto-plays. acquireMicListening() both cancels whatever's already
     // playing right now AND stops any of Emily's audio still in flight from
     // starting later while this listening session is still active.
-    // Defensively release any prior recognition session before starting a
-    // new one. The normal path already closes the previous recognizer
-    // itself (see speech-recognition.ts's startListening, which stops it
-    // once a final result lands), but this is a second, cheap line of
-    // defense — a no-op against an already-stopped recognizer — for any
-    // other path that ends a turn without a clean final result (e.g. an
-    // error).
-    controllerRef.current?.stop();
-    releaseOwnedMic();
+    // Each tap owns one session id. Late lifecycle callbacks from an older
+    // WebKit recognizer cannot release or reset the new session.
+    const sessionId = listeningSessionRef.current + 1;
+    listeningSessionRef.current = sessionId;
     micListeningOwnerRef.current = acquireMicListening();
     setInterimTranscript("");
     setMicState("listening");
 
     controllerRef.current = startListening({
       onResult: (transcript, isFinal) => {
+        if (listeningSessionRef.current !== sessionId) return;
         resetNoSpeechCount();
         if (!isFinal) {
           setInterimTranscript(transcript);
           return;
         }
-        releaseOwnedMic();
-        setMicState("idle");
-        setInterimTranscript("");
+        if (!finishListeningSession(sessionId)) return;
         // Not calling controllerRef.current?.stop() here — the recognizer
         // already stops itself right after a final result (see
         // speech-recognition.ts's startListening) — and calling it
@@ -210,9 +234,7 @@ export function PracticeInputForm({ disabled, onSubmit, asideAction }: PracticeI
         if (trimmed.length > 0) onSubmit(trimmed);
       },
       onError: (reason) => {
-        releaseOwnedMic();
-        setMicState("idle");
-        setInterimTranscript("");
+        if (!finishListeningSession(sessionId, true)) return;
         if (reason === "no-speech") {
           const nextCount = consecutiveNoSpeechCountRef.current + 1;
           consecutiveNoSpeechCountRef.current = nextCount;
@@ -226,17 +248,13 @@ export function PracticeInputForm({ disabled, onSubmit, asideAction }: PracticeI
         }
       },
       onEnd: () => {
-        releaseOwnedMic();
-        setMicState("idle");
+        finishListeningSession(sessionId);
       },
     });
   }
 
   function handleToggleMode() {
-    controllerRef.current?.stop();
-    releaseOwnedMic();
-    setMicState("idle");
-    setInterimTranscript("");
+    stopCurrentListening();
     if (mode === "text") resetNoSpeechCount();
     setManualMode(mode === "mic" ? "text" : "mic");
   }
@@ -283,7 +301,7 @@ export function PracticeInputForm({ disabled, onSubmit, asideAction }: PracticeI
               // the "learner interacted with the page" cue speakAssertively
               // listens for.
               data-audio-unlock-exempt
-              aria-label="开始说话 Start speaking"
+              aria-label={micState === "listening" ? "停止说话 Stop listening" : "开始说话 Start speaking"}
               className={`btn-icon-pressed flex h-16 w-16 shrink-0 items-center justify-center rounded-full text-h2 disabled:cursor-not-allowed disabled:opacity-40 ${
                 micState === "listening"
                   ? "animate-pulse bg-accent text-accent-foreground"

@@ -18,7 +18,7 @@ import { containsChineseText } from "@/lib/detect-chinese-input";
 import { selectEmilyLineForTurn, selectSilenceNudge } from "@/lib/emily-reply-selector";
 import { markStepComplete } from "@/lib/progress";
 import { usePractice } from "@/lib/practice-state";
-import { speakAssertively } from "@/lib/speech-synthesis";
+import { cancelSpeech, speakAssertively } from "@/lib/speech-synthesis";
 import { submitPracticeTurn } from "@/lib/submit-practice-turn";
 import { matchesAcceptedResponse } from "@/lib/turn-record";
 
@@ -195,12 +195,18 @@ export function PracticePageContent() {
     const isLiveUpdate = hasCheckedReplyAutoplayRef.current;
     hasCheckedReplyAutoplayRef.current = true;
 
-    if (!emilyMessage || (!isOpeningLine && !isLiveUpdate)) return;
+    if (isAskInChineseOpen || !emilyMessage || (!isOpeningLine && !isLiveUpdate)) return;
     if (autoSpokenMessageId === emilyMessage.id) return;
     autoSpokenMessageId = emilyMessage.id;
 
     return speakAssertively(emilyMessage.textEn);
-  }, [emilyMessage, messages.length]);
+  }, [emilyMessage, messages.length, isAskInChineseOpen]);
+
+  // Chinese help owns the floor from the moment it opens. This also clears
+  // any pending speakAssertively gesture retry from the English conversation.
+  useEffect(() => {
+    if (isAskInChineseOpen) cancelSpeech();
+  }, [isAskInChineseOpen]);
 
   // Silence-timeout nudge: a single-shot timer keyed off the last message's
   // id (or its absence, before the opening line lands) — any new message
@@ -213,7 +219,7 @@ export function PracticePageContent() {
   // directly, never `recordTurnResult` — no LLM call, no state transition.
   const lastMessageId = messages[messages.length - 1]?.id;
   useEffect(() => {
-    if (isComplete || isSubmitting) return;
+    if (isComplete || isSubmitting || isAskInChineseOpen) return;
     const timeoutId = setTimeout(() => {
       // Issue #16 (docs/ai-configuration.md section 3): the silence nudge is
       // now a 3-line pool, not one fixed line — picked so it never repeats
@@ -223,7 +229,7 @@ export function PracticePageContent() {
       appendSupportMessage(nudge);
     }, SILENCE_TIMEOUT_MS);
     return () => clearTimeout(timeoutId);
-  }, [lastMessageId, isComplete, isSubmitting, appendSupportMessage]);
+  }, [lastMessageId, isComplete, isSubmitting, isAskInChineseOpen, appendSupportMessage]);
 
   async function handleSubmit(text: string) {
     if (isComplete || isSubmitting) return;

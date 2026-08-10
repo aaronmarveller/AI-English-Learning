@@ -256,6 +256,8 @@ type MockSpeechRecognitionController = {
   emitResult: (transcript: string, options?: MockRecognitionResultOptions) => void;
   emitError: (error: string) => void;
   emitEnd: () => void;
+  /** Makes an already-ended recognizer reject a redundant `stop()`, matching strict WebKit behavior. */
+  rejectRedundantStops: () => void;
   /**
    * The `lang` the most recently started recognizer instance was
    * configured with, or `null` if none has started yet (issue #19: "the
@@ -367,6 +369,8 @@ export async function mockSpeechApis(page: Page): Promise<void> {
 
     window.__mockAudio = audioController;
 
+    let shouldRejectRedundantStops = false;
+
     class MockSpeechRecognition extends EventTarget {
       lang = "en-US";
       continuous = false;
@@ -415,10 +419,16 @@ export async function mockSpeechApis(page: Page): Promise<void> {
       }
 
       stop() {
+        if (this.stopped) {
+          if (shouldRejectRedundantStops) {
+            throw new DOMException("Recognition has already ended", "InvalidStateError");
+          }
+          return;
+        }
         this.stopped = true;
+        if (activeRecognition === this) activeRecognition = null;
         this.onend?.();
         this.dispatchEvent(new Event("end"));
-        if (activeRecognition === this) activeRecognition = null;
       }
 
       abort() {
@@ -456,6 +466,9 @@ export async function mockSpeechApis(page: Page): Promise<void> {
       },
       emitEnd() {
         activeRecognition?.stop();
+      },
+      rejectRedundantStops() {
+        shouldRejectRedundantStops = true;
       },
       getLang() {
         return activeRecognition?.lang ?? null;

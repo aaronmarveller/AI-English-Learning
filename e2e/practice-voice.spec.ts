@@ -113,6 +113,11 @@ test.describe("Practice page — voice input", () => {
     await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "current");
     const turn1ReplyText = await page.getByTestId("emily-message-bubble").innerText();
     expect(CHECKIN_TEXTS).toContain(turn1ReplyText);
+    await expect
+      .poll(() => page.evaluate(() => window.__mockAudio?.getPlayedSources().length ?? 0))
+      .toBeGreaterThanOrEqual(2);
+    await page.evaluate(() => window.__mockAudio?.endCurrent());
+    await expect(micButton).toBeEnabled();
 
     // Turn 2 — this is the reported bug: the mic should capture again.
     await micButton.click();
@@ -141,6 +146,72 @@ test.describe("Practice page — voice input", () => {
 
     await page.evaluate(() => window.__mockSpeechRecognition?.emitResult("Hi there", { isFinal: true }));
     await expect(page.getByTestId("learner-message-bubble")).toHaveText("Hi there");
+  });
+
+  test("tapping the listening mic again stops recognition without submitting", async ({ page }) => {
+    await resetStorage(page);
+    await mockSpeechApis(page);
+    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await page.goto(PRACTICE_URL);
+
+    const micButton = page.getByTestId("practice-mic-button");
+    await page.getByTestId("replay-button").click();
+    await expect
+      .poll(() => page.evaluate(() => window.__mockAudio?.getPlayedSources().length ?? 0))
+      .toBeGreaterThanOrEqual(1);
+    await page.evaluate(() => window.__mockAudio?.endCurrent());
+    await expect(micButton).toBeEnabled();
+    await micButton.click();
+    await expect(micButton).toHaveAttribute("data-state", "listening");
+    await expect(micButton).toHaveAccessibleName("停止说话 Stop listening");
+
+    await micButton.click();
+
+    await expect(micButton).toHaveAttribute("data-state", "idle");
+    await expect(micButton).toHaveAccessibleName("开始说话 Start speaking");
+    await page.evaluate(() =>
+      window.__mockSpeechRecognition?.emitResult("This must not submit", { isFinal: true }),
+    );
+    await expect(page.getByTestId("learner-message-bubble")).toHaveCount(0);
+  });
+
+  test("the next iOS mic turn does not stop an already-ended recognizer", async ({ page }) => {
+    await resetStorage(page);
+    await mockSpeechApis(page);
+    await installScriptedPracticeApi(
+      page,
+      [{ verdict: "accepted" }, { verdict: "accepted", learner_asked_back: true }],
+      { delayMs: 300 },
+    );
+    await page.goto(PRACTICE_URL);
+
+    const micButton = page.getByTestId("practice-mic-button");
+    await page.getByTestId("replay-button").click();
+    await expect
+      .poll(() => page.evaluate(() => window.__mockAudio?.getPlayedSources().length ?? 0))
+      .toBeGreaterThanOrEqual(1);
+    await page.evaluate(() => window.__mockAudio?.endCurrent());
+    await expect(micButton).toBeEnabled();
+    await micButton.click();
+    await page.evaluate(() => window.__mockSpeechRecognition?.rejectRedundantStops());
+    await page.evaluate(() =>
+      window.__mockSpeechRecognition?.emitResult("Hi there", { isFinal: true }),
+    );
+    await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "current");
+
+    await expect
+      .poll(() => page.evaluate(() => window.__mockAudio?.getPlayedSources().length ?? 0))
+      .toBeGreaterThanOrEqual(2);
+    await page.evaluate(() => window.__mockAudio?.endCurrent());
+    await expect(micButton).toBeEnabled();
+
+    await micButton.click();
+    await expect(micButton).toHaveAttribute("data-state", "listening");
+
+    await page.evaluate(() =>
+      window.__mockSpeechRecognition?.emitResult("I'm good, how about you?", { isFinal: true }),
+    );
+    await expect(page.getByTestId("learner-message-bubble")).toHaveText("I'm good, how about you?");
   });
 
   test("three consecutive no-speech errors warn once before falling back to working text input", async ({ page }) => {
@@ -179,6 +250,11 @@ test.describe("Practice page — voice input", () => {
 
     await page.getByTestId("practice-input-mode-toggle").click();
     await expect(page.getByTestId("practice-mic-button")).toBeVisible();
+    await expect
+      .poll(() => page.evaluate(() => window.__mockAudio?.getPlayedSources().length ?? 0))
+      .toBeGreaterThanOrEqual(2);
+    await page.evaluate(() => window.__mockAudio?.endCurrent());
+    await expect(page.getByTestId("practice-mic-button")).toBeEnabled();
 
     await page.getByTestId("practice-mic-button").click();
     await page.evaluate(() => window.__mockSpeechRecognition?.emitError("no-speech"));
@@ -209,6 +285,11 @@ test.describe("Practice page — voice input", () => {
     await micButton.click();
     await page.evaluate(() => window.__mockSpeechRecognition?.emitResult("Hi there", { isFinal: true }));
     await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "current");
+    await expect
+      .poll(() => page.evaluate(() => window.__mockAudio?.getPlayedSources().length ?? 0))
+      .toBeGreaterThanOrEqual(2);
+    await page.evaluate(() => window.__mockAudio?.endCurrent());
+    await expect(micButton).toBeEnabled();
 
     await micButton.click();
     await page.evaluate(() => window.__mockSpeechRecognition?.emitError("no-speech"));

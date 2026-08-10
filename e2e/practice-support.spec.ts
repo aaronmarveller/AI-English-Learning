@@ -168,6 +168,20 @@ test.describe("Practice page — support & recovery", () => {
     expect(turnRequests).toHaveLength(0);
   });
 
+  test("silence nudges stay paused for the entire Ask-in-Chinese session", async ({ page }) => {
+    await resetStorage(page);
+    await page.clock.install();
+    await page.goto(PRACTICE_URL);
+
+    const openingText = await page.getByTestId("emily-message-bubble").innerText();
+    await page.getByTestId("ask-in-chinese-button").click();
+    await expect(page.getByTestId("ask-in-chinese-sheet")).toBeVisible();
+
+    await page.clock.fastForward(19000);
+
+    await expect(page.getByTestId("emily-message-bubble")).toHaveText(openingText);
+  });
+
   test("typing Chinese into the reply box resolves to support_requested — no advance, no judge call", async ({
     page,
   }) => {

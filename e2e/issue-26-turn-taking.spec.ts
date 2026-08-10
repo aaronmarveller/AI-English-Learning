@@ -35,24 +35,20 @@ test.describe("Practice turn-taking", () => {
     await expect(micButton).toBeEnabled();
   });
 
-  test("Ask-in-Chinese mic waits for Emily while Chinese text input remains available", async ({ page }) => {
+  test("opening Ask-in-Chinese stops English audio and gives Chinese input the floor", async ({ page }) => {
     await resetStorage(page);
     await mockSpeechApis(page);
     await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
     await page.goto(PRACTICE_URL);
 
     await page.getByTestId("ask-in-chinese-button").click();
-    await expect
-      .poll(() => page.evaluate(() => window.__mockAudio?.getPlayedSources().length ?? 0))
-      .toBe(2);
+    await expect(page.getByTestId("ask-in-chinese-sheet")).toBeVisible();
 
     const micButton = page.getByTestId("ask-in-chinese-mic-button");
-    await expect(micButton).toBeDisabled();
-    await expect(page.getByTestId("ask-in-chinese-mic-status")).toContainText("Emily is speaking");
+    await expect(micButton).toBeEnabled();
+    await expect(page.getByTestId("ask-in-chinese-mic-status")).not.toContainText("Emily is speaking");
     await expect(page.getByTestId("ask-in-chinese-text-input")).toBeEnabled();
 
-    await page.evaluate(() => window.__mockAudio?.endCurrent());
-    await expect(micButton).toBeEnabled();
     await micButton.click();
     await expect(micButton).toHaveAttribute("data-state", "listening");
     expect(await page.evaluate(() => window.__mockSpeechRecognition?.getLang())).toBe("zh-CN");

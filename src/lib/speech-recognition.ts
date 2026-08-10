@@ -161,6 +161,17 @@ export function startListening(
   }
 
   const recognition = new Recognition();
+  let hasEnded = false;
+  let stopRequested = false;
+
+  function stopRecognition(): void {
+    // Some WebKit builds reject stop() once a non-continuous session has
+    // already ended. Keep the adapter's documented stop-after-end contract
+    // by forwarding at most one stop request to the browser instance.
+    if (hasEnded || stopRequested) return;
+    stopRequested = true;
+    recognition.stop();
+  }
   recognition.lang = options.lang ?? ENGLISH_RECOGNITION_LANG;
   recognition.interimResults = true;
   recognition.continuous = false;
@@ -184,7 +195,7 @@ export function startListening(
       // result (calling stop() synchronously here can end the recognizer
       // before its own event dispatch has finished notifying every
       // listener).
-      queueMicrotask(() => recognition.stop());
+      queueMicrotask(stopRecognition);
     }
   };
 
@@ -193,12 +204,13 @@ export function startListening(
   };
 
   recognition.onend = () => {
+    hasEnded = true;
     callbacks.onEnd();
   };
 
   recognition.start();
 
   return {
-    stop: () => recognition.stop(),
+    stop: stopRecognition,
   };
 }

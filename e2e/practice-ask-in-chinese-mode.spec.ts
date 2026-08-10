@@ -144,6 +144,29 @@ test.describe("Practice page — Chinese help mode", () => {
     expect(backToEnglishLang).toBe("en-US");
   });
 
+  test("tapping the Chinese listening mic again stops recognition", async ({ page }) => {
+    await resetStorage(page);
+    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await mockSpeechApis(page);
+    await page.goto(PRACTICE_URL);
+
+    await page.getByTestId("ask-in-chinese-button").click();
+    await expect
+      .poll(() => page.evaluate(() => window.__mockAudio?.getPlayedSources().length ?? 0))
+      .toBeGreaterThanOrEqual(1);
+    await page.evaluate(() => window.__mockAudio?.endCurrent());
+    const micButton = page.getByTestId("ask-in-chinese-mic-button");
+    await expect(micButton).toBeEnabled();
+
+    await micButton.click();
+    await expect(micButton).toHaveAttribute("data-state", "listening");
+    await expect(micButton).toHaveAccessibleName("停止中文录音 Stop listening");
+    await micButton.click();
+
+    await expect(micButton).toHaveAttribute("data-state", "idle");
+    await expect(micButton).toHaveAccessibleName("用中文提问 Ask in Chinese by voice");
+  });
+
   test("speaking/typing English while in help mode exits help mode and submits the turn", async ({ page }) => {
     await resetStorage(page);
     await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
