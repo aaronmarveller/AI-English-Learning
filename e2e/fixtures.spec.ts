@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { mockApiRoute, mockSpeechApis } from "./fixtures";
+import { mockApiRoute, mockSpeechApis, type MockAudioController } from "./fixtures";
 
 /**
  * Smoke tests for the reusable stub fixtures ticket 03 hands to tickets
@@ -67,5 +67,59 @@ test.describe("reusable E2E fixtures", () => {
     });
 
     expect(utteranceEnded).toBe(true);
+  });
+
+  test("mockSpeechApis records a user-unlocked audio source and can end its playback", async ({ page }) => {
+    await mockSpeechApis(page);
+    await page.goto("/");
+    await page.evaluate(() => {
+      const button = document.createElement("button");
+      button.textContent = "Play fixture audio";
+      button.addEventListener("click", () => {
+        const audio = new Audio("/audio/fixture-success.mp3");
+        audio.addEventListener("ended", () => {
+          document.body.dataset.audioOutcome = "ended";
+        });
+        void audio.play();
+      });
+      document.body.append(button);
+    });
+
+    await page.getByRole("button", { name: "Play fixture audio" }).click();
+    const playback = await page.evaluate(() => {
+      const controller: MockAudioController | undefined = window.__mockAudio;
+      return {
+        sources: controller?.getPlayedSources() ?? [],
+        unlocked: controller?.isUnlocked() ?? false,
+      };
+    });
+    expect(playback.sources).toHaveLength(1);
+    expect(playback.sources[0]).toMatch(/\/audio\/fixture-success\.mp3$/);
+    expect(playback.unlocked).toBe(true);
+
+    await page.evaluate(() => window.__mockAudio?.endCurrent());
+    await expect.poll(() => page.evaluate(() => document.body.dataset.audioOutcome)).toBe("ended");
+    expect(await page.evaluate(() => window.__mockAudio?.isUnlocked())).toBe(true);
+  });
+
+  test("mockSpeechApis can fail the current audio playback", async ({ page }) => {
+    await mockSpeechApis(page);
+    await page.goto("/");
+    await page.evaluate(() => {
+      const button = document.createElement("button");
+      button.textContent = "Play failing audio";
+      button.addEventListener("click", () => {
+        const audio = new Audio("/audio/fixture-failure.mp3");
+        audio.addEventListener("error", () => {
+          document.body.dataset.audioOutcome = "error";
+        });
+        void audio.play();
+      });
+      document.body.append(button);
+    });
+
+    await page.getByRole("button", { name: "Play failing audio" }).click();
+    await page.evaluate(() => window.__mockAudio?.failCurrent());
+    await expect.poll(() => page.evaluate(() => document.body.dataset.audioOutcome)).toBe("error");
   });
 });

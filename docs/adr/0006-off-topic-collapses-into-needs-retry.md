@@ -1,0 +1,7 @@
+---
+status: accepted
+---
+
+# `off_topic` collapses into `needs_retry`; it is not a Verdict of its own
+
+The Verdict previously had three values — `accepted`, `needs_retry`, `off_topic` — each with its own Global Feedback Rule and its own `HIGHLIGHT_KEYS` entry (`went-off-topic` in `src/content/practice.ts`) feeding a separate suggestion pool (`WENT_OFF_TOPIC_SUGGESTION_TEMPLATES` in `src/content/review.ts`). In practice the two negative Verdicts behaved almost identically: both held the learner on the same Conversation State, and both were meant to be encouraging rather than corrective. Maintaining `off_topic` as a distinct value bought little beyond a second feedback branch that had to be kept in sync with the first, and it complicated the model's output contract for a distinction the learner experiences the same way either time. We're collapsing `off_topic` into `needs_retry`: a learner who wanders off the Lesson's topic now simply receives `needs_retry`, and the Global Feedback Rules already require Emily to acknowledge what the learner said before gently steering back to the current step (`docs/ai-configuration.md` section 1), which covers what the separate `off_topic` branch used to do. The Verdict enum shrinks to two values, and the Learning Summary's off-topic-specific suggestion pool is retired along with it — one `needs_retry`-driven suggestion pool now covers both cases.

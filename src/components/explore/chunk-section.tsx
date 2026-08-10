@@ -3,6 +3,8 @@
 import type { ReactNode } from "react";
 
 type ChunkSectionProps = {
+  /** Optional leading emoji — Explore's sections use this; Notice's cards don't. */
+  icon?: string;
   title: string;
   subtitle: string;
   open: boolean;
@@ -22,7 +24,7 @@ type ChunkSectionProps = {
  * (`/Continue/`), so this page doesn't need to avoid the "button" role to
  * keep that query unambiguous.
  */
-export function ChunkSection({ title, subtitle, open, onToggle, testId, children }: ChunkSectionProps) {
+export function ChunkSection({ icon, title, subtitle, open, onToggle, testId, children }: ChunkSectionProps) {
   const bodyId = `${testId}-body`;
 
   return (
@@ -40,6 +42,7 @@ export function ChunkSection({ title, subtitle, open, onToggle, testId, children
         onClick={onToggle}
       >
         <span className="flex items-baseline gap-2">
+          {icon ? <span aria-hidden>{icon}</span> : null}
           <span className="text-h3 text-foreground">{title}</span>
           <span className="text-body-sm text-muted">{subtitle}</span>
         </span>

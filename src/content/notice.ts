@@ -13,7 +13,32 @@
  * difference, not just the difference itself — the goal is understanding
  * real communication, not memorizing phrases (see the ticket's own "目标是
  * 理解真实交流方式，不是记忆语言形式").
+ *
+ * Restructured from free-text paragraphs to short phrase checklists (UI
+ * draft, 2026-08-07 review): the reference mockup pairs each side with a
+ * headline phrase plus a handful of checked bullet points rather than a
+ * paragraph, and shows both sides side-by-side rather than stacked (see
+ * docs/adr/0001-side-by-side-comparison-on-mobile.md). `preview` is a short
+ * emoji summary shown on the card header while it's collapsed — new surface
+ * area the old paragraph-only layout didn't need.
  */
+
+/** Editorial hero headline (UI draft, 2026-08-06 review). */
+export const NOTICE_HEADLINE = {
+  en: "Discover how greetings differ across cultures.",
+  zh: "看看不同文化中，人们是怎么打招呼的。",
+};
+
+/**
+ * Decorative street-scene illustration with "Hi!" / "你好！" speech bubbles
+ * baked into the image itself (UI draft, 2026-08-07 review — the bubbles
+ * aren't a separate overlay component). File isn't in the repo yet; drop it
+ * at this path once available.
+ */
+export const NOTICE_HERO_IMAGE = {
+  src: "/assets/notice/hero-street-greeting.jpg",
+  alt: "",
+};
 
 export type CulturalInsightCard = {
   /** Stable id, also used to derive data-testid hooks for E2E. */
@@ -22,69 +47,112 @@ export type CulturalInsightCard = {
   title: string;
   /** English gloss, shown as a secondary label. */
   subtitle: string;
+  /**
+   * Composite "who greets this way" avatar row images, US and China side by
+   * side. Only card 1 has these — cards 2/3 illustrate a phrase/behavior,
+   * not a cast of people. Files aren't in the repo yet; drop them at these
+   * paths once available.
+   */
+  peopleImage?: {
+    us: { src: string; alt: string };
+    china: { src: string; alt: string };
+  };
   us: {
-    label: string;
-    description: string;
+    /** Representative phrase shown as this column's headline. */
+    phrase: string;
+    /** Short checked bullet points, not full sentences. */
+    items: string[];
   };
   china: {
-    label: string;
-    description: string;
+    phrase: string;
+    items: string[];
   };
   /** The "why" explanation behind the difference — never just stated as fact. */
   why: string;
+  /** Optional US/China editorial images for cards 2 and 3. */
+  images?: { us: string; china: string };
+  /** Compact emoji summary shown on the card header while collapsed. */
+  preview: {
+    us: string;
+    china: string;
+  };
 };
 
 export const CULTURAL_INSIGHT_CARDS: CulturalInsightCard[] = [
   {
     id: "who-greets",
-    title: "会和谁这样打招呼",
+    title: "会和谁这样打招呼？",
     subtitle: "Who You Greet This Way",
+    peopleImage: {
+      us: {
+        src: "/assets/notice/who-greets-us.jpg",
+        alt: "美国常见打招呼对象：警察、店员、邻居、路人",
+      },
+      china: {
+        src: "/assets/notice/who-greets-china.jpg",
+        alt: "中国常见打招呼对象：家人、朋友、熟络的邻居",
+      },
+    },
     us: {
-      label: "🇺🇸 In the US",
-      description:
-        "\"Hi!\"、\"Hey there!\" 这类随意的招呼，对谁都能用——邻居、便利店店员、电梯里擦肩而过的陌生人，都可能对你说一句 Hi 或点头微笑。这不代表关系亲近，只是一种基本的社交礼貌。",
+      phrase: "How are you?",
+      items: ["陌生人", "熟人", "都可以说"],
     },
     china: {
-      label: "🇨🇳 在中国",
-      description:
-        "主动跟不熟的人打招呼的情况少很多。对陌生人、店员通常不会开口问候；主动打招呼更多留给认识的人——朋友、同事、邻居里已经熟络的那种。",
+      phrase: "吃了吗？\n去哪儿？\n最近怎么样？",
+      items: ["更多用于熟人之间"],
     },
-    why: "为什么：在美国这类文化里，简短的问候被当作维持公共空间友好氛围的礼仪动作，不代表要建立关系，不回应反而显得冷淡。而在中文语境里，主动问候通常意味着「我们认识」，所以对陌生人开口的门槛更高——这不是谁更热情或更冷漠，只是问候承载的意思不一样。",
+    why: '"How are you?" 通常只是一个友好的问候，不是真的想了解你的近况，所以简单回应即可。',
+    preview: {
+      us: "👋🌍",
+      china: "👋👨‍👩‍👧",
+    },
   },
   {
     id: "keep-chatting",
-    title: "打完招呼会继续聊吗",
+    title: "打完招呼以后，会继续聊吗？",
     // Deliberately not "...Continue?" — e2e/navigation-spine.spec.ts and
     // e2e/notice.spec.ts both scope their Continue-button query by the
     // accessible-name substring "Continue" and assume it's unique on the
     // page; this card's own header button would otherwise match too.
     subtitle: "Does the Chat Go On?",
     us: {
-      label: "🇺🇸 In the US",
-      description:
-        "打完招呼后，通常还会再聊几句才自然结束——哪怕只是聊两三句寒暄，而不是说完 \"Hi\" 就沉默走开。哪怕是偶遇的邻居，也常常会顺嘴接一句才道别。",
+      phrase: "通常会继续聊天",
+      items: ["回应对方", "回问一句", "再聊几句"],
     },
     china: {
-      label: "🇨🇳 在中国",
-      description:
-        "打招呼本身就可以是完整的社交动作——说一声「你好」或点头示意，然后各走各的路，是完全正常、不会显得冷淡的收尾方式。",
+      phrase: "打完招呼后",
+      items: ["有时直接结束", "不一定继续聊天"],
     },
-    why: "为什么：英语打招呼后接着聊几句，是为了避免「话说一半突然安静」的尴尬——很多英语使用者把突然沉默当成不自然的信号，于是用几句小话题填一下再道别。中文语境里，礼貌到位就可以结束，继续追问反而可能显得没话找话。",
+    why: "英语里的问候通常只是对话的开始，简单回应后，再继续聊几句会更自然。",
+    preview: {
+      us: "😃↔😃",
+      china: "😃✓",
+    },
+    images: {
+      us: "/assets/notice/keep-chatting-us.webp",
+      china: "/assets/notice/keep-chatting-china.webp",
+    },
   },
   {
     id: "small-talk-topics",
-    title: "通常会聊什么",
+    title: "通常会聊什么？",
     subtitle: "What They Talk About",
     us: {
-      label: "🇺🇸 In the US",
-      description:
-        "\"How are you?\" 是打招呼流程的一部分，不是真的在问你最近过得怎么样——多数人只是随口回一句 \"Good, thanks!\" 就算完成了礼节，没人期待你认真汇报近况。真要接着聊，常聊的是天气、今天过得怎么样、周末打算做什么这类不涉及隐私的小话题。",
+      phrase: "常见话题",
+      items: ["天气", "今天怎么样", "周末安排"],
     },
     china: {
-      label: "🇨🇳 在中国",
-      description:
-        "问候更多是「吃了吗」「去哪儿呀」这类具体问题，同样也未必是真想知道细节。接着聊的话题往往更贴近具体生活——最近工作忙不忙、孩子怎么样、家里人身体好不好。",
+      phrase: "常见话题",
+      items: ["吃饭", "工作/学习", "家人"],
     },
-    why: "为什么：这类寒暄话题的作用都是打开一个安全、无压力的开场，让对话能往下走而不冒犯任何人——两边文化选的都是「安全话题」这个功能，只是具体聊什么不一样。知道这一点，就不用再纠结要不要认真回答 \"How are you?\"，接一句 \"Good, thanks! And you?\" 就够了。",
+    why: "不同文化有不同的聊天习惯。了解这些常见话题，可以帮助你更自然地延续对话。",
+    preview: {
+      us: "☀️📅🎉",
+      china: "🍚💼👨‍👩‍👧",
+    },
+    images: {
+      us: "/assets/notice/small-talk-topics-us.webp",
+      china: "/assets/notice/small-talk-topics-china.webp",
+    },
   },
 ];

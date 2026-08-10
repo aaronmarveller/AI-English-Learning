@@ -1,4 +1,5 @@
-import { OPENING_LINES, SILENCE_NUDGE } from "@/content/practice";
+import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
+import { ACTIVE_CONVERSATION_STATES } from "@/lib/conversation-state-machine";
 import {
   CHECKIN_EXPRESSIONS,
   CLOSING_EXPRESSIONS,
@@ -14,11 +15,10 @@ import {
  *
  * Deliberately scoped to text that is genuinely FIXED — content authored
  * once in src/content/*.ts, not text the LLM generates fresh per turn.
- * Emily's Check-in/Response/Closing/completion replies during Practice are
- * generated live by src/lib/practice-judge.ts on every turn (ticket 08's
- * "大模型契约") and have no fixed pool to pre-generate audio for — those
- * turns speak through src/lib/speech-synthesis.ts's browser-synthesis
- * fallback, same as any other unmatched text.
+ * Emily's Check-in/Response/Closing replies during Practice are generated
+ * live by src/lib/practice-judge.ts and use browser-synthesis fallback.
+ * Completion replies are the exception: AI Configuration defines a fixed
+ * three-message pool, so those messages belong in this manifest too.
  *
  * Consumed by two places that must never drift apart:
  * - scripts/generate-audio.ts (build time): iterates this list and writes
@@ -41,16 +41,79 @@ export type AudioManifestEntry = {
 
 export const AUDIO_MANIFEST: AudioManifestEntry[] = [
   // Emily's opening line pool (5) — spoken before any learner turn exists.
-  ...OPENING_LINES.map((line) => ({ id: line.id, text: line.en })),
+  ...GREETING_SOMEBODY_LESSON.openingLines.map((line) => ({ id: line.id, text: line.en })),
 
-  // Silence-timeout nudge — exactly one fixed line (src/content/practice.ts's
-  // SILENCE_NUDGE); id kept as "nudge-0" to match the file already generated
-  // under public/audio/.
-  { id: "nudge-0", text: SILENCE_NUDGE.en },
+  // The fixed post-Closing encouragement that unlocks Learning Summary.
+  ...GREETING_SOMEBODY_LESSON.completionMessages.map((text, index) => ({
+    id: `completion-${index + 1}`,
+    text,
+  })),
+
+  // Silence-timeout nudge pool (issue #16 expanded this from one fixed line
+  // to 3 — src/content/lesson.ts's GREETING_SOMEBODY_LESSON.silenceNudgeLines).
+  // "nudge-0" is kept pointing at the original line so the file already
+  // generated under public/audio/ still matches.
+  ...GREETING_SOMEBODY_LESSON.silenceNudgeLines.map((line, index) => ({
+    id: `nudge-${index}`,
+    text: line.en,
+  })),
+
+  // Check-in Conversation Script pool (3, issue #16/#17). "How's it going?"
+  // is verbatim-identical to Explore's checkin-hows-it-going expression, so
+  // it's filtered out here and reuses that entry's recording instead of
+  // getting a second one for the same text (same reasoning as openingLines'
+  // filter above).
+  ...GREETING_SOMEBODY_LESSON.checkinLines
+    .filter(
+      (line) => !CHECKIN_EXPRESSIONS.some((expression) => expression.expression === line.en),
+    )
+    .map((line, index) => ({ id: `checkin-script-${index + 1}`, text: line.en })),
+
+  // Response Conversation Script's two sub-pools (3 + 3, issue #16/#17) —
+  // selected by `learner_asked_back`, see src/content/lesson.ts's
+  // RESPONSE_LINES doc comment.
+  ...GREETING_SOMEBODY_LESSON.responseLines.didNotAskBack.map((line, index) => ({
+    id: `response-script-no-askback-${index + 1}`,
+    text: line.en,
+  })),
+  ...GREETING_SOMEBODY_LESSON.responseLines.askedBack.map((line, index) => ({
+    id: `response-script-askback-${index + 1}`,
+    text: line.en,
+  })),
+
+  // Closing Conversation Script pool (4, issue #16/#17). Three of the four
+  // lines are verbatim-identical to Explore's closing expressions (after
+  // standardising Explore's punctuation to match — see explore.ts's
+  // CLOSING_EXPRESSIONS doc comment and issue #12's "Punctuation is
+  // load-bearing in the audio manifest"), so they're filtered out here and
+  // reuse those entries' recordings instead of getting a second one each.
+  ...GREETING_SOMEBODY_LESSON.closingLines
+    .filter(
+      (line) => !CLOSING_EXPRESSIONS.some((expression) => expression.expression === line.en),
+    )
+    .map((line, index) => ({ id: `closing-script-${index + 1}`, text: line.en })),
+
+  // Per-state `needs_retry` pools (4 states x 3, issue #16/#17) — spoken
+  // when a learner's turn for that state is judged `needs_retry`.
+  ...ACTIVE_CONVERSATION_STATES.flatMap((state) =>
+    GREETING_SOMEBODY_LESSON.script[state].needsRetryLines.map((line, index) => ({
+      id: `needs-retry-${state}-${index + 1}`,
+      text: line.en,
+    })),
+  ),
 
   // Explore page's 13 pronounceable texts: 3 sections x 3 expressions each,
   // plus the Response section's 3 steps and their 1 combined combo sentence.
-  ...GREETING_EXPRESSIONS.map((expression) => ({ id: expression.id, text: expression.expression })),
+  // If Explore and Practice use the exact same phrase, reuse the Practice
+  // opening audio entry instead of generating a second file for identical
+  // text. Runtime lookup is text-based, so both surfaces receive that audio.
+  ...GREETING_EXPRESSIONS.filter(
+    (expression) =>
+      !GREETING_SOMEBODY_LESSON.openingLines.some((line) => line.en === expression.expression),
+  ).map((expression) => ({ id: expression.id, text: expression.expression })),
+  { id: "greeting-good-morning", text: "Good morning." },
+  { id: "greeting-good-afternoon", text: "Good afternoon." },
+  { id: "greeting-good-evening", text: "Good evening." },
   ...CHECKIN_EXPRESSIONS.map((expression) => ({ id: expression.id, text: expression.expression })),
   ...CLOSING_EXPRESSIONS.map((expression) => ({ id: expression.id, text: expression.expression })),
   ...RESPONSE_STEPS.map((step) => ({ id: step.id, text: step.expression })),

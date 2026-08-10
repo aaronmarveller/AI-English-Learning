@@ -11,7 +11,12 @@
  *
  *   accepted     → advance to the next state (Closing's accept → "complete")
  *   needs_retry  → stay on the current state
- *   off_topic    → stay on the current state
+ *
+ * Issue #15 (docs/adr/0006-off-topic-collapses-into-needs-retry.md):
+ * `off_topic` was previously a third Verdict value that also held the
+ * learner on the current state. It never behaved differently from
+ * `needs_retry` at the state-machine level, so it's gone — a learner who
+ * wanders off-topic now simply receives `needs_retry`.
  *
  * "Conversation Start" isn't modeled as a state here — it's just "before the
  * opening line renders" (see src/content/practice.ts's opening-line pool and
@@ -29,8 +34,13 @@ export type ActiveConversationState = (typeof ACTIVE_CONVERSATION_STATES)[number
 /** All conversation states, including the terminal "complete" state reached after Closing is accepted. */
 export type ConversationState = ActiveConversationState | "complete";
 
-/** The per-turn judgment the LLM proxy route returns (spec.md "大模型契约"). */
-export const VERDICTS = ["accepted", "needs_retry", "off_topic"] as const;
+/**
+ * The per-turn judgment the LLM proxy route returns (spec.md "大模型契约").
+ * Exactly two values (issue #15) — `off_topic` is not a Verdict of its own;
+ * off-topic input is judged `needs_retry` (docs/ai-configuration.md
+ * section 4).
+ */
+export const VERDICTS = ["accepted", "needs_retry"] as const;
 export type Verdict = (typeof VERDICTS)[number];
 
 export function isActiveConversationState(value: unknown): value is ActiveConversationState {

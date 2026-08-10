@@ -13,15 +13,6 @@ type MessageBubblePairProps = {
   emilyMessage: BubbleMessage | null;
   /** The learner's echoed input for the current turn, or null before they've submitted one. */
   learnerMessage: BubbleMessage | null;
-  /**
-   * Whether Emily's bubble should default to showing its Chinese caption
-   * already expanded (ticket 10; spec.md 语言口径: "例外：第一条 Opening
-   * Message 默认展开中文，降低初次入场门槛"). Every other message defaults to
-   * collapsed. The parent is expected to pass `key={emilyMessage.id}` so this
-   * component remounts (and its internal toggle state resets) on every new
-   * message — see practice-page-content.tsx.
-   */
-  defaultShowChinese?: boolean;
 };
 
 /**
@@ -39,14 +30,13 @@ type MessageBubblePairProps = {
  *
  * Ticket 10 additions (spec.md "Practice 页交互模型" / "语言口径", user
  * stories 48-53): a per-message bilingual subtitle toggle on Emily's bubble
- * (default collapsed, except the very first message in the whole
- * conversation — see `defaultShowChinese`), and an independent replay
+ * (default collapsed for every new message), and an independent replay
  * button that re-speaks Emily's English line via the shared
  * speech-synthesis adapter. Neither one transitions Conversation State —
  * both are purely local UI state inside this component.
  */
-export function MessageBubblePair({ emilyMessage, learnerMessage, defaultShowChinese = false }: MessageBubblePairProps) {
-  const [showChinese, setShowChinese] = useState(defaultShowChinese);
+export function MessageBubblePair({ emilyMessage, learnerMessage }: MessageBubblePairProps) {
+  const [showChinese, setShowChinese] = useState(false);
 
   function handleReplay() {
     if (!emilyMessage) return;
@@ -57,9 +47,9 @@ export function MessageBubblePair({ emilyMessage, learnerMessage, defaultShowChi
   }
 
   return (
-    <div className="flex w-full flex-col gap-3" data-testid="message-bubble-pair">
+    <div className="flex w-full flex-col gap-2" data-testid="message-bubble-pair">
       {emilyMessage ? (
-        <div className="flex max-w-[85%] flex-col items-start gap-2 self-start">
+        <div className="flex flex-col items-start gap-2 rounded-card bg-foreground/80 p-3 text-primary-foreground shadow-lg backdrop-blur-sm">
           {/*
             IMPORTANT: `data-testid="emily-message-bubble"` must contain
             ONLY the English text, nothing else — e2e/practice-conversation.spec.ts
@@ -69,38 +59,32 @@ export function MessageBubblePair({ emilyMessage, learnerMessage, defaultShowChi
             SIBLINGS of this div, not children, so they never get folded
             into that assertion's text comparison.
           */}
-          <div
-            data-testid="emily-message-bubble"
-            className="rounded-card bg-primary px-4 py-3 text-primary-foreground"
-          >
-            <p className="text-body-lg">{emilyMessage.textEn}</p>
-          </div>
+          <p data-testid="emily-message-bubble" className="text-body-lg">
+            {emilyMessage.textEn}
+          </p>
           {showChinese ? (
-            <p
-              data-testid="emily-message-zh"
-              className="rounded-card bg-primary/10 px-4 py-2 text-body-sm text-foreground"
-            >
+            <p data-testid="emily-message-zh" className="text-body-sm text-primary-foreground/80">
               {emilyMessage.textZh}
             </p>
           ) : null}
-          <div className="flex items-center gap-3 px-1">
-            <button
-              type="button"
-              onClick={() => setShowChinese((current) => !current)}
-              data-testid="subtitle-toggle-button"
-              data-state={showChinese ? "expanded" : "collapsed"}
-              className="btn-icon-pressed text-caption text-muted underline underline-offset-2"
-            >
-              中英字幕 Show Chinese
-            </button>
+          <div className="flex items-center gap-2 pt-1">
             <button
               type="button"
               onClick={handleReplay}
               data-testid="replay-button"
               aria-label="重播 Replay"
-              className="btn-icon-pressed text-caption text-muted underline underline-offset-2"
+              className="btn-icon-pressed rounded-button bg-primary-foreground/15 px-3 py-1.5 text-caption font-medium text-primary-foreground"
             >
               🔊 重播 Replay
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowChinese((current) => !current)}
+              data-testid="subtitle-toggle-button"
+              data-state={showChinese ? "expanded" : "collapsed"}
+              className="btn-icon-pressed rounded-button bg-primary-foreground/15 px-3 py-1.5 text-caption font-medium text-primary-foreground"
+            >
+              🖼 中英字幕 Show Chinese
             </button>
           </div>
         </div>
@@ -109,7 +93,7 @@ export function MessageBubblePair({ emilyMessage, learnerMessage, defaultShowChi
       {learnerMessage ? (
         <div
           data-testid="learner-message-bubble"
-          className="max-w-[85%] self-end rounded-card bg-accent-soft px-4 py-3 text-foreground"
+          className="max-w-[85%] self-end rounded-card bg-accent-soft px-4 py-3 text-foreground shadow-lg"
         >
           <p className="text-body-lg">{learnerMessage.textEn}</p>
         </div>

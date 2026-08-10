@@ -67,8 +67,8 @@ export function GreetingBanner() {
   const greeting = period ? GREETINGS[period] : null;
 
   return (
-    <h1 data-testid="greeting" aria-live="polite" className="text-h1">
+    <p data-testid="greeting" aria-live="polite" className="text-body-lg text-muted">
       {greeting ? greeting.zh : " "}
-    </h1>
+    </p>
   );
 }

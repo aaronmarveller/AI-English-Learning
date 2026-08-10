@@ -8,11 +8,40 @@ One round-trip in a Practice conversation: the learner's message, plus Emily's c
 
 ## Verdict
 
-The judgment a Turn receives: `accepted`, `needs_retry`, or `off_topic`. Produced by the Judge — never decided on the client.
+The judgment a Turn receives: `accepted` or `needs_retry`. Produced by the Judge — never decided on the client. A learner who wanders off the Lesson's topic receives `needs_retry`; off-topic is not a Verdict of its own.
+
+## Turn Outcome
+
+What a learner's submission resolves to overall: `support_requested`, `accepted`, or `needs_retry`. The latter two are Verdicts, decided by the Judge. `support_requested` is decided on the client *before* the Judge is involved — the learner addressed Emily in Chinese — so it is an outcome that never becomes a Verdict.
+_Avoid_: Validation Result
+
+## Conversation Script
+
+A Lesson's verbatim library of Emily's lines: for each Conversation State, the pool of English sentences Emily may say on entering it. Emily selects from this library and never improvises, which is what makes every line she speaks pre-generatable as audio.
+_Avoid_: reference conversation — the Script is not a stylistic example the Judge paraphrases
+
+## Lesson
+
+One self-contained scenario the learner practices end to end, owning its Conversation Script, its Accepted Responses, and its Chinese help content. Today there is exactly one: `Greeting Somebody`.
 
 ## Conversation State
 
-Where the learner currently is in Practice's fixed 4-step flow: `greeting → checkin → response → closing → complete`. Only a Turn's `accepted` Verdict advances Conversation State to the next step; `needs_retry` and `off_topic` both hold the learner on the current one.
+Where the learner currently is in Practice's fixed 4-step flow: `greeting → checkin → response → closing → complete`. Only a Turn's `accepted` Verdict advances Conversation State to the next step; `needs_retry` holds the learner on the current one, and a `support_requested` Turn Outcome never reaches the state machine at all.
+
+## Learning Summary
+
+The learner-facing recap shown after Practice. It presents one Praise, two or three performance-based Highlights, one Suggestion, and one Closing in that order. Addressed to the learner in Chinese, with English surviving only as the short expressions the Lesson taught — the opposite of the Conversation Script, which is English precisely because speaking it *is* the practice.
+_Avoid_: Review in learner-facing copy
+
+## Review
+
+The internal name of the post-Practice learning-flow stage that presents the Learning Summary and offers retry or continue actions.
+_Avoid_: Learning Summary when naming the internal flow stage
+
+## Turn-Taking
+
+Who holds the floor: Emily and the learner never hold it at the same time. The learner cannot begin speaking while Emily is still delivering a line, and Emily never begins a line while the learner is speaking. A product rule, not a device workaround — it is what keeps a Turn a clean exchange instead of two voices competing for one microphone.
+_Avoid_: barge-in — interrupting Emily mid-line is deliberately not offered
 
 ## Judge / Submit seam
 

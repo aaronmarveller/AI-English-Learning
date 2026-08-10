@@ -57,8 +57,16 @@ declare global {
   }
 }
 
-/** Recognition language: fixed at en-US since all Practice conversation input is English. */
-const RECOGNITION_LANG = "en-US";
+/**
+ * Recognition language. Issue #19 (docs/ai-configuration.md section 6:
+ * "Speech recognition language is mode-dependent: English for the
+ * conversation, Chinese while in help mode") made this mode-dependent
+ * rather than a single fixed constant — `startListening`'s caller now picks
+ * one of these two via the `lang` option below, instead of this module
+ * always assuming English.
+ */
+export const ENGLISH_RECOGNITION_LANG = "en-US";
+export const CHINESE_RECOGNITION_LANG = "zh-CN";
 
 /**
  * Distinct failure reasons a caller may want to branch on. "not-allowed"
@@ -120,18 +128,32 @@ function toErrorReason(rawError: string): SpeechRecognitionErrorReason {
   }
 }
 
+export type StartListeningOptions = {
+  /**
+   * Which language the recognizer listens for. Defaults to
+   * `ENGLISH_RECOGNITION_LANG` — every existing caller (the main Practice
+   * conversation input) keeps working unchanged. Issue #19's Chinese help
+   * mode is the one caller that passes `CHINESE_RECOGNITION_LANG` instead,
+   * while help mode is open.
+   */
+  lang?: string;
+};
+
 /**
- * Starts listening for English speech and streams results/errors/end to
- * `callbacks` — the caller never touches the raw recognizer. Returns a
- * controller whose `stop()` ends listening early (e.g. the learner switches
- * to text mode mid-listen).
+ * Starts listening for speech in the given language and streams
+ * results/errors/end to `callbacks` — the caller never touches the raw
+ * recognizer. Returns a controller whose `stop()` ends listening early
+ * (e.g. the learner switches to text mode mid-listen).
  *
  * Callers should feature-detect first via `isSpeechRecognitionSupported()`;
  * calling this when unsupported reports an "other" error on the next
  * microtask instead of throwing, so a caller that forgets the check still
  * fails soft.
  */
-export function startListening(callbacks: StartListeningCallbacks): ListeningController {
+export function startListening(
+  callbacks: StartListeningCallbacks,
+  options: StartListeningOptions = {},
+): ListeningController {
   const Recognition = getRecognitionConstructor();
   if (!Recognition) {
     queueMicrotask(() => callbacks.onError("other", "unsupported"));
@@ -139,7 +161,18 @@ export function startListening(callbacks: StartListeningCallbacks): ListeningCon
   }
 
   const recognition = new Recognition();
-  recognition.lang = RECOGNITION_LANG;
+  let hasEnded = false;
+  let stopRequested = false;
+
+  function stopRecognition(): void {
+    // Some WebKit builds reject stop() once a non-continuous session has
+    // already ended. Keep the adapter's documented stop-after-end contract
+    // by forwarding at most one stop request to the browser instance.
+    if (hasEnded || stopRequested) return;
+    stopRequested = true;
+    recognition.stop();
+  }
+  recognition.lang = options.lang ?? ENGLISH_RECOGNITION_LANG;
   recognition.interimResults = true;
   recognition.continuous = false;
   recognition.maxAlternatives = 1;
@@ -149,6 +182,21 @@ export function startListening(callbacks: StartListeningCallbacks): ListeningCon
     if (!result) return;
     const transcript = result[0]?.transcript ?? "";
     callbacks.onResult(transcript, result.isFinal);
+    if (result.isFinal) {
+      // continuous=false is documented to auto-stop the recognizer once a
+      // final result lands, but real implementations vary in how promptly
+      // that actually happens — closing it explicitly here, rather than
+      // trusting that timing, avoids a learner who taps the mic again for
+      // their next turn (well within a couple seconds, in practice) racing a
+      // previous session that hasn't actually released the microphone yet,
+      // which reads as "the mic only ever captures the first turn". Deferred
+      // one microtask so it runs after this dispatch finishes rather than
+      // reentrantly from inside the event handler still delivering this
+      // result (calling stop() synchronously here can end the recognizer
+      // before its own event dispatch has finished notifying every
+      // listener).
+      queueMicrotask(stopRecognition);
+    }
   };
 
   recognition.onerror = (event) => {
@@ -156,12 +204,13 @@ export function startListening(callbacks: StartListeningCallbacks): ListeningCon
   };
 
   recognition.onend = () => {
+    hasEnded = true;
     callbacks.onEnd();
   };
 
   recognition.start();
 
   return {
-    stop: () => recognition.stop(),
+    stop: stopRecognition,
   };
 }

@@ -4,10 +4,14 @@ import type { Page, Route } from "@playwright/test";
  * Shared E2E helpers (ticket 03).
  *
  * This project's main test seam is a real browser driving the whole app;
- * the only two things ever stubbed are the LLM proxy route's network
- * response and the Web Speech API (see spec.md "## Testing Decisions" >
- * "### 接缝"). Everything else — routing, the progress guard, localStorage
- * persistence, component behavior — runs real code against a real
+ * the only three things ever stubbed are the LLM proxy route's network
+ * response, the Web Speech API, and `<audio>` playback (see spec.md
+ * "## Testing Decisions" > "### 接缝"). Audio is the third leg of the same
+ * speech-I/O boundary:
+ * real playback duration and browser autoplay policy are no more
+ * deterministic in CI than a real microphone.
+ * Everything else — routing, the progress guard, localStorage persistence,
+ * and component behavior — runs real code against a real
  * `next build && next start` server.
  */
 
@@ -77,11 +81,21 @@ export const PRACTICE_URL = "/practice?debug=1";
 /** The LLM proxy route `installScriptedPracticeApi` below stubs. */
 export const TURN_ENDPOINT = "**/api/practice/turn";
 
+/**
+ * Issue #16: the wire contract shrank to exactly two fields. `reply_en`,
+ * `reply_zh`, and `highlight_key` are gone — Emily's line is now picked
+ * client-side from the Lesson's fixed Conversation Script pools (see
+ * src/content/lesson.ts / src/lib/emily-reply-selector.ts), so a spec can no
+ * longer dictate Emily's exact reply text through this stub. Specs that used
+ * to assert `emily-message-bubble` against a scripted `reply_en` now assert
+ * membership in the relevant pool instead (imported straight from
+ * src/content/lesson.ts, so the assertion can never silently drift from the
+ * production content it's checking).
+ */
 export type ScriptedTurnResponse = {
-  verdict: "accepted" | "needs_retry" | "off_topic";
-  reply_en: string;
-  reply_zh: string;
-  highlight_key: string;
+  verdict: "accepted" | "needs_retry";
+  /** Defaults to `false` when omitted — most scripted turns don't ask a question back. */
+  learner_asked_back?: boolean;
 };
 
 /**
@@ -91,8 +105,9 @@ export type ScriptedTurnResponse = {
  * A step up from this module's generic `mockApiRoute` above (which always
  * fulfills every matching request with the *same* fixed response): a
  * Practice conversation needs different verdicts at different points (a few
- * accepted turns, one needs_retry, one off_topic), so the mock has to vary
- * per call.
+ * accepted turns, one needs_retry — including one for off-topic input, which
+ * is judged needs_retry rather than a Verdict of its own, issue #15), so the
+ * mock has to vary per call.
  *
  * `delayMs` is optional and only needed by tests that assert on the
  * *transient* learner bubble mid-turn: without it, the mocked route
@@ -117,6 +132,13 @@ export type ScriptedTurnResponse = {
  * parser treats as authoritative — so this stub keeps exercising the exact
  * client-side parsing code path production traffic does, rather than a
  * special-cased shortcut.
+ *
+ * Emily now auto-speaks every one of her replies, not just the opening line
+ * (see practice-page-content.tsx). Specs install `mockSpeechApis` when they
+ * need deterministic playback; its `<audio>` controller replaces the old
+ * four-zero-byte `/api/practice/speak` fallback, which produced an `error`
+ * rather than a controllable `ended` event. Specs that specifically assert
+ * on the speak request can still register their own `page.route` handler.
  */
 export async function installScriptedPracticeApi(
   page: Page,
@@ -130,11 +152,55 @@ export async function installScriptedPracticeApi(
     if (options.delayMs) {
       await new Promise((resolve) => setTimeout(resolve, options.delayMs));
     }
-    const finalEvent = { type: "final", ...response };
+    const finalEvent = {
+      type: "final",
+      verdict: response.verdict,
+      learner_asked_back: response.learner_asked_back ?? false,
+    };
     await route.fulfill({
       status: 200,
       contentType: "text/event-stream",
       body: `data: ${JSON.stringify(finalEvent)}\n\n`,
+    });
+  });
+}
+
+// --- Scripted Chinese-explanation stub (issue #19) -----------------------
+//
+// Issue #12's Testing Decisions section is explicit that this is "a second
+// stubbed endpoint... alongside the existing turn endpoint... at the same
+// level as the existing stub — it is not a new seam" — so this helper
+// lives right here next to `installScriptedPracticeApi`, follows its exact
+// shape (page.route + a script, saturating on the last entry), and a spec
+// typically calls both together.
+
+/** The Chinese-explanation route (src/app/api/practice/explain/route.ts) this helper stubs. */
+export const EXPLAIN_ENDPOINT = "**/api/practice/explain";
+
+/**
+ * Stubs the Chinese-explanation route with a scripted sequence of plain
+ * JSON responses — one per call, saturating on the last entry, same
+ * pattern as `installScriptedPracticeApi`. Pass `{ fail: true }` for an
+ * entry to simulate a failed call (a non-2xx status) instead, so a spec can
+ * assert the client-side fallback to the canned four-part text (issue #19
+ * acceptance criterion 5).
+ */
+export async function installScriptedChineseExplanationApi(
+  page: Page,
+  responses: ({ answerZh: string } | { fail: true })[],
+): Promise<void> {
+  let callIndex = 0;
+  await page.route(EXPLAIN_ENDPOINT, async (route: Route) => {
+    const response = responses[Math.min(callIndex, responses.length - 1)];
+    callIndex += 1;
+    if ("fail" in response) {
+      await route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ error: "upstream_error" }) });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ answerZh: response.answerZh }),
     });
   });
 }
@@ -166,6 +232,20 @@ type MockRecognitionResultOptions = {
   confidence?: number;
 };
 
+/** Controller exposed as `window.__mockAudio` for E2E audio playback. */
+export type MockAudioController = {
+  /** Sources whose `play()` calls successfully entered playback. */
+  getPlayedSources: () => string[];
+  /** Dispatches `ended` on the currently playing element. */
+  endCurrent: () => void;
+  /** Dispatches `error` on the currently playing element. */
+  failCurrent: () => void;
+  /** Whether the most recently played element was unlocked by a user gesture. */
+  isUnlocked: () => boolean;
+  /** Makes the next authorized `play()` remain pending without starting. */
+  stallNext: () => void;
+};
+
 /**
  * The controller ticket 08/09 tests use (via `page.evaluate`) to drive
  * recognition output on demand, once the app under test has called
@@ -176,10 +256,23 @@ type MockSpeechRecognitionController = {
   emitResult: (transcript: string, options?: MockRecognitionResultOptions) => void;
   emitError: (error: string) => void;
   emitEnd: () => void;
+  /** Makes an already-ended recognizer reject a redundant `stop()`, matching strict WebKit behavior. */
+  rejectRedundantStops: () => void;
+  /**
+   * The `lang` the most recently started recognizer instance was
+   * configured with, or `null` if none has started yet (issue #19: "the
+   * speech mock exposes the recogniser's configured language so a test can
+   * assert it switches to Chinese in help mode and back to English outside
+   * it"). Reflects whichever instance last called `start()` — src/lib/speech-recognition.ts's
+   * `startListening` sets `.lang` before calling `.start()`, so by the time
+   * `onstart`/the "start" event fires this is always current.
+   */
+  getLang: () => string | null;
 };
 
 declare global {
   interface Window {
+    __mockAudio?: MockAudioController;
     __mockSpeechRecognition?: MockSpeechRecognitionController;
   }
 }
@@ -206,6 +299,12 @@ declare global {
  *     - `page.evaluate(() => window.__mockSpeechRecognition?.emitResult("hello", { isFinal: true }))`
  *     - `page.evaluate(() => window.__mockSpeechRecognition?.emitError("no-speech"))`
  *
+ * - `<audio>` playback: a controllable fake that models iOS's per-element
+ *   user-gesture unlock rule. A locked element rejects programmatic play;
+ *   once a play happens in a user-activation stack, that element remains
+ *   unlocked. Tests inspect successful sources and finish/fail the current
+ *   playback through `window.__mockAudio`.
+ *
  * - `window.speechSynthesis`: a fake whose `speak(utterance)` immediately
  *   fires the utterance's `onstart` then (on a microtask) `onend` instead
  *   of producing audio, and whose `getVoices()` returns a small fixed
@@ -213,6 +312,65 @@ declare global {
  */
 export async function mockSpeechApis(page: Page): Promise<void> {
   await page.addInitScript(() => {
+    const unlockedAudio = new WeakSet<HTMLMediaElement>();
+    const playedSources: string[] = [];
+    let currentAudio: HTMLMediaElement | null = null;
+    let lastAudio: HTMLMediaElement | null = null;
+    let shouldStallNext = false;
+
+    HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
+      // The controller needs to retain the exact element whose prototype
+      // method was invoked so later page.evaluate calls can drive it.
+      // eslint-disable-next-line @typescript-eslint/no-this-alias
+      lastAudio = this;
+      if (navigator.userActivation.isActive) unlockedAudio.add(this);
+      if (!unlockedAudio.has(this)) {
+        return Promise.reject(new DOMException("Playback requires a user gesture", "NotAllowedError"));
+      }
+
+      if (shouldStallNext) {
+        shouldStallNext = false;
+        return new Promise(() => {});
+      }
+
+      playedSources.push(this.src);
+      // eslint-disable-next-line @typescript-eslint/no-this-alias
+      currentAudio = this;
+      return Promise.resolve();
+    };
+
+    HTMLMediaElement.prototype.pause = function (this: HTMLMediaElement) {
+      if (currentAudio === this) currentAudio = null;
+    };
+
+    const audioController: MockAudioController = {
+      getPlayedSources() {
+        return [...playedSources];
+      },
+      endCurrent() {
+        const target = currentAudio;
+        if (!target) return;
+        currentAudio = null;
+        target.dispatchEvent(new Event("ended"));
+      },
+      failCurrent() {
+        const target = currentAudio;
+        if (!target) return;
+        currentAudio = null;
+        target.dispatchEvent(new Event("error"));
+      },
+      isUnlocked() {
+        return lastAudio ? unlockedAudio.has(lastAudio) : false;
+      },
+      stallNext() {
+        shouldStallNext = true;
+      },
+    };
+
+    window.__mockAudio = audioController;
+
+    let shouldRejectRedundantStops = false;
+
     class MockSpeechRecognition extends EventTarget {
       lang = "en-US";
       continuous = false;
@@ -222,20 +380,55 @@ export async function mockSpeechApis(page: Page): Promise<void> {
       onresult: ((event: Event) => void) | null = null;
       onerror: ((event: Event) => void) | null = null;
       onend: (() => void) | null = null;
+      // Whether this instance still (from the mock's point of view) holds
+      // the microphone — false from start() until stop()/abort() releases
+      // it. Models a real constraint this stub used to ignore entirely: a
+      // session that's never explicitly stopped still holds the microphone,
+      // so a different instance starting on top of it fails (see start()
+      // below). This is what let real-world "mic only ever captures the
+      // first turn" bugs slip past this suite — src/lib/speech-recognition.ts's
+      // startListening now stops the recognizer itself as soon as a final
+      // result lands instead of trusting continuous=false's own
+      // (implementation-variable-timing) auto-stop.
+      stopped = true;
 
       start() {
+        if (activeRecognition && activeRecognition !== this && !activeRecognition.stopped) {
+          // Simulates the microphone still being held by a prior session
+          // that was never stopped — silently, via a non-fallback-triggering
+          // error (see practice-input-form.tsx's FallbackTrigger — "aborted"
+          // just resets the mic to idle, it doesn't switch to text input),
+          // matching the reported symptom of the mic quietly doing nothing
+          // on later turns rather than visibly explaining itself. An arrow
+          // function here (not a `this`-aliasing local) picks up `start()`'s
+          // own `this` lexically.
+          queueMicrotask(() => {
+            const event = Object.assign(new Event("error"), { error: "aborted" });
+            this.onerror?.(event);
+            this.dispatchEvent(event);
+          });
+          return;
+        }
         // The module-level controller (emitResult/emitError/emitEnd) needs
         // a reference to whichever instance the app under test last started.
         // eslint-disable-next-line @typescript-eslint/no-this-alias
         activeRecognition = this;
+        this.stopped = false;
         this.onstart?.();
         this.dispatchEvent(new Event("start"));
       }
 
       stop() {
+        if (this.stopped) {
+          if (shouldRejectRedundantStops) {
+            throw new DOMException("Recognition has already ended", "InvalidStateError");
+          }
+          return;
+        }
+        this.stopped = true;
+        if (activeRecognition === this) activeRecognition = null;
         this.onend?.();
         this.dispatchEvent(new Event("end"));
-        if (activeRecognition === this) activeRecognition = null;
       }
 
       abort() {
@@ -247,24 +440,38 @@ export async function mockSpeechApis(page: Page): Promise<void> {
 
     const controller: Window["__mockSpeechRecognition"] = {
       emitResult(transcript, options = {}) {
-        if (!activeRecognition) return;
+        // Snapshotting into a local avoids a reentrancy hazard: a handler
+        // this synchronously invokes (onresult below) may itself call
+        // stop() on the very same instance, which nulls the module-level
+        // `activeRecognition` — reading that shared variable again for the
+        // dispatchEvent call below would then throw instead of finishing
+        // this dispatch.
+        const target = activeRecognition;
+        if (!target) return;
         const alternative = { transcript, confidence: options.confidence ?? 0.9 };
         const result = Object.assign([alternative], { isFinal: options.isFinal ?? true });
         const event = Object.assign(new Event("result"), {
           results: Object.assign([result], { length: 1 }),
           resultIndex: 0,
         });
-        activeRecognition.onresult?.(event);
-        activeRecognition.dispatchEvent(event);
+        target.onresult?.(event);
+        target.dispatchEvent(event);
       },
       emitError(error) {
-        if (!activeRecognition) return;
+        const target = activeRecognition;
+        if (!target) return;
         const event = Object.assign(new Event("error"), { error });
-        activeRecognition.onerror?.(event);
-        activeRecognition.dispatchEvent(event);
+        target.onerror?.(event);
+        target.dispatchEvent(event);
       },
       emitEnd() {
         activeRecognition?.stop();
+      },
+      rejectRedundantStops() {
+        shouldRejectRedundantStops = true;
+      },
+      getLang() {
+        return activeRecognition?.lang ?? null;
       },
     };
 

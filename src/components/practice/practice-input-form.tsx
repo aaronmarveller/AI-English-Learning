@@ -1,16 +1,33 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
+import { IconBoxButton } from "@/components/practice/icon-box-button";
 import {
   isSpeechRecognitionSupported,
   startListening,
   type ListeningController,
   type SpeechRecognitionErrorReason,
 } from "@/lib/speech-recognition";
+import {
+  acquireMicListening,
+  getServerSpeakingSnapshot,
+  getSpeakingSnapshot,
+  releaseMicListening,
+  subscribeToSpeaking,
+  type MicListeningOwner,
+} from "@/lib/speech-synthesis";
 
 type PracticeInputFormProps = {
   disabled: boolean;
   onSubmit: (text: string) => void;
+  /**
+   * A boxed action button (built with IconBoxButton, same as the mode
+   * toggle) rendered alongside the mic/text controls — the Ask-in-Chinese
+   * trigger, owned and styled by the parent so this form doesn't need to
+   * know anything about that feature (2026-08-07 UI draft: the two boxed
+   * buttons flank the mic as a matched pair).
+   */
+  asideAction?: ReactNode;
 };
 
 type InputMode = "mic" | "text";
@@ -22,26 +39,33 @@ const PERMISSION_DENIED_REASON =
   "麦克风权限被拒绝，已切换到文字输入。 Microphone access was denied, switched to typing.";
 const NO_MICROPHONE_REASON =
   "检测不到麦克风设备，已切换到文字输入。 No microphone was detected, switched to typing.";
+const NO_SPEECH_RETRY_MESSAGE = "没听清，请再说一次。 I didn't catch that. Please try again.";
+const REPEATED_NO_SPEECH_REASON =
+  "连续三次没听清，已切换到文字输入。 I couldn't hear you three times, so I switched to typing.";
 
 /**
- * Recognition failure reasons that should trigger an auto-fallback to text
- * input with an explanation, distinct from reasons (`"no-speech"`,
- * `"network"`, `"aborted"`) that just silently reset the mic to idle so the
- * learner can simply try again. Both members are hardware/permission-class
- * faults the learner can't resolve by retrying the mic: `"not-allowed"` is a
- * denied permission, `"audio-capture"` is no microphone hardware at all (see
- * speech-recognition.ts's `SpeechRecognitionErrorReason` doc comment) — each
- * gets its own explanation since they're different situations the learner
- * benefits from telling apart.
+ * Recognition failure reasons that can trigger an auto-fallback to text.
+ * Hardware/permission faults do so immediately; `"no-speech"` does so only
+ * on the third consecutive occurrence. Each gets a distinct explanation so
+ * the learner knows whether retrying voice is likely to help.
  */
-type FallbackTrigger = Extract<SpeechRecognitionErrorReason, "not-allowed" | "audio-capture">;
+type FallbackTrigger = Extract<SpeechRecognitionErrorReason, "not-allowed" | "audio-capture" | "no-speech">;
 
-function isFallbackTrigger(reason: SpeechRecognitionErrorReason): reason is FallbackTrigger {
+function isImmediateFallbackTrigger(
+  reason: SpeechRecognitionErrorReason,
+): reason is Exclude<FallbackTrigger, "no-speech"> {
   return reason === "not-allowed" || reason === "audio-capture";
 }
 
 function fallbackTriggerReason(trigger: FallbackTrigger): string {
-  return trigger === "not-allowed" ? PERMISSION_DENIED_REASON : NO_MICROPHONE_REASON;
+  switch (trigger) {
+    case "not-allowed":
+      return PERMISSION_DENIED_REASON;
+    case "audio-capture":
+      return NO_MICROPHONE_REASON;
+    case "no-speech":
+      return REPEATED_NO_SPEECH_REASON;
+  }
 }
 
 // --- Support detection (SSR-safe) ---------------------------------------
@@ -86,24 +110,70 @@ function useSpeechRecognitionSupport(): boolean {
  *
  * Mode selection is derived, not imperative: `manualMode` (set only by the
  * toggle button) always wins when present; otherwise mode falls out of
- * `isSupported` and `fallbackTrigger`. That keeps every fallback rule a
- * pure expression instead of scattered setState calls that could disagree.
+ * `isSupported` and `fallbackTrigger`. The no-speech retry counter only
+ * decides when that trigger is set; it does not create a separate mode.
  */
-export function PracticeInputForm({ disabled, onSubmit }: PracticeInputFormProps) {
+export function PracticeInputForm({ disabled, onSubmit, asideAction }: PracticeInputFormProps) {
   const isSupported = useSpeechRecognitionSupport();
+  const isEmilySpeaking = useSyncExternalStore(
+    subscribeToSpeaking,
+    getSpeakingSnapshot,
+    getServerSpeakingSnapshot,
+  );
 
   const [manualMode, setManualMode] = useState<InputMode | null>(null);
   const [micState, setMicState] = useState<MicState>("idle");
   const [interimTranscript, setInterimTranscript] = useState("");
   const [fallbackTrigger, setFallbackTrigger] = useState<FallbackTrigger | null>(null);
+  const [consecutiveNoSpeechCount, setConsecutiveNoSpeechCount] = useState(0);
   const [value, setValue] = useState("");
 
   const controllerRef = useRef<ListeningController | null>(null);
+  const micListeningOwnerRef = useRef<MicListeningOwner | null>(null);
+  const listeningSessionRef = useRef(0);
+  const consecutiveNoSpeechCountRef = useRef(0);
+
+  function resetNoSpeechCount() {
+    consecutiveNoSpeechCountRef.current = 0;
+    setConsecutiveNoSpeechCount(0);
+  }
+
+  function releaseOwnedMic() {
+    if (!micListeningOwnerRef.current) return;
+    releaseMicListening(micListeningOwnerRef.current);
+    micListeningOwnerRef.current = null;
+  }
+
+  function finishListeningSession(sessionId: number, stopRecognition = false): boolean {
+    if (listeningSessionRef.current !== sessionId) return false;
+    listeningSessionRef.current += 1;
+    const controller = controllerRef.current;
+    controllerRef.current = null;
+    releaseOwnedMic();
+    setMicState("idle");
+    setInterimTranscript("");
+    if (stopRecognition) controller?.stop();
+    return true;
+  }
+
+  function stopCurrentListening() {
+    listeningSessionRef.current += 1;
+    const controller = controllerRef.current;
+    controllerRef.current = null;
+    releaseOwnedMic();
+    setMicState("idle");
+    setInterimTranscript("");
+    controller?.stop();
+  }
 
   // Stop any in-flight recognition if the learner navigates away mid-listen.
   useEffect(() => {
     return () => {
-      controllerRef.current?.stop();
+      listeningSessionRef.current += 1;
+      const controller = controllerRef.current;
+      controllerRef.current = null;
+      controller?.stop();
+      releaseOwnedMic();
     };
   }, []);
 
@@ -117,45 +187,75 @@ export function PracticeInputForm({ disabled, onSubmit }: PracticeInputFormProps
         : null;
 
   function handleMicClick() {
-    if (disabled || micState === "listening") return;
+    if (disabled || getSpeakingSnapshot()) return;
+    if (micState === "listening") {
+      stopCurrentListening();
+      return;
+    }
+    // Emily now auto-speaks every one of her lines (see
+    // practice-page-content.tsx), so by the time the learner taps the mic
+    // for their next turn, her reply's own audio is very often either
+    // already playing or about to start (its live-TTS fetch may still be in
+    // flight — see speech-synthesis.ts's acquireMicListening doc comment for
+    // both orderings). Left alone, that audio plays back through the same
+    // microphone the recognizer just started listening on, which real
+    // devices reliably let bleed into (or let echo-cancellation
+    // over-aggressively strip out) the learner's own voice — the same class
+    // of collision ticket/commit 5e94690 already fixed once for the opening
+    // line specifically, now recurring on every turn since every reply
+    // auto-plays. acquireMicListening() both cancels whatever's already
+    // playing right now AND stops any of Emily's audio still in flight from
+    // starting later while this listening session is still active.
+    // Each tap owns one session id. Late lifecycle callbacks from an older
+    // WebKit recognizer cannot release or reset the new session.
+    const sessionId = listeningSessionRef.current + 1;
+    listeningSessionRef.current = sessionId;
+    micListeningOwnerRef.current = acquireMicListening();
     setInterimTranscript("");
     setMicState("listening");
 
     controllerRef.current = startListening({
       onResult: (transcript, isFinal) => {
+        if (listeningSessionRef.current !== sessionId) return;
+        resetNoSpeechCount();
         if (!isFinal) {
           setInterimTranscript(transcript);
           return;
         }
-        setMicState("idle");
-        setInterimTranscript("");
-        // Deliberately doesn't call controllerRef.current?.stop() here: a
-        // real recognizer already auto-stops itself right after a final
-        // result (continuous=false), and calling stop() reentrantly from
-        // inside the very event handler that's still dispatching that
-        // result is a footgun (it raced e2e/fixtures.ts's mock, which nulls
+        if (!finishListeningSession(sessionId)) return;
+        // Not calling controllerRef.current?.stop() here — the recognizer
+        // already stops itself right after a final result (see
+        // speech-recognition.ts's startListening) — and calling it
+        // reentrantly from inside the very event handler that's still
+        // dispatching this result raced e2e/fixtures.ts's mock, which nulls
         // its shared "active recognition" reference synchronously from
-        // inside stop() before the mock had finished dispatching).
+        // inside stop() before the mock had finished dispatching.
         const trimmed = transcript.trim();
         if (trimmed.length > 0) onSubmit(trimmed);
       },
       onError: (reason) => {
-        setMicState("idle");
-        setInterimTranscript("");
-        if (isFallbackTrigger(reason)) {
+        if (!finishListeningSession(sessionId, true)) return;
+        if (reason === "no-speech") {
+          const nextCount = consecutiveNoSpeechCountRef.current + 1;
+          consecutiveNoSpeechCountRef.current = nextCount;
+          setConsecutiveNoSpeechCount(nextCount);
+          if (nextCount >= 3) setFallbackTrigger("no-speech");
+        } else {
+          resetNoSpeechCount();
+        }
+        if (isImmediateFallbackTrigger(reason)) {
           setFallbackTrigger(reason);
         }
       },
       onEnd: () => {
-        setMicState("idle");
+        finishListeningSession(sessionId);
       },
     });
   }
 
   function handleToggleMode() {
-    controllerRef.current?.stop();
-    setMicState("idle");
-    setInterimTranscript("");
+    stopCurrentListening();
+    if (mode === "text") resetNoSpeechCount();
     setManualMode(mode === "mic" ? "text" : "mic");
   }
 
@@ -176,41 +276,58 @@ export function PracticeInputForm({ disabled, onSubmit }: PracticeInputFormProps
       ) : null}
 
       {mode === "mic" ? (
-        <div className="flex flex-col items-center gap-2">
-          <button
-            type="button"
-            onClick={handleMicClick}
-            disabled={disabled}
-            data-testid="practice-mic-button"
-            data-state={micState}
-            aria-label="开始说话 Start speaking"
-            className={`btn-icon-pressed flex h-16 w-16 shrink-0 items-center justify-center rounded-full text-h2 disabled:cursor-not-allowed disabled:opacity-40 ${
-              micState === "listening"
-                ? "animate-pulse bg-accent text-accent-foreground"
-                : "bg-accent-soft text-accent"
-            }`}
-          >
-            <span aria-hidden>🎤</span>
-          </button>
-          <p
-            data-testid="practice-mic-status"
-            className="min-h-5 text-center text-body-sm text-muted"
-            role="status"
-          >
-            {micState === "listening"
-              ? interimTranscript.length > 0
-                ? interimTranscript
-                : "正在聆听... Listening..."
-              : "点击麦克风开始说话 Tap the mic to speak"}
-          </p>
-          <button
-            type="button"
+        <div className="flex items-center justify-center gap-3">
+          <IconBoxButton
+            icon="⌨️"
+            lineOne="改用打字"
+            lineTwo="Type instead"
             onClick={handleToggleMode}
             data-testid="practice-input-mode-toggle"
-            className="btn-icon-pressed text-body-sm text-muted underline underline-offset-2"
-          >
-            改用打字 Switch to typing
-          </button>
+          />
+
+          <div className="flex flex-1 flex-col items-center gap-2">
+            <button
+              type="button"
+              onClick={handleMicClick}
+              disabled={disabled || isEmilySpeaking}
+              data-testid="practice-mic-button"
+              data-state={micState}
+              // Tapping this button starts the microphone at the same
+              // instant — see src/lib/speech-synthesis.ts's
+              // AUDIO_UNLOCK_EXEMPT_SELECTOR doc comment: playing Emily's
+              // audio out of the speaker at that exact moment reliably
+              // drowns out or echo-cancels the learner's own voice out of
+              // the recognized transcript, so this tap must never double as
+              // the "learner interacted with the page" cue speakAssertively
+              // listens for.
+              data-audio-unlock-exempt
+              aria-label={micState === "listening" ? "停止说话 Stop listening" : "开始说话 Start speaking"}
+              className={`btn-icon-pressed flex h-16 w-16 shrink-0 items-center justify-center rounded-full text-h2 disabled:cursor-not-allowed disabled:opacity-40 ${
+                micState === "listening"
+                  ? "animate-pulse bg-accent text-accent-foreground"
+                  : "bg-accent-soft text-accent"
+              }`}
+            >
+              <span aria-hidden>🎤</span>
+            </button>
+            <p
+              data-testid="practice-mic-status"
+              className="min-h-5 text-center text-body-sm text-muted"
+              role="status"
+            >
+              {isEmilySpeaking
+                ? "Emily 正在说话，请稍候... Emily is speaking. Please wait..."
+                : micState === "listening"
+                ? interimTranscript.length > 0
+                  ? interimTranscript
+                  : "正在聆听... Listening..."
+                : consecutiveNoSpeechCount === 2
+                  ? NO_SPEECH_RETRY_MESSAGE
+                  : "点击麦克风开始说话 Tap the mic to speak"}
+            </p>
+          </div>
+
+          {asideAction}
         </div>
       ) : (
         <div className="flex flex-col gap-2">
@@ -234,16 +351,18 @@ export function PracticeInputForm({ disabled, onSubmit }: PracticeInputFormProps
               发送 Send
             </button>
           </form>
-          {isSupported ? (
-            <button
-              type="button"
-              onClick={handleToggleMode}
-              data-testid="practice-input-mode-toggle"
-              className="btn-icon-pressed self-start text-body-sm text-muted underline underline-offset-2"
-            >
-              改用语音 Switch to voice
-            </button>
-          ) : null}
+          <div className="flex items-center gap-3">
+            {isSupported ? (
+              <IconBoxButton
+                icon="🎤"
+                lineOne="改用语音"
+                lineTwo="Switch to voice"
+                onClick={handleToggleMode}
+                data-testid="practice-input-mode-toggle"
+              />
+            ) : null}
+            {asideAction}
+          </div>
         </div>
       )}
     </div>

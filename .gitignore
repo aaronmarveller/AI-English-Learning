@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+/.pnpm-store
 /.pnp
 .pnp.*
 .yarn/*
@@ -16,6 +17,7 @@
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+/tts-voice-samples/
 
 # next.js
 /.next/

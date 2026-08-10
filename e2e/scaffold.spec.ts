@@ -62,7 +62,10 @@ test.describe("project scaffold and design system", () => {
       const s = getComputedStyle(document.body);
       return { backgroundColor: s.backgroundColor, fontFamily: s.fontFamily };
     });
-    expect(bodyStyles.backgroundColor).toBe("rgb(251, 247, 239)"); // --color-page
+    // --color-page: white, not the original cream (#fbf7ef) — changed in
+    // e1bbc75 "fix(design): Home visual QA" per screenshot review against
+    // the UI draft, which calls for white.
+    expect(bodyStyles.backgroundColor).toBe("rgb(255, 255, 255)");
     expect(bodyStyles.fontFamily).toContain("Poppins");
     expect(bodyStyles.fontFamily).toContain("Noto Sans SC");
 

@@ -1,33 +1,29 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { VERDICTS, type ActiveConversationState } from "@/lib/conversation-state-machine";
-import { GLOBAL_SYSTEM_RULES, HIGHLIGHT_KEYS, buildStateSystemPromptSection } from "@/content/practice";
+import { GLOBAL_SYSTEM_RULES, buildStateSystemPromptSection } from "@/content/practice";
 import { isTurnResult, type HistoryTurn, type TurnResult } from "@/lib/practice-turn-protocol";
 
 /**
- * Practice conversation-turn judging (ticket 08; spec.md "Implementation
- * Decisions" > "大模型契约"). Single call + forced structured output via
- * Claude's tool-use mechanism — `tool_choice` forces the model to call
- * `submit_turn_result`, so every response is the four contracted fields —
- * verdict / reply_en / reply_zh / highlight_key — never free text to parse
- * out of a completion.
+ * Practice conversation-turn judging (ticket 08; issue #16). Single call +
+ * forced structured output via Claude's tool-use mechanism — `tool_choice`
+ * forces the model to call `submit_turn_result`, so every response is the
+ * two contracted fields — verdict / learner_asked_back — never free text to
+ * parse out of a completion.
+ *
+ * Issue #16 (docs/ai-configuration.md; ADR-0005): the model's contract
+ * shrinks to exactly `verdict` and `learner_asked_back`. Emily no longer
+ * improvises `reply_en`/`reply_zh`, and no longer self-tags a
+ * `highlight_key` — the client selects Emily's line from the current
+ * Lesson's fixed Conversation Script pools instead (see
+ * src/lib/emily-reply-selector.ts). The streaming partial-reply mechanism
+ * that used to relay `reply_en` as it arrived is gone with it — there is no
+ * model-authored text left to stream.
  *
  * Extracted out of the HTTP route (src/app/api/practice/turn/route.ts) so
- * that ticket 12's judgment-quality eval (scripts/eval-judgment.ts) calls
- * this exact same code path against the real API instead of reimplementing
- * it — the eval is only a meaningful regression guard for the system prompt
- * if it can't drift from what production actually sends.
- *
- * Issue #5: the underlying call is now `client.messages.stream()`
- * instead of `client.messages.create()`, so the HTTP route can genuinely
- * stream progress to the client instead of blocking on the whole model
- * response — but `judgeTurn`'s own signature and `Promise<TurnResult>`
- * return contract are unchanged, so scripts/eval-judgment.ts (which calls
- * `judgeTurn(input)` with no second argument, expecting a plain resolved
- * promise) keeps working with zero modifications. The route opts into
- * incremental updates via the optional second `callbacks` argument, wired to
- * the SDK's `'inputJson'` event on the streamed forced tool call — see that
- * event's use below for why this is safe even though `tool_choice` forces
- * structured output.
+ * that the judgment-quality eval (scripts/eval-judgment.ts) calls this exact
+ * same code path against the real API instead of reimplementing it — the
+ * eval is only a meaningful regression guard for the system prompt if it
+ * can't drift from what production actually sends.
  */
 
 /** spec.md "三个适配层": Anthropic `claude-haiku-4-5-20251001` for this ticket's LLM adapter. */
@@ -52,11 +48,15 @@ export class InvalidModelOutputError extends Error {}
  * The single tool the model is forced to call via `tool_choice`. This is
  * the structured-output mechanism (spec.md: "强制结构化输出") — we never do
  * a free-text completion and try to parse JSON out of it.
+ *
+ * Issue #16: exactly two fields. The model's job is judging communicative
+ * intent and detecting whether the learner asked a question back — nothing
+ * about what Emily says next, which is entirely client-selected now.
  */
 const SUBMIT_TURN_RESULT_TOOL: Anthropic.Tool = {
   name: "submit_turn_result",
   description:
-    "Submit the structured result for this Practice conversation turn: your verdict on the learner's message, your reply as Emily, its Chinese translation, and a tag describing the learner's performance this turn.",
+    "Submit the structured result for this Practice conversation turn: your verdict on the learner's message, and whether the learner asked a question back.",
   input_schema: {
     type: "object",
     properties: {
@@ -64,23 +64,15 @@ const SUBMIT_TURN_RESULT_TOOL: Anthropic.Tool = {
         type: "string",
         enum: [...VERDICTS],
         description:
-          'accepted: the learner communicated this state\'s intent (even in their own words, outside the Accepted Responses list). needs_retry: the attempt did not yet communicate the intent. off_topic: the learner said something unrelated to the current step.',
+          'accepted: the learner communicated this state\'s intent (even in their own words, outside the Accepted Responses list). needs_retry: the attempt did not yet communicate the intent — including when the learner said something unrelated to the current step; off-topic input is judged needs_retry, never a separate value.',
       },
-      reply_en: {
-        type: "string",
-        description: "Emily's reply in English. At most 20 words, at most one question.",
-      },
-      reply_zh: {
-        type: "string",
-        description: "Chinese translation of reply_en.",
-      },
-      highlight_key: {
-        type: "string",
-        enum: [...HIGHLIGHT_KEYS],
-        description: "A short tag describing the learner's performance this turn.",
+      learner_asked_back: {
+        type: "boolean",
+        description:
+          'Whether the learner\'s message asked a question back to Emily (e.g. "How about you?", "And you?"). This only meaningfully changes Emily\'s next line during the Check-in state, but must accurately reflect the learner\'s actual message on every turn.',
       },
     },
-    required: ["verdict", "reply_en", "reply_zh", "highlight_key"],
+    required: ["verdict", "learner_asked_back"],
     additionalProperties: false,
   },
   strict: true,
@@ -88,35 +80,6 @@ const SUBMIT_TURN_RESULT_TOOL: Anthropic.Tool = {
 
 function buildSystemPrompt(state: ActiveConversationState): string {
   return `${GLOBAL_SYSTEM_RULES}\n\n${buildStateSystemPromptSection(state)}`;
-}
-
-/** Optional hooks for callers that want incremental progress while `judgeTurn` is in flight. */
-export type JudgeTurnCallbacks = {
-  /**
-   * Fired zero or more times while the forced tool call's `reply_en` field is
-   * still streaming in, with whatever prefix of it has arrived so far. Never
-   * fired with the final, complete value — that only ever arrives via this
-   * function's resolved `TurnResult` once the whole response is validated.
-   * Backed by the Anthropic SDK's `'inputJson'` event (see
-   * MessageStream.ts): its `jsonSnapshot` is already a best-effort PARSED
-   * partial object (the SDK's own permissive partial-JSON parser), not raw
-   * text — so reading a string field off it can't throw the way
-   * `JSON.parse` on truncated text would.
-   */
-  onPartialReply?: (partialReplyEn: string) => void;
-};
-
-/**
- * Type guard for the shape `stream.on("inputJson", (_, jsonSnapshot) => ...)`
- * hands back mid-stream: a partial, possibly-incomplete object that may or
- * may not have picked up `reply_en` yet. Deliberately looser than
- * `isTurnResult` (no verdict/highlight_key/enum checks) since the whole
- * point is this can be an in-progress fragment.
- */
-function hasPartialReplyEn(value: unknown): value is { reply_en: string } {
-  if (typeof value !== "object" || value === null) return false;
-  const v = value as Record<string, unknown>;
-  return typeof v.reply_en === "string";
 }
 
 /**
@@ -127,20 +90,16 @@ function hasPartialReplyEn(value: unknown): value is { reply_en: string } {
  * (the HTTP route, the eval script) distinguish the latter to report
  * "the model misbehaved" separately from "the API call failed".
  *
- * Internally uses `client.messages.stream(...)` (ticket 14) rather than
- * `.create(...)` so the HTTP route can relay progress to the client as it
- * arrives; `tool_choice` behaves identically either way, and this function's
- * own return contract — a single resolved `Promise<TurnResult>`, once the
- * complete response has been validated — is unchanged, so existing callers
- * (scripts/eval-judgment.ts) need no changes and see no behavior difference.
+ * Issue #16 removed the `callbacks`/`onPartialReply` second argument that
+ * used to exist here — there's no `reply_en` left to stream partial
+ * progress for. `judgeTurn`'s signature is now just `(input) =>
+ * Promise<TurnResult>`, which scripts/eval-judgment.ts already calls this
+ * way, so it needed no changes.
  */
-export async function judgeTurn(
-  { apiKey, state, message, history }: JudgeTurnInput,
-  callbacks?: JudgeTurnCallbacks,
-): Promise<TurnResult> {
+export async function judgeTurn({ apiKey, state, message, history }: JudgeTurnInput): Promise<TurnResult> {
   const client = new Anthropic({ apiKey });
 
-  const stream = client.messages.stream({
+  const response = await client.messages.create({
     model: MODEL_ID,
     max_tokens: 1024,
     system: buildSystemPrompt(state),
@@ -151,17 +110,6 @@ export async function judgeTurn(
     tools: [SUBMIT_TURN_RESULT_TOOL],
     tool_choice: { type: "tool", name: "submit_turn_result" },
   });
-
-  if (callbacks?.onPartialReply) {
-    const onPartialReply = callbacks.onPartialReply;
-    stream.on("inputJson", (_partialJson, jsonSnapshot) => {
-      if (hasPartialReplyEn(jsonSnapshot)) {
-        onPartialReply(jsonSnapshot.reply_en);
-      }
-    });
-  }
-
-  const response = await stream.finalMessage();
 
   const toolUse = response.content.find(
     (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",

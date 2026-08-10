@@ -24,8 +24,12 @@ export type WatchForItem = {
 };
 
 export const OBSERVE_CONTENT = {
+  /** Editorial hero headline (UI draft, 2026-08-06 review). */
+  headlineEn: "Watch how people really communicate.",
+  headlineZh: "看看真实生活中，人们是怎么交流的。",
   sceneName: "邻里偶遇打招呼",
-  sceneNameEn: "Neighbors Greeting Each Other",
+  /** UI draft, 2026-08-07 review: was "Neighbors Greeting Each Other". */
+  sceneNameEn: "Meeting a Neighbor",
   video: {
     // No video file exists anywhere in this repo yet (spec.md "Further
     // Notes" lists an 18s clip as an already-provided asset, but a repo
@@ -55,6 +59,8 @@ export const OBSERVE_CONTENT = {
     },
   ],
 } satisfies {
+  headlineEn: string;
+  headlineZh: string;
   sceneName: string;
   sceneNameEn: string;
   video: { src: string; captionsSrc: string; durationSeconds: number };

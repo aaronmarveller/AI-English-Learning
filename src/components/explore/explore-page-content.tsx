@@ -2,10 +2,13 @@
 
 import { useState } from "react";
 import { ContinueButton } from "@/components/continue-button";
+import { CourseProgressChip } from "@/components/course-progress";
 import { ChunkSection } from "@/components/explore/chunk-section";
 import { ExpressionCarousel } from "@/components/explore/expression-carousel";
 import { ResponseLadder } from "@/components/explore/response-ladder";
+import { StageTag } from "@/components/stage-tag";
 import {
+  EXPLORE_HEADLINE,
   EXPLORE_SECTION_ORDER,
   EXPLORE_SECTIONS,
   RESPONSE_COMBO,
@@ -26,7 +29,7 @@ import {
  */
 export function ExplorePageContent() {
   const [openSections, setOpenSections] = useState<Record<ExploreSectionKey, boolean>>({
-    greeting: true,
+    greeting: false,
     checkin: false,
     response: false,
     closing: false,
@@ -38,14 +41,19 @@ export function ExplorePageContent() {
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-6">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-h1">Explore</h1>
-        <p className="text-body text-muted">
-          按对话的四个环节学习本节的核心表达——学的是成块的话，不是单词。点喇叭听发音，可以反复听。
-        </p>
+      <div className="flex flex-col gap-2">
+        <StageTag label="Explore" asHeading />
+        <CourseProgressChip />
+        <h2 className="text-display text-foreground">{EXPLORE_HEADLINE.en}</h2>
+        <p className="text-body-lg text-muted">{EXPLORE_HEADLINE.zh}</p>
       </div>
 
       <div className="flex flex-col gap-4">
+        <h2 className="flex items-center gap-2 text-h3 text-foreground">
+          <span aria-hidden>💬</span>
+          Today&apos;s Expressions
+        </h2>
+
         {EXPLORE_SECTION_ORDER.map((key) => {
           const testId = `section-${key}`;
           const open = openSections[key];
@@ -55,6 +63,7 @@ export function ExplorePageContent() {
             return (
               <ChunkSection
                 key={key}
+                icon={section.icon}
                 title={section.title}
                 subtitle={section.subtitle}
                 open={open}
@@ -70,6 +79,7 @@ export function ExplorePageContent() {
           return (
             <ChunkSection
               key={key}
+              icon={section.icon}
               title={section.title}
               subtitle={section.subtitle}
               open={open}

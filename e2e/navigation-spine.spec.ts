@@ -34,14 +34,7 @@ function expectedDotState(dotStep: StepId, currentStep: StepId): "current" | "co
  * — see that helper's doc comment for why (issue #5).
  */
 async function completePracticeConversation(page: Page): Promise<void> {
-  await installScriptedPracticeApi(page, [
-    {
-      verdict: "accepted",
-      reply_en: "Great!",
-      reply_zh: "太好了！",
-      highlight_key: "used-whitelist-phrase",
-    },
-  ]);
+  await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
 
   // Ticket 09 made the microphone the default input mode; this walkthrough
   // isn't concerned with voice, so it switches to the (always-available)

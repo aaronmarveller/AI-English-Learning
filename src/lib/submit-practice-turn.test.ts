@@ -8,6 +8,11 @@ import type { PracticeTurnStreamEvent } from "@/lib/practice-turn-protocol";
  * exactly where a chunk boundary falls relative to an SSE frame, without a
  * real network round-trip. Matches the route's actual wire format: `data:
  * <json>\n\n` per event (see route.ts's doc comment).
+ *
+ * Issue #16: the wire contract's `final` event shrank to `verdict` +
+ * `learner_asked_back`, and the `partial` event was removed entirely (no
+ * `reply_en` left to stream — Emily's line is now client-selected from the
+ * Lesson's Conversation Script pools).
  */
 function makeStreamResponse(chunks: string[]): Response {
   const encoder = new TextEncoder();
@@ -26,41 +31,27 @@ function makeStreamResponse(chunks: string[]): Response {
 describe("parseTurnEventStream", () => {
   it("parses a single final event", async () => {
     const response = makeStreamResponse([
-      'data: {"type":"final","verdict":"accepted","reply_en":"Hi!","reply_zh":"嗨！","highlight_key":"used-whitelist-phrase"}\n\n',
+      'data: {"type":"final","verdict":"accepted","learner_asked_back":false}\n\n',
     ]);
 
     const events: PracticeTurnStreamEvent[] = [];
     await parseTurnEventStream(response, (event) => events.push(event));
 
     expect(events).toEqual([
-      {
-        type: "final",
-        verdict: "accepted",
-        reply_en: "Hi!",
-        reply_zh: "嗨！",
-        highlight_key: "used-whitelist-phrase",
-      },
+      { type: "final", verdict: "accepted", learner_asked_back: false },
     ]);
   });
 
-  it("parses a partial event followed by a final event, in order", async () => {
+  it("parses a final event with learner_asked_back true", async () => {
     const response = makeStreamResponse([
-      'data: {"type":"partial","reply_en":"Hi"}\n\n',
-      'data: {"type":"final","verdict":"accepted","reply_en":"Hi there!","reply_zh":"嗨，你好！","highlight_key":"natural-paraphrase"}\n\n',
+      'data: {"type":"final","verdict":"accepted","learner_asked_back":true}\n\n',
     ]);
 
     const events: PracticeTurnStreamEvent[] = [];
     await parseTurnEventStream(response, (event) => events.push(event));
 
     expect(events).toEqual([
-      { type: "partial", reply_en: "Hi" },
-      {
-        type: "final",
-        verdict: "accepted",
-        reply_en: "Hi there!",
-        reply_zh: "嗨，你好！",
-        highlight_key: "natural-paraphrase",
-      },
+      { type: "final", verdict: "accepted", learner_asked_back: true },
     ]);
   });
 
@@ -74,8 +65,7 @@ describe("parseTurnEventStream", () => {
   });
 
   it("reassembles one SSE frame split across two chunks", async () => {
-    const fullFrame =
-      'data: {"type":"final","verdict":"accepted","reply_en":"Hi there!","reply_zh":"嗨！","highlight_key":"confident-full-turn"}\n\n';
+    const fullFrame = 'data: {"type":"final","verdict":"needs_retry","learner_asked_back":false}\n\n';
     // Split well before the frame's trailing "\n\n" boundary, so this
     // genuinely exercises the buffer's cross-chunk reassembly rather than
     // happening to split on a frame boundary already.
@@ -87,20 +77,14 @@ describe("parseTurnEventStream", () => {
     await parseTurnEventStream(response, (event) => events.push(event));
 
     expect(events).toEqual([
-      {
-        type: "final",
-        verdict: "accepted",
-        reply_en: "Hi there!",
-        reply_zh: "嗨！",
-        highlight_key: "confident-full-turn",
-      },
+      { type: "final", verdict: "needs_retry", learner_asked_back: false },
     ]);
   });
 
   it("silently skips a malformed data line without throwing", async () => {
     const response = makeStreamResponse([
       "data: {this is not valid json\n\n",
-      'data: {"type":"final","verdict":"accepted","reply_en":"Hi!","reply_zh":"嗨！","highlight_key":"used-whitelist-phrase"}\n\n',
+      'data: {"type":"final","verdict":"accepted","learner_asked_back":false}\n\n',
     ]);
 
     const events: PracticeTurnStreamEvent[] = [];
@@ -110,13 +94,16 @@ describe("parseTurnEventStream", () => {
 
     // The malformed frame produced no event; the valid frame after it still did.
     expect(events).toEqual([
-      {
-        type: "final",
-        verdict: "accepted",
-        reply_en: "Hi!",
-        reply_zh: "嗨！",
-        highlight_key: "used-whitelist-phrase",
-      },
+      { type: "final", verdict: "accepted", learner_asked_back: false },
     ]);
+  });
+
+  it("rejects a final event missing learner_asked_back", async () => {
+    const response = makeStreamResponse(['data: {"type":"final","verdict":"accepted"}\n\n']);
+
+    const events: PracticeTurnStreamEvent[] = [];
+    await parseTurnEventStream(response, (event) => events.push(event));
+
+    expect(events).toEqual([]);
   });
 });

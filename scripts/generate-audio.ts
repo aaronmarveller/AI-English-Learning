@@ -65,8 +65,12 @@ const openaiProvider: TtsProvider = {
   },
   async synthesize(text) {
     const apiKey = requireEnv("OPENAI_API_KEY");
-    const model = process.env.OPENAI_TTS_MODEL ?? "tts-1";
-    const voice = process.env.OPENAI_TTS_VOICE ?? "alloy";
+    const model = process.env.OPENAI_TTS_MODEL ?? "gpt-4o-mini-tts";
+    // Must match src/app/api/practice/speak/route.ts's own fallback — see
+    // that file's top doc comment for why the two need to agree. "coral" was
+    // selected after comparing the candidate voices with both English and
+    // Chinese samples (issue #24).
+    const voice = process.env.OPENAI_TTS_VOICE ?? "coral";
 
     const response = await fetch("https://api.openai.com/v1/audio/speech", {
       method: "POST",
