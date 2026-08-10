@@ -143,6 +143,85 @@ test.describe("Practice page — voice input", () => {
     await expect(page.getByTestId("learner-message-bubble")).toHaveText("Hi there");
   });
 
+  test("three consecutive no-speech errors warn once before falling back to working text input", async ({ page }) => {
+    await resetStorage(page);
+    await mockSpeechApis(page);
+    await installScriptedPracticeApi(page, [{ verdict: "accepted" }], { delayMs: 300 });
+    await page.goto(PRACTICE_URL);
+
+    const micButton = page.getByTestId("practice-mic-button");
+    const micStatus = page.getByTestId("practice-mic-status");
+
+    await micButton.click();
+    await page.evaluate(() => window.__mockSpeechRecognition?.emitError("no-speech"));
+    await expect(micButton).toHaveAttribute("data-state", "idle");
+    await expect(micStatus).not.toContainText("没听清");
+
+    await micButton.click();
+    await page.evaluate(() => window.__mockSpeechRecognition?.emitError("no-speech"));
+    await expect(micButton).toHaveAttribute("data-state", "idle");
+    await expect(micStatus).toContainText("没听清");
+    await expect(micStatus).toContainText("Please try again");
+    await expect(page.getByTestId("practice-text-input")).toHaveCount(0);
+
+    await micButton.click();
+    await page.evaluate(() => window.__mockSpeechRecognition?.emitError("no-speech"));
+
+    const fallbackReason = page.getByTestId("practice-input-fallback-reason");
+    await expect(fallbackReason).toContainText("连续三次没听清");
+    await expect(fallbackReason).toContainText("switched to typing");
+    await expect(page.getByTestId("practice-mic-button")).toHaveCount(0);
+
+    await page.getByTestId("practice-text-input").fill("Hi Emily!");
+    await page.getByTestId("practice-send-button").click();
+    await expect(page.getByTestId("learner-message-bubble")).toHaveText("Hi Emily!");
+    await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "current");
+
+    await page.getByTestId("practice-input-mode-toggle").click();
+    await expect(page.getByTestId("practice-mic-button")).toBeVisible();
+
+    await page.getByTestId("practice-mic-button").click();
+    await page.evaluate(() => window.__mockSpeechRecognition?.emitError("no-speech"));
+    await expect(page.getByTestId("practice-mic-button")).toBeVisible();
+    await expect(page.getByTestId("practice-mic-status")).not.toContainText("没听清");
+
+    await page.getByTestId("practice-mic-button").click();
+    await page.evaluate(() => window.__mockSpeechRecognition?.emitError("no-speech"));
+    await expect(page.getByTestId("practice-mic-status")).toContainText("没听清");
+    await expect(page.getByTestId("practice-text-input")).toHaveCount(0);
+  });
+
+  test("a successful recognition resets the consecutive no-speech count", async ({ page }) => {
+    await resetStorage(page);
+    await mockSpeechApis(page);
+    await installScriptedPracticeApi(page, [{ verdict: "accepted" }], { delayMs: 300 });
+    await page.goto(PRACTICE_URL);
+
+    const micButton = page.getByTestId("practice-mic-button");
+    const micStatus = page.getByTestId("practice-mic-status");
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await micButton.click();
+      await page.evaluate(() => window.__mockSpeechRecognition?.emitError("no-speech"));
+    }
+    await expect(micStatus).toContainText("没听清");
+
+    await micButton.click();
+    await page.evaluate(() => window.__mockSpeechRecognition?.emitResult("Hi there", { isFinal: true }));
+    await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "current");
+
+    await micButton.click();
+    await page.evaluate(() => window.__mockSpeechRecognition?.emitError("no-speech"));
+    await expect(micButton).toBeVisible();
+    await expect(micStatus).not.toContainText("没听清");
+
+    await micButton.click();
+    await page.evaluate(() => window.__mockSpeechRecognition?.emitError("no-speech"));
+    await expect(micStatus).toContainText("没听清");
+    await expect(page.getByTestId("practice-mic-button")).toBeVisible();
+    await expect(page.getByTestId("practice-text-input")).toHaveCount(0);
+  });
+
   test("microphone permission denial auto-falls back to text input with an explanation, and text still works", async ({
     page,
   }) => {

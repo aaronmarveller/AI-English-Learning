@@ -56,7 +56,7 @@ export type ExplainInChineseInput = {
  * instruction only, not a verified guarantee (see this file's top doc
  * comment on the accepted answer-leak gap).
  */
-function buildSystemPrompt(state: ActiveConversationState): string {
+export function buildChineseExplanationSystemPrompt(state: ActiveConversationState): string {
   const script = GREETING_SOMEBODY_LESSON.script[state];
   const help = GREETING_SOMEBODY_LESSON.chineseHelp[state];
 
@@ -73,7 +73,7 @@ ${script.learningGoal}
 - 鼓励 (encouragement): ${help.encouragement}
 
 ## Your job
-Answer the learner's Chinese question, in Chinese, grounded in the step above. Keep it short and simple (a beginner-friendly explanation, not a grammar lecture). End by gently encouraging the learner back into English.
+Answer the learner's Chinese question, in Chinese, grounded in the step above. Keep it short and simple: no more than 3 sentences (a beginner-friendly explanation, not a grammar lecture). End by gently encouraging the learner back into English.
 
 ## Constraints
 - Reply entirely in Chinese.
@@ -97,7 +97,7 @@ export async function explainInChinese({ apiKey, state, question }: ExplainInChi
   const response = await client.messages.create({
     model: CHINESE_EXPLANATION_MODEL_ID,
     max_tokens: 512,
-    system: buildSystemPrompt(state),
+    system: buildChineseExplanationSystemPrompt(state),
     messages: [{ role: "user", content: question }],
   });
 

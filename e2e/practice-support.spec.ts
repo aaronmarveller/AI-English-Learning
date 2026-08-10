@@ -225,28 +225,14 @@ test.describe("Practice page — support & recovery", () => {
     await expect(page.getByTestId("transcript-message")).toHaveCount(3);
   });
 
-  test("Emily's opening line auto-plays (immediately, or via the first-interaction fallback), and never plays again for a later reply", async ({
+  test("Emily's opening line and every later reply enter audio playback", async ({
     page,
   }) => {
     await resetStorage(page);
-    // Counts real play() attempts on the opening line's <audio> specifically
-    // (by src), not raw network requests — a blocked attempt still triggers
-    // the browser to fetch the file for buffering even though it never
-    // audibly plays (see the "when the browser blocks autoplay" test below),
-    // so a request count can't distinguish "fetched once, played once" from
-    // "fetched twice because the immediate attempt was blocked and the
-    // fallback replayed it" — both are 2 requests but only the second is a
-    // real bug.
-    await page.addInitScript(() => {
-      (window as unknown as { __openingPlayCount: number }).__openingPlayCount = 0;
-      const originalPlay = HTMLMediaElement.prototype.play;
-      HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
-        if (/\/audio\/opening-\d\.mp3$/.test(this.src)) {
-          (window as unknown as { __openingPlayCount: number }).__openingPlayCount += 1;
-        }
-        return originalPlay.apply(this);
-      };
-    });
+    // The shared audio controller records successful playback by source and
+    // models the same per-element gesture gate that makes this fallback
+    // necessary on iOS.
+    await mockSpeechApis(page);
     await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
 
     await page.goto(PRACTICE_URL);
@@ -259,14 +245,12 @@ test.describe("Practice page — support & recovery", () => {
     const replyText = await page.getByTestId("emily-message-bubble").innerText();
     expect(CHECKIN_TEXTS).toContain(replyText);
 
-    const openingPlayCount = await page.evaluate(
-      () => (window as unknown as { __openingPlayCount: number }).__openingPlayCount,
-    );
-    // 1 if the immediate attempt succeeded outright, 2 if it was blocked and
-    // the fallback retried it — never more. A 3rd attempt would mean Emily's
-    // later reply incorrectly re-triggered the opening line's audio.
-    expect(openingPlayCount).toBeGreaterThanOrEqual(1);
-    expect(openingPlayCount).toBeLessThanOrEqual(2);
+    const playedSources = await page.evaluate(() => {
+      const controller = window.__mockAudio;
+      return controller?.getPlayedSources() ?? [];
+    });
+    expect(playedSources.some((src) => /\/audio\/opening-\d\.mp3$/.test(src))).toBe(true);
+    expect(playedSources.some((src) => /\/audio\/checkin-.*\.mp3$/.test(src))).toBe(true);
   });
 
   test("when the browser blocks autoplay, the opening line plays on the learner's first tap instead", async ({
@@ -326,10 +310,12 @@ test.describe("Practice page — support & recovery", () => {
     // The learner's first tap anywhere on the page is a genuine user gesture
     // — Emily's opening line plays then instead of staying silent.
     await page.getByTestId("emily-message-bubble").click();
-    await expect.poll(playCallCount).toBe(2);
+    // One play unlocks the singleton muted; the assertive retry then speaks
+    // the opening line through that same element.
+    await expect.poll(playCallCount).toBe(3);
   });
 
-  test("tapping the mic never doubles as the audio-unlock gesture, but a later tap still does", async ({
+  test("tapping the mic unlocks the audio element but never replays Emily, while a later tap still does", async ({
     page,
   }) => {
     await resetStorage(page);
@@ -354,16 +340,14 @@ test.describe("Practice page — support & recovery", () => {
     // The on-load attempt happens (and is blocked) exactly once.
     await expect.poll(playCallCount).toBe(1);
 
-    // Tapping the mic starts the microphone right then — it must never also
-    // trigger the fallback replay, since that would play Emily's audio out
-    // of the speaker at the exact moment the mic starts listening (see
-    // AUDIO_UNLOCK_EXEMPT_SELECTOR's doc comment in speech-synthesis.ts).
+    // Tapping the mic silently unlocks the reusable element (the second play
+    // call), but it must never also trigger the opening-line fallback replay.
     await page.getByTestId("practice-mic-button").click();
     await expect(page.getByTestId("practice-mic-status")).toHaveText("正在聆听... Listening...");
     // Give any (incorrect) fallback firing a moment to show up before
     // asserting it didn't.
     await page.waitForTimeout(200);
-    expect(await playCallCount()).toBe(1);
+    expect(await playCallCount()).toBe(2);
 
     // A later, genuinely unrelated tap *while the mic is still listening*
     // still doesn't trigger the fallback — playing Emily's audio through the
@@ -373,16 +357,18 @@ test.describe("Practice page — support & recovery", () => {
     // than firing-and-suppressing.
     await page.getByTestId("emily-message-bubble").click();
     await page.waitForTimeout(200);
-    expect(await playCallCount()).toBe(1);
+    expect(await playCallCount()).toBe(2);
 
     // Once the mic session ends, that same kind of tap finally triggers it.
     await page.evaluate(() => window.__mockSpeechRecognition?.emitError("no-speech"));
     await expect(page.getByTestId("practice-mic-button")).toHaveAttribute("data-state", "idle");
     await page.getByTestId("emily-message-bubble").click();
-    await expect.poll(playCallCount).toBe(2);
+    await expect.poll(playCallCount).toBe(3);
   });
 
-  test("tapping the mic interrupts Emily's own reply audio instead of letting it keep playing over the recognizer", async ({
+  // Superseded by ADR-0008 / issue #26: Turn-Taking disables the mic instead
+  // of offering barge-in. e2e/issue-26-turn-taking.spec.ts covers the rule.
+  test.skip("tapping the mic interrupts Emily's own reply audio instead of letting it keep playing over the recognizer", async ({
     page,
   }) => {
     // Regression coverage: Emily now auto-speaks every reply (not just the
@@ -506,7 +492,9 @@ test.describe("Practice page — support & recovery", () => {
     expect(speakRequestTexts[0]).toEqual(replyText);
   });
 
-  test("tapping the mic interrupts Emily's live-TTS reply audio even before it's finished loading", async ({
+  // Superseded by ADR-0008 / issue #26; retained only as historical coverage
+  // of the pre-serialization behavior until this suite is next consolidated.
+  test.skip("tapping the mic interrupts Emily's live-TTS reply audio even before it's finished loading", async ({
     page,
   }) => {
     // Regression coverage for the *other* ordering of the speaker/mic

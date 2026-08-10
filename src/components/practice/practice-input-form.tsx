@@ -8,7 +8,14 @@ import {
   type ListeningController,
   type SpeechRecognitionErrorReason,
 } from "@/lib/speech-recognition";
-import { setMicListening } from "@/lib/speech-synthesis";
+import {
+  acquireMicListening,
+  getServerSpeakingSnapshot,
+  getSpeakingSnapshot,
+  releaseMicListening,
+  subscribeToSpeaking,
+  type MicListeningOwner,
+} from "@/lib/speech-synthesis";
 
 type PracticeInputFormProps = {
   disabled: boolean;
@@ -32,26 +39,33 @@ const PERMISSION_DENIED_REASON =
   "麦克风权限被拒绝，已切换到文字输入。 Microphone access was denied, switched to typing.";
 const NO_MICROPHONE_REASON =
   "检测不到麦克风设备，已切换到文字输入。 No microphone was detected, switched to typing.";
+const NO_SPEECH_RETRY_MESSAGE = "没听清，请再说一次。 I didn't catch that. Please try again.";
+const REPEATED_NO_SPEECH_REASON =
+  "连续三次没听清，已切换到文字输入。 I couldn't hear you three times, so I switched to typing.";
 
 /**
- * Recognition failure reasons that should trigger an auto-fallback to text
- * input with an explanation, distinct from reasons (`"no-speech"`,
- * `"network"`, `"aborted"`) that just silently reset the mic to idle so the
- * learner can simply try again. Both members are hardware/permission-class
- * faults the learner can't resolve by retrying the mic: `"not-allowed"` is a
- * denied permission, `"audio-capture"` is no microphone hardware at all (see
- * speech-recognition.ts's `SpeechRecognitionErrorReason` doc comment) — each
- * gets its own explanation since they're different situations the learner
- * benefits from telling apart.
+ * Recognition failure reasons that can trigger an auto-fallback to text.
+ * Hardware/permission faults do so immediately; `"no-speech"` does so only
+ * on the third consecutive occurrence. Each gets a distinct explanation so
+ * the learner knows whether retrying voice is likely to help.
  */
-type FallbackTrigger = Extract<SpeechRecognitionErrorReason, "not-allowed" | "audio-capture">;
+type FallbackTrigger = Extract<SpeechRecognitionErrorReason, "not-allowed" | "audio-capture" | "no-speech">;
 
-function isFallbackTrigger(reason: SpeechRecognitionErrorReason): reason is FallbackTrigger {
+function isImmediateFallbackTrigger(
+  reason: SpeechRecognitionErrorReason,
+): reason is Exclude<FallbackTrigger, "no-speech"> {
   return reason === "not-allowed" || reason === "audio-capture";
 }
 
 function fallbackTriggerReason(trigger: FallbackTrigger): string {
-  return trigger === "not-allowed" ? PERMISSION_DENIED_REASON : NO_MICROPHONE_REASON;
+  switch (trigger) {
+    case "not-allowed":
+      return PERMISSION_DENIED_REASON;
+    case "audio-capture":
+      return NO_MICROPHONE_REASON;
+    case "no-speech":
+      return REPEATED_NO_SPEECH_REASON;
+  }
 }
 
 // --- Support detection (SSR-safe) ---------------------------------------
@@ -96,24 +110,44 @@ function useSpeechRecognitionSupport(): boolean {
  *
  * Mode selection is derived, not imperative: `manualMode` (set only by the
  * toggle button) always wins when present; otherwise mode falls out of
- * `isSupported` and `fallbackTrigger`. That keeps every fallback rule a
- * pure expression instead of scattered setState calls that could disagree.
+ * `isSupported` and `fallbackTrigger`. The no-speech retry counter only
+ * decides when that trigger is set; it does not create a separate mode.
  */
 export function PracticeInputForm({ disabled, onSubmit, asideAction }: PracticeInputFormProps) {
   const isSupported = useSpeechRecognitionSupport();
+  const isEmilySpeaking = useSyncExternalStore(
+    subscribeToSpeaking,
+    getSpeakingSnapshot,
+    getServerSpeakingSnapshot,
+  );
 
   const [manualMode, setManualMode] = useState<InputMode | null>(null);
   const [micState, setMicState] = useState<MicState>("idle");
   const [interimTranscript, setInterimTranscript] = useState("");
   const [fallbackTrigger, setFallbackTrigger] = useState<FallbackTrigger | null>(null);
+  const [consecutiveNoSpeechCount, setConsecutiveNoSpeechCount] = useState(0);
   const [value, setValue] = useState("");
 
   const controllerRef = useRef<ListeningController | null>(null);
+  const micListeningOwnerRef = useRef<MicListeningOwner | null>(null);
+  const consecutiveNoSpeechCountRef = useRef(0);
+
+  function resetNoSpeechCount() {
+    consecutiveNoSpeechCountRef.current = 0;
+    setConsecutiveNoSpeechCount(0);
+  }
+
+  function releaseOwnedMic() {
+    if (!micListeningOwnerRef.current) return;
+    releaseMicListening(micListeningOwnerRef.current);
+    micListeningOwnerRef.current = null;
+  }
 
   // Stop any in-flight recognition if the learner navigates away mid-listen.
   useEffect(() => {
     return () => {
       controllerRef.current?.stop();
+      releaseOwnedMic();
     };
   }, []);
 
@@ -127,22 +161,21 @@ export function PracticeInputForm({ disabled, onSubmit, asideAction }: PracticeI
         : null;
 
   function handleMicClick() {
-    if (disabled || micState === "listening") return;
+    if (disabled || getSpeakingSnapshot() || micState === "listening") return;
     // Emily now auto-speaks every one of her lines (see
     // practice-page-content.tsx), so by the time the learner taps the mic
     // for their next turn, her reply's own audio is very often either
     // already playing or about to start (its live-TTS fetch may still be in
-    // flight — see speech-synthesis.ts's setMicListening doc comment for
+    // flight — see speech-synthesis.ts's acquireMicListening doc comment for
     // both orderings). Left alone, that audio plays back through the same
     // microphone the recognizer just started listening on, which real
     // devices reliably let bleed into (or let echo-cancellation
     // over-aggressively strip out) the learner's own voice — the same class
     // of collision ticket/commit 5e94690 already fixed once for the opening
     // line specifically, now recurring on every turn since every reply
-    // auto-plays. setMicListening(true) both cancels whatever's already
+    // auto-plays. acquireMicListening() both cancels whatever's already
     // playing right now AND stops any of Emily's audio still in flight from
     // starting later while this listening session is still active.
-    setMicListening(true);
     // Defensively release any prior recognition session before starting a
     // new one. The normal path already closes the previous recognizer
     // itself (see speech-recognition.ts's startListening, which stops it
@@ -151,16 +184,19 @@ export function PracticeInputForm({ disabled, onSubmit, asideAction }: PracticeI
     // other path that ends a turn without a clean final result (e.g. an
     // error).
     controllerRef.current?.stop();
+    releaseOwnedMic();
+    micListeningOwnerRef.current = acquireMicListening();
     setInterimTranscript("");
     setMicState("listening");
 
     controllerRef.current = startListening({
       onResult: (transcript, isFinal) => {
+        resetNoSpeechCount();
         if (!isFinal) {
           setInterimTranscript(transcript);
           return;
         }
-        setMicListening(false);
+        releaseOwnedMic();
         setMicState("idle");
         setInterimTranscript("");
         // Not calling controllerRef.current?.stop() here — the recognizer
@@ -174,15 +210,23 @@ export function PracticeInputForm({ disabled, onSubmit, asideAction }: PracticeI
         if (trimmed.length > 0) onSubmit(trimmed);
       },
       onError: (reason) => {
-        setMicListening(false);
+        releaseOwnedMic();
         setMicState("idle");
         setInterimTranscript("");
-        if (isFallbackTrigger(reason)) {
+        if (reason === "no-speech") {
+          const nextCount = consecutiveNoSpeechCountRef.current + 1;
+          consecutiveNoSpeechCountRef.current = nextCount;
+          setConsecutiveNoSpeechCount(nextCount);
+          if (nextCount >= 3) setFallbackTrigger("no-speech");
+        } else {
+          resetNoSpeechCount();
+        }
+        if (isImmediateFallbackTrigger(reason)) {
           setFallbackTrigger(reason);
         }
       },
       onEnd: () => {
-        setMicListening(false);
+        releaseOwnedMic();
         setMicState("idle");
       },
     });
@@ -190,9 +234,10 @@ export function PracticeInputForm({ disabled, onSubmit, asideAction }: PracticeI
 
   function handleToggleMode() {
     controllerRef.current?.stop();
-    setMicListening(false);
+    releaseOwnedMic();
     setMicState("idle");
     setInterimTranscript("");
+    if (mode === "text") resetNoSpeechCount();
     setManualMode(mode === "mic" ? "text" : "mic");
   }
 
@@ -226,7 +271,7 @@ export function PracticeInputForm({ disabled, onSubmit, asideAction }: PracticeI
             <button
               type="button"
               onClick={handleMicClick}
-              disabled={disabled}
+              disabled={disabled || isEmilySpeaking}
               data-testid="practice-mic-button"
               data-state={micState}
               // Tapping this button starts the microphone at the same
@@ -252,11 +297,15 @@ export function PracticeInputForm({ disabled, onSubmit, asideAction }: PracticeI
               className="min-h-5 text-center text-body-sm text-muted"
               role="status"
             >
-              {micState === "listening"
+              {isEmilySpeaking
+                ? "Emily 正在说话，请稍候... Emily is speaking. Please wait..."
+                : micState === "listening"
                 ? interimTranscript.length > 0
                   ? interimTranscript
                   : "正在聆听... Listening..."
-                : "点击麦克风开始说话 Tap the mic to speak"}
+                : consecutiveNoSpeechCount === 2
+                  ? NO_SPEECH_RETRY_MESSAGE
+                  : "点击麦克风开始说话 Tap the mic to speak"}
             </p>
           </div>
 

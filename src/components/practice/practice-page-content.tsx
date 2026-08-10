@@ -18,7 +18,7 @@ import { containsChineseText } from "@/lib/detect-chinese-input";
 import { selectEmilyLineForTurn, selectSilenceNudge } from "@/lib/emily-reply-selector";
 import { markStepComplete } from "@/lib/progress";
 import { usePractice } from "@/lib/practice-state";
-import { speak, speakAssertively } from "@/lib/speech-synthesis";
+import { speakAssertively } from "@/lib/speech-synthesis";
 import { submitPracticeTurn } from "@/lib/submit-practice-turn";
 import { matchesAcceptedResponse } from "@/lib/turn-record";
 
@@ -171,17 +171,10 @@ export function PracticePageContent() {
 
   // Emily speaks every one of her lines proactively — the opening line, and
   // every reply after it — so the learner hears her without ever needing the
-  // manual 🔊 replay tap. The opening line (messages.length === 1, mirroring
-  // MessageBubblePair's own "first message in the conversation" check) is
-  // spoken through `speakAssertively`, not `speak`, because most mobile
-  // browsers silently block unmuted audio that isn't triggered by a user
-  // gesture — it falls back to the learner's very next tap/keypress when a
-  // bare autoplay attempt is blocked. Every later reply arrives only after
-  // the learner has already interacted with the page at least once
-  // (submitting the prior turn), which already satisfies that same
-  // gesture requirement, so a plain `speak()` is enough — and deliberately
-  // so: `speakAssertively`'s document-wide gesture-retry listeners are only
-  // needed for the one line that plays before any interaction has happened.
+  // manual 🔊 replay tap. Every line uses `speakAssertively`: the reusable
+  // audio element should normally have been unlocked by the learner's first
+  // gesture, while the retry remains a safety net for WebKit versions that
+  // still reject a later programmatic play.
   //
   // `hasCheckedReplyAutoplayRef` distinguishes a genuinely new reply that
   // arrived during this session from a resumed session's already-persisted
@@ -206,10 +199,7 @@ export function PracticePageContent() {
     if (autoSpokenMessageId === emilyMessage.id) return;
     autoSpokenMessageId = emilyMessage.id;
 
-    if (isOpeningLine) {
-      return speakAssertively(emilyMessage.textEn);
-    }
-    void speak(emilyMessage.textEn);
+    return speakAssertively(emilyMessage.textEn);
   }, [emilyMessage, messages.length]);
 
   // Silence-timeout nudge: a single-shot timer keyed off the last message's

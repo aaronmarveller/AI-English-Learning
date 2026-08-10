@@ -24,11 +24,27 @@ import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
  */
 
 const GREETING_HELP = GREETING_SOMEBODY_LESSON.chineseHelp.greeting;
+const GREETING_CANNED_TEXT = [
+  GREETING_HELP.meaning,
+  GREETING_HELP.whenToUse,
+  GREETING_HELP.example,
+  GREETING_HELP.encouragement,
+].join("\n");
+
+async function recordLiveSpeechRequests(page: import("@playwright/test").Page): Promise<string[]> {
+  const spokenTexts: string[] = [];
+  await page.route("**/api/practice/speak**", async (route) => {
+    spokenTexts.push(new URL(route.request().url()).searchParams.get("text") ?? "");
+    await route.fulfill({ status: 200, contentType: "audio/mpeg", body: Buffer.from([0, 0, 0, 0]) });
+  });
+  return spokenTexts;
+}
 
 test.describe("Practice page — Chinese help mode", () => {
-  test("initial tap plays the canned text with no model call", async ({ page }) => {
+  test("opening help does not synthesize the canned text until its manual play control is used", async ({ page }) => {
     await resetStorage(page);
     await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    const spokenTexts = await recordLiveSpeechRequests(page);
     let explainCalls = 0;
     await installScriptedChineseExplanationApi(page, [{ answerZh: "不应该被调用" }]);
     page.on("request", (request) => {
@@ -41,12 +57,20 @@ test.describe("Practice page — Chinese help mode", () => {
     await expect(page.getByTestId("ask-in-chinese-sheet")).toContainText(GREETING_HELP.meaning);
 
     expect(explainCalls).toBe(0);
+    expect(spokenTexts).toEqual([]);
+
+    const playButton = page.getByTestId("ask-in-chinese-play-explanation");
+    await expect(playButton).toHaveAccessibleName("播放中文讲解 Play Chinese explanation");
+    await playButton.click();
+    await expect.poll(() => spokenTexts).toEqual([GREETING_CANNED_TEXT]);
   });
 
   test("a Chinese follow-up (typed) gets a model-generated Chinese answer", async ({ page }) => {
     await resetStorage(page);
     await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
-    await installScriptedChineseExplanationApi(page, [{ answerZh: "这句话的意思是打招呼。" }]);
+    const answerZh = "这句话的意思是打招呼。";
+    await installScriptedChineseExplanationApi(page, [{ answerZh }]);
+    const spokenTexts = await recordLiveSpeechRequests(page);
 
     await page.goto(PRACTICE_URL);
     await page.getByTestId("ask-in-chinese-button").click();
@@ -54,8 +78,9 @@ test.describe("Practice page — Chinese help mode", () => {
     await page.getByTestId("ask-in-chinese-text-input").fill("能再解释一下吗？");
     await page.getByTestId("ask-in-chinese-send-button").click();
 
-    await expect(page.getByTestId("ask-in-chinese-followup-answer")).toHaveText("这句话的意思是打招呼。");
+    await expect(page.getByTestId("ask-in-chinese-followup-answer")).toHaveText(answerZh);
     await expect(page.getByTestId("ask-in-chinese-followup-answer")).toHaveAttribute("data-fallback", "false");
+    await expect.poll(() => spokenTexts).toEqual([answerZh]);
 
     // Conversation State is untouched by a Chinese follow-up.
     await expect(page.getByTestId("practice-step-greeting")).toHaveAttribute("data-state", "current");
@@ -65,6 +90,7 @@ test.describe("Practice page — Chinese help mode", () => {
     await resetStorage(page);
     await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
     await installScriptedChineseExplanationApi(page, [{ fail: true }]);
+    const spokenTexts = await recordLiveSpeechRequests(page);
 
     await page.goto(PRACTICE_URL);
     await page.getByTestId("ask-in-chinese-button").click();
@@ -75,6 +101,7 @@ test.describe("Practice page — Chinese help mode", () => {
     const answer = page.getByTestId("ask-in-chinese-followup-answer");
     await expect(answer).toHaveAttribute("data-fallback", "true");
     await expect(answer).toContainText(GREETING_HELP.meaning);
+    await expect.poll(() => spokenTexts).toEqual([GREETING_CANNED_TEXT]);
   });
 
   test("speech recognition switches to Chinese in help mode and back to English on exit", async ({ page }) => {
@@ -93,6 +120,11 @@ test.describe("Practice page — Chinese help mode", () => {
 
     // Inside help mode: the sheet's own mic listens in Chinese.
     await page.getByTestId("ask-in-chinese-button").click();
+    // Opening help is a non-mic interaction, so it can retry Emily's blocked
+    // opening line. Turn-Taking keeps the help mic unavailable until that
+    // line finishes.
+    await page.evaluate(() => window.__mockAudio?.endCurrent());
+    await expect(page.getByTestId("ask-in-chinese-mic-button")).toBeEnabled();
     await page.getByTestId("ask-in-chinese-mic-button").click();
     const insideLang = await page.evaluate(() => window.__mockSpeechRecognition?.getLang());
     expect(insideLang).toBe("zh-CN");
@@ -101,6 +133,9 @@ test.describe("Practice page — Chinese help mode", () => {
       window.__mockSpeechRecognition?.emitResult("这是什么意思", { isFinal: true }),
     );
     await expect(page.getByTestId("ask-in-chinese-followup-answer")).toHaveText("解释内容。");
+    // Issue #27 auto-plays the answer. Finish that turn before asking the
+    // main Practice microphone to take the floor again.
+    await page.evaluate(() => window.__mockAudio?.endCurrent());
 
     // Closing help mode and using the main mic again reverts to English.
     await page.getByTestId("ask-in-chinese-close-button").click();

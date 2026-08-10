@@ -17,6 +17,7 @@
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+/tts-voice-samples/
 
 # next.js
 /.next/

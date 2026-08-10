@@ -4,10 +4,14 @@ import type { Page, Route } from "@playwright/test";
  * Shared E2E helpers (ticket 03).
  *
  * This project's main test seam is a real browser driving the whole app;
- * the only two things ever stubbed are the LLM proxy route's network
- * response and the Web Speech API (see spec.md "## Testing Decisions" >
- * "### 接缝"). Everything else — routing, the progress guard, localStorage
- * persistence, component behavior — runs real code against a real
+ * the only three things ever stubbed are the LLM proxy route's network
+ * response, the Web Speech API, and `<audio>` playback (see spec.md
+ * "## Testing Decisions" > "### 接缝"). Audio is the third leg of the same
+ * speech-I/O boundary:
+ * real playback duration and browser autoplay policy are no more
+ * deterministic in CI than a real microphone.
+ * Everything else — routing, the progress guard, localStorage persistence,
+ * and component behavior — runs real code against a real
  * `next build && next start` server.
  */
 
@@ -130,31 +134,17 @@ export type ScriptedTurnResponse = {
  * special-cased shortcut.
  *
  * Emily now auto-speaks every one of her replies, not just the opening line
- * (see practice-page-content.tsx), so driving even a single scripted turn
- * through this helper makes the client synthesize that reply's audio via
- * src/app/api/practice/speak/route.ts (a GET, with the text as a `?text=`
- * query param — see that route's own doc comment for why it's a GET and not
- * a POST-with-body). That route is stubbed here too, by default, so specs
- * that only care about the conversation itself don't silently start
- * depending on (and paying for) a real OpenAI TTS call. A spec that
- * specifically wants to assert on the speak request itself (e.g. "the replay
- * button synthesizes...", "falls back to browser synthesis when...")
- * registers its own `page.route("**\/api/practice/speak**", ...)` AFTER
- * calling this — Playwright matches routes in reverse registration order, so
- * the spec's own handler wins over this default. The trailing `**` (not just
- * a bare path) matters: the glob must still match once the real `?text=...`
- * query string is appended, or the route silently falls through to the real
- * (unmocked, and for a GET, 405) handler instead.
+ * (see practice-page-content.tsx). Specs install `mockSpeechApis` when they
+ * need deterministic playback; its `<audio>` controller replaces the old
+ * four-zero-byte `/api/practice/speak` fallback, which produced an `error`
+ * rather than a controllable `ended` event. Specs that specifically assert
+ * on the speak request can still register their own `page.route` handler.
  */
 export async function installScriptedPracticeApi(
   page: Page,
   responses: ScriptedTurnResponse[],
   options: { delayMs?: number } = {},
 ): Promise<void> {
-  await page.route("**/api/practice/speak**", async (route) => {
-    await route.fulfill({ status: 200, contentType: "audio/mpeg", body: Buffer.from([0, 0, 0, 0]) });
-  });
-
   let callIndex = 0;
   await page.route(TURN_ENDPOINT, async (route: Route) => {
     const response = responses[Math.min(callIndex, responses.length - 1)];
@@ -242,6 +232,20 @@ type MockRecognitionResultOptions = {
   confidence?: number;
 };
 
+/** Controller exposed as `window.__mockAudio` for E2E audio playback. */
+export type MockAudioController = {
+  /** Sources whose `play()` calls successfully entered playback. */
+  getPlayedSources: () => string[];
+  /** Dispatches `ended` on the currently playing element. */
+  endCurrent: () => void;
+  /** Dispatches `error` on the currently playing element. */
+  failCurrent: () => void;
+  /** Whether the most recently played element was unlocked by a user gesture. */
+  isUnlocked: () => boolean;
+  /** Makes the next authorized `play()` remain pending without starting. */
+  stallNext: () => void;
+};
+
 /**
  * The controller ticket 08/09 tests use (via `page.evaluate`) to drive
  * recognition output on demand, once the app under test has called
@@ -266,6 +270,7 @@ type MockSpeechRecognitionController = {
 
 declare global {
   interface Window {
+    __mockAudio?: MockAudioController;
     __mockSpeechRecognition?: MockSpeechRecognitionController;
   }
 }
@@ -292,6 +297,12 @@ declare global {
  *     - `page.evaluate(() => window.__mockSpeechRecognition?.emitResult("hello", { isFinal: true }))`
  *     - `page.evaluate(() => window.__mockSpeechRecognition?.emitError("no-speech"))`
  *
+ * - `<audio>` playback: a controllable fake that models iOS's per-element
+ *   user-gesture unlock rule. A locked element rejects programmatic play;
+ *   once a play happens in a user-activation stack, that element remains
+ *   unlocked. Tests inspect successful sources and finish/fail the current
+ *   playback through `window.__mockAudio`.
+ *
  * - `window.speechSynthesis`: a fake whose `speak(utterance)` immediately
  *   fires the utterance's `onstart` then (on a microtask) `onend` instead
  *   of producing audio, and whose `getVoices()` returns a small fixed
@@ -299,6 +310,63 @@ declare global {
  */
 export async function mockSpeechApis(page: Page): Promise<void> {
   await page.addInitScript(() => {
+    const unlockedAudio = new WeakSet<HTMLMediaElement>();
+    const playedSources: string[] = [];
+    let currentAudio: HTMLMediaElement | null = null;
+    let lastAudio: HTMLMediaElement | null = null;
+    let shouldStallNext = false;
+
+    HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
+      // The controller needs to retain the exact element whose prototype
+      // method was invoked so later page.evaluate calls can drive it.
+      // eslint-disable-next-line @typescript-eslint/no-this-alias
+      lastAudio = this;
+      if (navigator.userActivation.isActive) unlockedAudio.add(this);
+      if (!unlockedAudio.has(this)) {
+        return Promise.reject(new DOMException("Playback requires a user gesture", "NotAllowedError"));
+      }
+
+      if (shouldStallNext) {
+        shouldStallNext = false;
+        return new Promise(() => {});
+      }
+
+      playedSources.push(this.src);
+      // eslint-disable-next-line @typescript-eslint/no-this-alias
+      currentAudio = this;
+      return Promise.resolve();
+    };
+
+    HTMLMediaElement.prototype.pause = function (this: HTMLMediaElement) {
+      if (currentAudio === this) currentAudio = null;
+    };
+
+    const audioController: MockAudioController = {
+      getPlayedSources() {
+        return [...playedSources];
+      },
+      endCurrent() {
+        const target = currentAudio;
+        if (!target) return;
+        currentAudio = null;
+        target.dispatchEvent(new Event("ended"));
+      },
+      failCurrent() {
+        const target = currentAudio;
+        if (!target) return;
+        currentAudio = null;
+        target.dispatchEvent(new Event("error"));
+      },
+      isUnlocked() {
+        return lastAudio ? unlockedAudio.has(lastAudio) : false;
+      },
+      stallNext() {
+        shouldStallNext = true;
+      },
+    };
+
+    window.__mockAudio = audioController;
+
     class MockSpeechRecognition extends EventTarget {
       lang = "en-US";
       continuous = false;

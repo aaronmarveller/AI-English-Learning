@@ -11,7 +11,8 @@
     "test:e2e": "playwright test",
     "test:unit": "vitest run",
     "eval:judgment": "tsx scripts/eval-judgment.ts",
-    "generate:audio": "tsx scripts/generate-audio.ts"
+    "generate:audio": "tsx scripts/generate-audio.ts",
+    "sample:voices": "tsx scripts/sample-tts-voices.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",

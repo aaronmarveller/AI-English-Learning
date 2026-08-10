@@ -6,9 +6,11 @@
  * (docs/ai-configuration.md section 6 "Chinese Help Rules"; issue #12's
  * "Chinese help becomes a mode, with its own seam").
  *
- * The initial tap still plays the fixed 4-part canned explanation straight
- * from `GREETING_SOMEBODY_LESSON.chineseHelp` — unchanged, instant, no
- * model call (issue #19 acceptance criterion 1). From there the learner may
+ * The initial tap shows the fixed 4-part canned explanation straight from
+ * `GREETING_SOMEBODY_LESSON.chineseHelp` — instant and with no model call.
+ * Issue #27 keeps it silent until its manual play control is used, while a
+ * model-generated follow-up (or its canned fallback) auto-plays. From there
+ * the learner may
  * keep talking, in Chinese, by voice or by text, using the mic/text input
  * this component now owns itself. A Chinese follow-up is answered by the
  * model through `askChineseQuestion` (src/lib/ask-chinese-question.ts) —
@@ -33,7 +35,7 @@
  * never feed the Learning Summary (issue #19 acceptance criterion 7).
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
 import type { ActiveConversationState } from "@/lib/conversation-state-machine";
 import { containsChineseText } from "@/lib/detect-chinese-input";
@@ -44,6 +46,16 @@ import {
   startListening,
   type ListeningController,
 } from "@/lib/speech-recognition";
+import {
+  acquireMicListening,
+  getServerSpeakingSnapshot,
+  getSpeakingSnapshot,
+  releaseMicListening,
+  speak,
+  speakAssertively,
+  subscribeToSpeaking,
+  type MicListeningOwner,
+} from "@/lib/speech-synthesis";
 
 type AskInChineseSheetProps = {
   conversationState: ActiveConversationState;
@@ -77,13 +89,37 @@ export function AskInChineseSheet({ conversationState, onClose, onExitWithEnglis
   const [interimTranscript, setInterimTranscript] = useState("");
 
   const controllerRef = useRef<ListeningController | null>(null);
+  const micListeningOwnerRef = useRef<MicListeningOwner | null>(null);
+  const spokenFollowUpIdsRef = useRef(new Set<string>());
   const isSupported = typeof window !== "undefined" && isSpeechRecognitionSupported();
+  const isEmilySpeaking = useSyncExternalStore(
+    subscribeToSpeaking,
+    getSpeakingSnapshot,
+    getServerSpeakingSnapshot,
+  );
+
+  function releaseOwnedMic() {
+    if (!micListeningOwnerRef.current) return;
+    releaseMicListening(micListeningOwnerRef.current);
+    micListeningOwnerRef.current = null;
+  }
 
   useEffect(() => {
     return () => {
       controllerRef.current?.stop();
+      releaseOwnedMic();
     };
   }, []);
+
+  useEffect(() => {
+    const latest = followUps.at(-1);
+    if (!latest || spokenFollowUpIdsRef.current.has(latest.id)) return;
+    spokenFollowUpIdsRef.current.add(latest.id);
+    // Every Emily reply gets the same gesture-retry safety net as Practice
+    // replies. Returning its cleanup removes any still-armed interaction
+    // listeners when a newer answer arrives or the sheet unmounts.
+    return speakAssertively(latest.answerZh, { lang: "zh-CN" });
+  }, [followUps]);
 
   /** Renders the fixed 4-part canned text as the fallback answer for a failed model call. */
   function cannedFallbackAnswer(): string {
@@ -129,8 +165,10 @@ export function AskInChineseSheet({ conversationState, onClose, onExitWithEnglis
   }
 
   function handleMicClick() {
-    if (isListening || isAsking) return;
+    if (isListening || isAsking || getSpeakingSnapshot()) return;
     controllerRef.current?.stop();
+    releaseOwnedMic();
+    micListeningOwnerRef.current = acquireMicListening();
     setInterimTranscript("");
     setIsListening(true);
 
@@ -141,15 +179,18 @@ export function AskInChineseSheet({ conversationState, onClose, onExitWithEnglis
             setInterimTranscript(transcript);
             return;
           }
+          releaseOwnedMic();
           setIsListening(false);
           setInterimTranscript("");
           void handleFollowUp(transcript);
         },
         onError: () => {
+          releaseOwnedMic();
           setIsListening(false);
           setInterimTranscript("");
         },
         onEnd: () => {
+          releaseOwnedMic();
           setIsListening(false);
         },
       },
@@ -203,6 +244,16 @@ export function AskInChineseSheet({ conversationState, onClose, onExitWithEnglis
               <p className="text-body-sm font-semibold text-muted">继续加油</p>
               <p>{help.encouragement}</p>
             </div>
+            <button
+              type="button"
+              onClick={() => void speak(cannedFallbackAnswer(), { lang: "zh-CN" })}
+              data-testid="ask-in-chinese-play-explanation"
+              aria-label="播放中文讲解 Play Chinese explanation"
+              className="btn-icon-pressed inline-flex w-fit items-center gap-2 rounded-button bg-accent-soft px-3 py-2 text-body-sm font-semibold text-accent"
+            >
+              <span aria-hidden>🔊</span>
+              <span>播放讲解 Play explanation</span>
+            </button>
           </div>
 
           {followUps.length > 0 ? (
@@ -253,7 +304,7 @@ export function AskInChineseSheet({ conversationState, onClose, onExitWithEnglis
               <button
                 type="button"
                 onClick={handleMicClick}
-                disabled={isAsking}
+                disabled={isAsking || isEmilySpeaking}
                 data-testid="ask-in-chinese-mic-button"
                 data-state={isListening ? "listening" : "idle"}
                 aria-label="用中文提问 Ask in Chinese by voice"
@@ -264,7 +315,9 @@ export function AskInChineseSheet({ conversationState, onClose, onExitWithEnglis
                 <span aria-hidden>🎤</span>
               </button>
               <p data-testid="ask-in-chinese-mic-status" className="text-body-sm text-muted" role="status">
-                {isAsking
+                {isEmilySpeaking
+                  ? "Emily 正在说话，请稍候... Emily is speaking. Please wait..."
+                  : isAsking
                   ? "Emily 正在思考... Thinking..."
                   : isListening
                     ? interimTranscript.length > 0

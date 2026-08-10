@@ -1,3 +1,5 @@
+import { readdirSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { AUDIO_MANIFEST } from "@/lib/audio-manifest";
 import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
@@ -72,5 +74,35 @@ describe("Audio manifest — every scripted Lesson line has an entry", () => {
       "Have a nice day!",
       "Take care!",
     ]);
+  });
+
+  it("keeps every Chinese help line out of the pre-generated audio manifest", () => {
+    const chineseHelpLines = Object.values(GREETING_SOMEBODY_LESSON.chineseHelp).flatMap((help) => [
+      help.meaning,
+      help.whenToUse,
+      help.example,
+      help.encouragement,
+    ]);
+
+    for (const line of chineseHelpLines) {
+      expect(manifestTexts.has(line)).toBe(false);
+    }
+  });
+});
+
+describe("Audio manifest — generated file integrity", () => {
+  const manifestFileNames = AUDIO_MANIFEST.map((entry) => `${entry.id}.mp3`).sort();
+  const generatedFileNames = readdirSync(resolve(process.cwd(), "public/audio"))
+    .filter((fileName) => fileName.endsWith(".mp3"))
+    .sort();
+  const manifestFileNameSet = new Set(manifestFileNames);
+  const generatedFileNameSet = new Set(generatedFileNames);
+
+  it("has a generated MP3 for every manifest entry", () => {
+    expect(manifestFileNames.filter((fileName) => !generatedFileNameSet.has(fileName))).toEqual([]);
+  });
+
+  it("has no orphan MP3 outside the manifest", () => {
+    expect(generatedFileNames.filter((fileName) => !manifestFileNameSet.has(fileName))).toEqual([]);
   });
 });

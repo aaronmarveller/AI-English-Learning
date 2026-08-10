@@ -10,6 +10,8 @@ type PronunciationButtonProps = {
   label?: string;
   testId?: string;
   className?: string;
+  /** Opt into the adapter's teaching-card "/" segmentation behavior. */
+  splitOnSlash?: boolean;
 };
 
 /**
@@ -23,13 +25,19 @@ type PronunciationButtonProps = {
  * this page is free to use the semantically-correct element/role for every
  * control instead of working around an unscoped query.
  */
-export function PronunciationButton({ text, label, testId, className = "" }: PronunciationButtonProps) {
+export function PronunciationButton({
+  text,
+  label,
+  testId,
+  className = "",
+  splitOnSlash = false,
+}: PronunciationButtonProps) {
   const [isPlaying, setIsPlaying] = useState(false);
 
   async function activate() {
     setIsPlaying(true);
     try {
-      await speak(text);
+      await speak(text, { splitOnSlash });
     } finally {
       setIsPlaying(false);
     }

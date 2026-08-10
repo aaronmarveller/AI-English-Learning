@@ -139,11 +139,9 @@ test.describe("Explore page", () => {
     await page.getByTestId("section-response-header").click();
     await expect(page.getByTestId("section-response")).toHaveAttribute("data-state", "expanded");
 
-    await expect(page.getByTestId("response-step-1")).toContainText("Good, thanks!");
-    await expect(page.getByTestId("response-step-2")).toContainText("And you?");
-    await expect(page.getByTestId("response-step-3")).toContainText(
-      "I'm doing pretty good, just heading to work.",
-    );
+    await expect(page.getByTestId("response-step-1")).toContainText("I'm good.");
+    await expect(page.getByTestId("response-step-2")).toContainText("Thank you.");
+    await expect(page.getByTestId("response-step-3")).toContainText("How about you?");
 
     // Order is fixed in the DOM, not just independently present.
     const stepOrder = await page.evaluate(() =>
@@ -155,7 +153,7 @@ test.describe("Explore page", () => {
 
     await expect(page.getByTestId("response-combo")).toBeVisible();
     await expect(page.getByTestId("response-combo")).toContainText(
-      "Good, thanks! And you? I'm doing pretty good, just heading to work.",
+      "I'm good. Thank you. How about you?",
     );
   });
 
@@ -163,6 +161,7 @@ test.describe("Explore page", () => {
     await resetStorage(page);
     await installControllableSpeechStub(page);
     await page.goto(EXPLORE_URL);
+    await page.getByTestId("section-greeting-header").click();
 
     const button = page.getByTestId("pronounce-greeting-hi");
     await expect(button).toHaveAttribute("data-state", "idle");
@@ -189,6 +188,7 @@ test.describe("Explore page", () => {
     await page.goto(EXPLORE_URL);
 
     // Expand every section so all three carousels + the ladder are mounted at once.
+    await page.getByTestId("section-greeting-header").click();
     await page.getByTestId("section-checkin-header").click();
     await page.getByTestId("section-response-header").click();
     await page.getByTestId("section-closing-header").click();

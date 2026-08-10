@@ -1,18 +1,18 @@
 import { NextResponse } from "next/server";
 
 /**
- * Live text-to-speech proxy for Emily's per-turn conversation replies.
+ * Live text-to-speech proxy for Emily's English and Chinese lines that do
+ * not have an available pre-generated asset.
  *
- * Practice's live replies come from the LLM fresh on every turn (see
- * src/lib/practice-judge.ts), so there's no fixed pool to pre-generate audio
- * for the way src/lib/audio-manifest.ts's fixed lines get via
- * scripts/generate-audio.ts. This route is the same idea applied on demand:
- * synthesize the exact reply text through the same OpenAI TTS voice used for
+ * Practice replies come from the Lesson's fixed Conversation Script and are
+ * normally pre-generated. This route synthesizes a fixed line on demand if
+ * its asset is missing, and handles dynamic Chinese help follow-ups that
+ * cannot be pre-generated. Both use the same OpenAI TTS voice used for
  * pre-generation (OPENAI_TTS_MODEL/OPENAI_TTS_VOICE, defaulting to the same
- * tts-1/alloy scripts/generate-audio.ts defaults to), so a live reply sounds
- * like the same speaker as the pregenerated opening line instead of falling
- * straight to the browser's own (often noticeably more robotic) speech
- * synthesis.
+ * gpt-4o-mini-tts/coral pair scripts/generate-audio.ts defaults to), so a
+ * synthesized line sounds like the same speaker as the pregenerated assets
+ * instead of falling straight to the browser's own (often noticeably more
+ * robotic) speech synthesis.
  *
  * GET, with `text` as a query param, not POST-with-body: the client
  * (src/lib/speech-synthesis.ts's playLiveGeneratedAudio) points an
@@ -39,8 +39,8 @@ import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-/** Generous but not unbounded — Emily's live replies are always short conversational sentences. */
-const MAX_TEXT_LENGTH = 500;
+/** Allows short Chinese explanations while still bounding provider cost and latency. */
+const MAX_TEXT_LENGTH = 1000;
 
 /**
  * Repeat requests for the exact same reply text happen for real: the 🔊
@@ -74,13 +74,12 @@ export async function GET(request: Request): Promise<Response> {
     return NextResponse.json({ error: "tts_not_configured" }, { status: 500 });
   }
 
-  const model = process.env.OPENAI_TTS_MODEL ?? "tts-1";
-  // Must match scripts/generate-audio.ts's own fallback — a live reply and
-  // the pregenerated opening line are meant to sound like the same speaker
-  // (see this file's top doc comment). "shimmer": Emily is written and
-  // illustrated as a woman; "alloy" (the OpenAI SDK's own default) reads as
-  // male/neutral.
-  const voice = process.env.OPENAI_TTS_VOICE ?? "shimmer";
+  const model = process.env.OPENAI_TTS_MODEL ?? "gpt-4o-mini-tts";
+  // Must match scripts/generate-audio.ts's own fallback — on-demand and
+  // pregenerated lines are meant to sound like the same speaker
+  // (see this file's top doc comment). "coral" was selected after comparing
+  // the candidate voices with both English and Chinese samples (issue #24).
+  const voice = process.env.OPENAI_TTS_VOICE ?? "coral";
 
   let upstream: Response;
   try {

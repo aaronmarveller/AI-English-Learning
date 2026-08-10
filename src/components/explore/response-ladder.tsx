@@ -53,7 +53,11 @@ export function ResponseLadder({ steps, combo }: ResponseLadderProps) {
           <span className="text-caption font-semibold text-accent">连起来说 Say it as one</span>
           <p className="text-body-lg font-medium text-foreground">{combo.expression}</p>
         </div>
-        <PronunciationButton text={combo.expression} testId={`pronounce-${combo.id}`} />
+        <PronunciationButton
+          text={combo.expression}
+          testId={`pronounce-${combo.id}`}
+          splitOnSlash
+        />
       </div>
     </div>
   );

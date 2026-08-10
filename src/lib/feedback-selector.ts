@@ -51,7 +51,7 @@ export type FeedbackLineKind = "praise" | "highlight" | "suggestion" | "closing"
 export type FeedbackLine = {
   id: string;
   kind: FeedbackLineKind;
-  /** English feedback selected from AI Configuration's template library. */
+  /** Chinese-majority feedback selected from AI Configuration's template library. */
   text: string;
 };
 
@@ -190,7 +190,7 @@ function selectSuggestionPool(turnRecords: StateTurnRecord[]): string[] {
 }
 
 /**
- * Selects this run's 4-part English Learning Summary, in fixed order: 1
+ * Selects this run's 4-part Chinese-majority Learning Summary, in fixed order: 1
  * praise → 2-3 highlights → 1 suggestion → 1 closing.
  *
  * @param turnRecords The current practice run's accumulated per-state
