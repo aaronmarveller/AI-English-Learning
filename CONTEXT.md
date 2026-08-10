@@ -30,13 +30,18 @@ Where the learner currently is in Practice's fixed 4-step flow: `greeting → ch
 
 ## Learning Summary
 
-The learner-facing recap shown after Practice. It presents one Praise, two or three performance-based Highlights, one Suggestion, and one Closing in that order.
+The learner-facing recap shown after Practice. It presents one Praise, two or three performance-based Highlights, one Suggestion, and one Closing in that order. Addressed to the learner in Chinese, with English surviving only as the short expressions the Lesson taught — the opposite of the Conversation Script, which is English precisely because speaking it *is* the practice.
 _Avoid_: Review in learner-facing copy
 
 ## Review
 
 The internal name of the post-Practice learning-flow stage that presents the Learning Summary and offers retry or continue actions.
 _Avoid_: Learning Summary when naming the internal flow stage
+
+## Turn-Taking
+
+Who holds the floor: Emily and the learner never hold it at the same time. The learner cannot begin speaking while Emily is still delivering a line, and Emily never begins a line while the learner is speaking. A product rule, not a device workaround — it is what keeps a Turn a clean exchange instead of two voices competing for one microphone.
+_Avoid_: barge-in — interrupting Emily mid-line is deliberately not offered
 
 ## Judge / Submit seam
 

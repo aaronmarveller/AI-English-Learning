@@ -160,6 +160,12 @@ The Learning Summary is the learner-facing recap shown after Practice by the Rev
 
 **Praise and Closing.** Single random pick each, independent of performance.
 
+**Language.** The Learning Summary addresses the learner in Chinese — the opposite of the Conversation Script, which is English because speaking it *is* the practice. Each line is one mixed string, not an English line paired with a translation:
+
+- **Highlights** embed the current step's representative English expression inside a Chinese sentence — `Emily 问 "How are you?" 的时候，你答得很自然`. The expression comes from the Lesson's content for that Highlight group, *not* from what the learner actually typed or said: `StateTurnRecord` deliberately carries only derived signals (`passedFirstTry`, `matchedAcceptedResponse`, `learnerAskedBack`) and no transcript, and a Highlight is encouragement at the "you finished this step" grain, not a line-by-line replay.
+- **Praise** and **Closing** keep one short English interjection ahead of a Chinese body — `Great job! 今天你完整走完了整段对话`. These are Emily speaking, and the interjection is what keeps it her voice rather than a system notice. It is drawn from general encouragement, never from a Conversation Script line, so the learner cannot mistake it for an expression they just practiced.
+- **Suggestion** is pure Chinese. It is advice, and mixing English into it only costs comprehension.
+
 Inputs to this selection are derived on the client from what it already knows — which Conversation State, whether it was passed on the first attempt, whether the reply matched the state's Accepted Responses, whether the learner asked back — never reported by the model.
 
 ## 6. Chinese Help Rules
@@ -173,3 +179,11 @@ Rules:
 - The fixed four-part example must never quote an Accepted Response for that state verbatim.
 - Help mode exits on explicit close, or automatically when the learner speaks or types English again.
 - Speech recognition language is mode-dependent: English for the conversation, Chinese while in help mode.
+
+**Voice.** Emily answers in Chinese out loud, not only in text:
+
+- A model-answered Chinese follow-up **plays automatically** — the learner asked for it, so hearing Emily answer is what makes it a conversation rather than a lookup.
+- The fixed four-part explanation **does not** play automatically; it offers a manual play control instead. It appears the instant help mode opens, and a ~200-character reading would talk over a learner who is ready to ask their real question.
+- Chinese speech uses the same voice and the same synthesis path as Emily's English — one speaker, not two. This makes voice selection a joint decision: a voice is only acceptable if it reads naturally in *both* languages.
+- The four-part explanation is deliberately **not** pre-generated as audio. Pre-generated lookup matches on exact text, and Chinese help copy is not held to the Conversation Script's verbatim discipline (ADR-0005) — it will drift, and a drifted entry fails silently.
+- Turn-Taking (`CONTEXT.md`, ADR-0008) governs help mode exactly as it governs Practice: the help-mode microphone is unavailable while Emily is speaking.
