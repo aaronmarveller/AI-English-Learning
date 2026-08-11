@@ -122,7 +122,7 @@ Home → Observe → Explore → Notice → Practice → Review
 64. As a 学习者, I want 看到四步对话进度并高亮当前步, so that 我知道还剩几步、心里有底
 65. As a 学习者, I want 四步全部完成前「查看学习总结」是锁住的, so that 我不会半途退出错过反馈
 66. As a 学习者, I want 完成后 Emily 给一句简短的鼓励并邀请我看总结, so that 结束有仪式感
-67. As a 学习者, I want 能展开查看完整对话记录, so that 我可以回看整段对话说了什么
+67. ~~As a 学习者, I want 能展开查看完整对话记录, so that 我可以回看整段对话说了什么~~ — **已废弃，见 `docs/adr/0009-full-transcript-removed-from-practice.md`**
 68. As a 学习者, I want 对话始终围绕本节主题、不跑成开放闲聊, so that 我练的是今天学的东西
 
 ### Page 6 — Review
@@ -224,7 +224,7 @@ System prompt 由两部分拼装：AI Configuration §1 的六条全局规则（
 
 - **当前轮双气泡**：Emily 立绘占上半屏，其消息气泡浮在立绘上；学习者开口后下方实时出现识别文本气泡。进入下一轮时两条淡出替换
 - **必须回显识别结果**。初学者发音不准时识别常出错，若不回显，学习者只会反复收到 "Could you try again?" 而无法归因，会当场卡死
-- 完整对话记录收在可展开的抽屉里，不占主视觉
+- ~~完整对话记录收在可展开的抽屉里，不占主视觉~~ — **已废弃，见 `docs/adr/0009-full-transcript-removed-from-practice.md`**
 - **Avatar 三态用纯 CSS 实现**，只需一张静态立绘：Idle 为缓慢呼吸缩放；Talking 为轻微浮动 + 声波 + 发光环脉冲；Thinking 为降低不透明度 + 三点跳动。不做口型同步（PRD 明确不要求）
 - **Ask in Chinese 不调用大模型**。AI Configuration §5.1 规定的四段内容对每个 Conversation State 都是固定的，写成预设文案即可——零延迟、零成本、结果可控。以底部 Sheet 呈现
 - 无响应计时 15–20 秒触发一次鼓励语，不推进状态，不提供答案

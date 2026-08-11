@@ -10,7 +10,6 @@ import { EmilyInfoCard } from "@/components/practice/emily-info-card";
 import { IconBoxButton } from "@/components/practice/icon-box-button";
 import { MessageBubblePair } from "@/components/practice/message-bubble-pair";
 import { PracticeInputForm } from "@/components/practice/practice-input-form";
-import { PracticeTranscriptDrawer } from "@/components/practice/practice-transcript-drawer";
 import { StageTag } from "@/components/stage-tag";
 import { GREETING_SOMEBODY_LESSON, pickRandomOpeningLine } from "@/content/lesson";
 import type { ActiveConversationState } from "@/lib/conversation-state-machine";
@@ -400,8 +399,6 @@ export function PracticePageContent() {
       </div>
 
       <ConversationProgressSteps current={conversationState} />
-
-      <PracticeTranscriptDrawer />
 
       {isAskInChineseOpen && !isComplete ? (
         <AskInChineseSheet

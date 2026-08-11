@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>音频出声口诊断 v2 (DEBUG-a4f2)</title>
+<style>
+  body { font: 16px/1.55 -apple-system, system-ui, sans-serif; margin: 0; padding: 16px 16px 64px; background: #fff; color: #111; }
+  h1 { font-size: 19px; margin: 0 0 4px; }
+  .sub { color: #666; font-size: 13px; margin-bottom: 14px; }
+  .step { border: 1px solid #ddd; border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; }
+  .step.done { border-color: #16a34a; background: #f0fdf4; }
+  .step.key { border-width: 2px; border-color: #2563eb; }
+  .t { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+  .hint { font-size: 12px; color: #666; margin-bottom: 6px; }
+  button { font: inherit; padding: 11px 15px; border-radius: 10px; border: 1px solid #111; background: #111; color: #fff; margin: 4px 5px 0 0; }
+  button.ghost { background: #fff; color: #111; }
+  button:disabled { opacity: .35; }
+  pre { background: #f4f4f5; padding: 9px; border-radius: 8px; font-size: 12px; white-space: pre-wrap; word-break: break-all; margin: 6px 0 0; }
+  .ans { font-weight: 700; color: #16a34a; }
+</style>
+</head>
+<body>
+<h1>音频出声口诊断 v2</h1>
+<div class="sub">DEBUG-a4f2 · <b>请先彻底关掉上一个探针页再打开这个</b>（要一个全新的 audio session）。不戴耳机，音量过半，静音开关关掉。<br>严格按顺序从上往下做，中间不要跳步、不要刷新。</div>
+
+<div id="env-box" class="step"><div class="t">0. 环境</div><pre id="env-out">读取中…</pre></div>
+<div id="steps"></div>
+
+<div class="step">
+  <div class="t">汇总（贴回给我）</div>
+  <button id="summarize">生成汇总</button>
+  <pre id="summary">（点上面的按钮）</pre>
+</div>
+
+<script>
+(function () {
+  var AUDIO_SRC = "/audio/opening-1.mp3";
+  var session = navigator.audioSession;
+  var audio = new Audio();
+  var log = [];
+  var answers = {};
+
+  document.getElementById("env-out").textContent =
+    "UA: " + navigator.userAgent + "\n" +
+    "audioSession: " + (session ? "有，初始 type=" + session.type : "无");
+
+  function setType(t) {
+    if (!session) { log.push("setType(" + t + ") 跳过：无 audioSession"); return; }
+    try { session.type = t; log.push("set " + t + " → 读回 " + session.type); }
+    catch (e) { log.push("set " + t + " 抛错 " + e); }
+  }
+
+  var STEPS = [
+    { id: 1, kind: "play", pre: ["playback"], t: "设 playback 并播放（全新会话，还没碰过麦克风）",
+      hint: "基线：确认 playback 在干净状态下就是扬声器。" },
+    { id: 2, kind: "rec", pre: [], t: "识别一次 —— 完全不动 type（留在 auto）",
+      hint: "说一句英文再点停止。" },
+    { id: 3, kind: "play", pre: ["playback"], key: true, t: "★ 停止识别后立刻：设 playback 并播放",
+      hint: "关键一步。别隔太久，停完识别马上点。扬声器 = 解释 A 成立（不 pin play-and-record 就够了）。" },
+    { id: 4, kind: "rec", pre: [], t: "再识别一次 —— 依然不动 type",
+      hint: "说一句英文再点停止。" },
+    { id: 5, kind: "play", pre: ["playback"], key: true, t: "★ 立刻：设 playback 并播放（第二轮，验可重复）",
+      hint: "真实 /practice 是要来回好几轮的，这步证明它不会做一轮就失效。" },
+    { id: 6, kind: "rec", pre: ["play-and-record"], t: "识别前 pin play-and-record（复现上次的失败）",
+      hint: "说一句英文再点停止。" },
+    { id: 7, kind: "play", pre: ["playback"], t: "立刻：设 playback 并播放",
+      hint: "预期会复现听筒。若这里是扬声器，说明上次是解释 B（时序）。" },
+    { id: 8, kind: "play", pre: [], t: "什么都不改，再播一次",
+      hint: "测是不是只有『识别后第一次播放』会错。" },
+    { id: 9, kind: "play", pre: ["auto", "playback"], t: "先设 auto、再设 playback，播放",
+      hint: "测强制一次 type 过渡能不能把路由抢回来。" }
+  ];
+
+  var container = document.getElementById("steps");
+
+  STEPS.forEach(function (s) {
+    var el = document.createElement("div");
+    el.className = "step" + (s.key ? " key" : "");
+    el.id = "step-" + s.id;
+    var head = '<div class="t">' + s.id + ". " + s.t + '</div><div class="hint">' + s.hint + "</div>";
+
+    if (s.kind === "play") {
+      el.innerHTML = head +
+        '<button data-go="' + s.id + '">▶︎ 执行并播放</button>' +
+        '<button class="ghost" data-ans="' + s.id + '" data-v="听筒">听筒</button>' +
+        '<button class="ghost" data-ans="' + s.id + '" data-v="扬声器">扬声器</button>' +
+        '<div id="a-' + s.id + '"></div>';
+    } else {
+      el.innerHTML = head +
+        '<button data-rec="' + s.id + '">🎙 开始</button>' +
+        '<button class="ghost" data-recstop="' + s.id + '" disabled>■ 停止</button>' +
+        '<pre id="r-' + s.id + '">（尚未运行）</pre>';
+    }
+    container.appendChild(el);
+  });
+
+  container.addEventListener("click", function (ev) {
+    var b = ev.target.closest("button");
+    if (!b) return;
+
+    if (b.dataset.go) {
+      var s = STEPS[b.dataset.go - 1];
+      log.push("--- step " + s.id + " ---");
+      s.pre.forEach(setType);
+      audio.muted = false;
+      audio.src = AUDIO_SRC;
+      audio.play().catch(function (e) { log.push("step" + s.id + " play() 失败 " + e.name); });
+      return;
+    }
+
+    if (b.dataset.ans) {
+      var id = b.dataset.ans;
+      answers[id] = b.dataset.v;
+      document.getElementById("a-" + id).innerHTML =
+        '记录：<span class="ans">' + b.dataset.v + "</span>" +
+        (session ? "（此刻 type=" + session.type + "）" : "");
+      document.getElementById("step-" + id).classList.add("done");
+      return;
+    }
+
+    if (b.dataset.rec) startRec(b.dataset.rec, b);
+    if (b.dataset.recstop) stopRec(b.dataset.recstop);
+  });
+
+  var recs = {};
+
+  function startRec(id, btn) {
+    var s = STEPS[id - 1];
+    var Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    var out = document.getElementById("r-" + id);
+    if (!Rec) { out.textContent = "不支持语音识别"; return; }
+    log.push("--- step " + id + " (rec) ---");
+    s.pre.forEach(setType);
+
+    var rec = new Rec();
+    recs[id] = rec;
+    rec.lang = "en-US";
+    rec.interimResults = true;
+    rec.continuous = false;
+    var text = "";
+    rec.onresult = function (e) {
+      var r = e.results[e.resultIndex];
+      if (r) { text = r[0].transcript; out.textContent = "识别中：" + text; }
+    };
+    rec.onerror = function (e) { answers["rec" + id] = "error:" + e.error; out.textContent = "错误：" + e.error; };
+    rec.onend = function () {
+      btn.disabled = false;
+      document.querySelector('[data-recstop="' + id + '"]').disabled = true;
+      if (!answers["rec" + id]) answers["rec" + id] = text ? "ok: " + text : "空";
+      out.textContent = "结束，识别到：" + (text || "（空）") + (session ? "\n此刻 type=" + session.type : "");
+      document.getElementById("step-" + id).classList.add("done");
+    };
+    out.textContent = "监听中…请说话";
+    answers["rec" + id] = "";
+    rec.start();
+    btn.disabled = true;
+    document.querySelector('[data-recstop="' + id + '"]').disabled = false;
+  }
+
+  function stopRec(id) { if (recs[id]) recs[id].stop(); }
+
+  document.getElementById("summarize").addEventListener("click", function () {
+    var lines = ["=== DEBUG-a4f2 v2 ===", "UA=" + navigator.userAgent];
+    STEPS.forEach(function (s) {
+      var v = s.kind === "play" ? (answers[s.id] || "未作答") : (answers["rec" + s.id] || "未运行");
+      lines.push(s.id + " " + s.t + " = " + v);
+    });
+    lines.push("--- log ---", log.join("\n") || "(空)");
+    document.getElementById("summary").textContent = lines.join("\n");
+  });
+})();
+</script>
+</body>
+</html>

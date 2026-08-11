@@ -40,8 +40,17 @@ _Avoid_: Learning Summary when naming the internal flow stage
 
 ## Turn-Taking
 
-Who holds the floor: Emily and the learner never hold it at the same time. The learner cannot begin speaking while Emily is still delivering a line, and Emily never begins a line while the learner is speaking. A product rule, not a device workaround — it is what keeps a Turn a clean exchange instead of two voices competing for one microphone.
+Who holds the floor: Emily and the learner never hold it at the same time. The learner cannot begin speaking while Emily is still delivering a line, nor during the Handoff Gap that follows it, and Emily never begins a line while the learner is speaking. A product rule, not a device workaround — it is what keeps a Turn a clean exchange instead of two voices competing for one microphone.
 _Avoid_: barge-in — interrupting Emily mid-line is deliberately not offered
+
+## Handoff Gap
+
+The short beat after Emily's line ends in which the floor belongs to neither side: she has finished, and the learner may not start yet. Part of Turn-Taking rather than a delay bolted onto it — waiting for the other person's voice to settle before answering is what a real conversation does.
+
+## Tap-to-Talk
+
+How the learner takes the floor: they tap the microphone to open it and tap again to send. Everything recognized between the two taps becomes a single Turn's message, and stopping always sends.
+_Avoid_: Push-to-Talk, hold-to-talk — holding the button was tried and reverted; recording — a tap produces a message, never a stored artifact
 
 ## Judge / Submit seam
 

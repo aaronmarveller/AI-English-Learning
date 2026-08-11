@@ -125,8 +125,8 @@ export const CULTURAL_INSIGHT_CARDS: CulturalInsightCard[] = [
     },
     why: "英语里的问候通常只是对话的开始，简单回应后，再继续聊几句会更自然。",
     preview: {
-      us: "😃↔😃",
-      china: "😃✓",
+      us: "😃💬",
+      china: "👋🚶",
     },
     images: {
       us: "/assets/notice/keep-chatting-us.webp",
@@ -147,8 +147,8 @@ export const CULTURAL_INSIGHT_CARDS: CulturalInsightCard[] = [
     },
     why: "不同文化有不同的聊天习惯。了解这些常见话题，可以帮助你更自然地延续对话。",
     preview: {
-      us: "☀️📅🎉",
-      china: "🍚💼👨‍👩‍👧",
+      us: "☀️🎉",
+      china: "🍚💼",
     },
     images: {
       us: "/assets/notice/small-talk-topics-us.webp",

@@ -184,33 +184,89 @@ function isMicListening(): boolean {
  * call when its promise eventually settles.
  */
 let activeSpeechOwner: symbol | null = null;
-const speakingListeners = new Set<() => void>();
+let activePlaybackHasStarted = false;
 
-export function getSpeakingSnapshot(): boolean {
-  return activeSpeechOwner !== null;
+/**
+ * Which part of turn-taking currently owns the microphone gate. The Handoff
+ * Gap is a conversation rule, rather than an iOS workaround: after Emily has
+ * audibly spoken, the learner waits briefly for her voice to settle before
+ * starting their own turn.
+ */
+export type TurnTakingState = "speaking" | "handoff-gap" | "idle";
+
+/** The deliberate pause between audible playback ending and learner capture. */
+export const HANDOFF_GAP_MS = 3_000;
+
+let turnTakingState: TurnTakingState = "idle";
+let handoffGapTimeout: ReturnType<typeof setTimeout> | null = null;
+const turnTakingListeners = new Set<() => void>();
+
+function publishTurnTakingState(next: TurnTakingState): void {
+  if (turnTakingState === next) return;
+  turnTakingState = next;
+  turnTakingListeners.forEach((listener) => listener());
 }
 
+function clearHandoffGap(): void {
+  if (handoffGapTimeout !== null) {
+    clearTimeout(handoffGapTimeout);
+    handoffGapTimeout = null;
+  }
+}
+
+function beginHandoffGap(): void {
+  clearHandoffGap();
+  publishTurnTakingState("handoff-gap");
+  handoffGapTimeout = setTimeout(() => {
+    handoffGapTimeout = null;
+    publishTurnTakingState("idle");
+  }, HANDOFF_GAP_MS);
+}
+
+/** Three-valued public store used by every microphone surface. */
+export function getTurnTakingSnapshot(): TurnTakingState {
+  return turnTakingState;
+}
+
+export function getServerTurnTakingSnapshot(): TurnTakingState {
+  return "idle";
+}
+
+export function subscribeToTurnTaking(listener: () => void): () => void {
+  turnTakingListeners.add(listener);
+  return () => turnTakingListeners.delete(listener);
+}
+
+/** @deprecated Use the three-state Turn-Taking store above for mic gating. */
+export function getSpeakingSnapshot(): boolean {
+  return turnTakingState === "speaking";
+}
+
+/** @deprecated Use getServerTurnTakingSnapshot. */
 export function getServerSpeakingSnapshot(): boolean {
   return false;
 }
 
+/** @deprecated Use subscribeToTurnTaking. */
 export function subscribeToSpeaking(listener: () => void): () => void {
-  speakingListeners.add(listener);
-  return () => speakingListeners.delete(listener);
+  return subscribeToTurnTaking(listener);
 }
 
 function acquireSpeaking(): symbol {
   const owner = Symbol("speech-playback");
-  const changed = activeSpeechOwner === null;
+  clearHandoffGap();
   activeSpeechOwner = owner;
-  if (changed) speakingListeners.forEach((listener) => listener());
+  activePlaybackHasStarted = false;
+  publishTurnTakingState("speaking");
   return owner;
 }
 
-function releaseSpeaking(owner: symbol): void {
+function releaseSpeaking(owner: symbol, didAudiblyStart = false): void {
   if (activeSpeechOwner !== owner) return;
   activeSpeechOwner = null;
-  speakingListeners.forEach((listener) => listener());
+  activePlaybackHasStarted = false;
+  if (didAudiblyStart) beginHandoffGap();
+  else publishTurnTakingState("idle");
 }
 
 function ownsSpeaking(owner: symbol): boolean {
@@ -467,6 +523,7 @@ export async function speak(text: string, options: SpeakOptions = {}): Promise<b
 
   if (isMicListening()) return false;
   const owner = acquireSpeaking();
+  let didAudiblyStart = false;
 
   const segments = options.splitOnSlash
     ? text
@@ -477,6 +534,8 @@ export async function speak(text: string, options: SpeakOptions = {}): Promise<b
 
   let timeoutId: ReturnType<typeof setTimeout>;
   const onPlaybackStarted = () => {
+    didAudiblyStart = true;
+    if (ownsSpeaking(owner)) activePlaybackHasStarted = true;
     if (ownsSpeaking(owner)) clearTimeout(timeoutId);
   };
 
@@ -498,7 +557,7 @@ export async function speak(text: string, options: SpeakOptions = {}): Promise<b
     timeoutId = setTimeout(() => {
       if (ownsSpeaking(owner)) {
         stopActivePlayback();
-        releaseSpeaking(owner);
+        releaseSpeaking(owner, didAudiblyStart);
       }
       resolve(false);
     }, PLAYBACK_START_TIMEOUT_MS);
@@ -508,7 +567,7 @@ export async function speak(text: string, options: SpeakOptions = {}): Promise<b
     return await Promise.race([playback(), timedOut]);
   } finally {
     clearTimeout(timeoutId!);
-    releaseSpeaking(owner);
+    releaseSpeaking(owner, didAudiblyStart);
   }
 }
 
@@ -643,5 +702,8 @@ function stopActivePlayback(): void {
 export function cancelSpeech(): void {
   const owner = activeSpeechOwner;
   stopActivePlayback();
-  if (owner) releaseSpeaking(owner);
+  // A cancelled line still earns the Handoff Gap if its audio had begun.
+  // The owner-local flag lives in `speak`; expose it here through a marker on
+  // the active call so cancellation can preserve the same invariant.
+  if (owner) releaseSpeaking(owner, activePlaybackHasStarted);
 }

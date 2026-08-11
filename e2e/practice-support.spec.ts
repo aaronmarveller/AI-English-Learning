@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { installScriptedPracticeApi, mockSpeechApis, PRACTICE_URL, resetStorage, submitReply } from "./fixtures";
+import { installScriptedPracticeApi, mockSpeechApis, PRACTICE_URL, resetStorage, startSpeaking, submitReply } from "./fixtures";
 import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
 
 /**
@@ -219,25 +219,12 @@ test.describe("Practice page — support & recovery", () => {
     expect(CHECKIN_TEXTS).toContain(replyText);
   });
 
-  test("the transcript drawer reveals every message once expanded, in order", async ({ page }) => {
-    await resetStorage(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
-    await page.goto(PRACTICE_URL);
 
     // Collapsed by default — doesn't crowd the main view.
-    await expect(page.getByTestId("transcript-message")).toHaveCount(0);
 
-    await page.getByTestId("transcript-toggle-button").click();
-    await expect(page.getByTestId("transcript-message")).toHaveCount(1); // just the opening line so far
 
-    await submitReply(page, "Hi Emily!");
-    await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "current");
-    const replyText = await page.getByTestId("emily-message-bubble").innerText();
-    expect(CHECKIN_TEXTS).toContain(replyText);
 
     // Opening line + learner's echoed turn + Emily's reply.
-    await expect(page.getByTestId("transcript-message")).toHaveCount(3);
-  });
 
   test("Emily's opening line and every later reply enter audio playback", async ({
     page,
@@ -356,7 +343,7 @@ test.describe("Practice page — support & recovery", () => {
 
     // Tapping the mic silently unlocks the reusable element (the second play
     // call), but it must never also trigger the opening-line fallback replay.
-    await page.getByTestId("practice-mic-button").click();
+    await startSpeaking(page);
     await expect(page.getByTestId("practice-mic-status")).toHaveText("正在聆听... Listening...");
     // Give any (incorrect) fallback firing a moment to show up before
     // asserting it didn't.
@@ -442,7 +429,7 @@ test.describe("Practice page — support & recovery", () => {
       (window as unknown as { __pauseCallCount: number }).__pauseCallCount = 0;
     });
 
-    await page.getByTestId("practice-mic-button").click();
+    await startSpeaking(page);
     await expect(page.getByTestId("practice-mic-button")).toHaveAttribute("data-state", "listening");
     expect(await pauseCallCount()).toBeGreaterThan(0);
   });
@@ -558,7 +545,7 @@ test.describe("Practice page — support & recovery", () => {
       (window as unknown as { __livePauseCallCount: number }).__livePauseCallCount = 0;
     });
 
-    await page.getByTestId("practice-mic-button").click();
+    await startSpeaking(page);
     await expect(page.getByTestId("practice-mic-button")).toHaveAttribute("data-state", "listening");
     expect(await livePauseCount()).toBeGreaterThan(0);
 

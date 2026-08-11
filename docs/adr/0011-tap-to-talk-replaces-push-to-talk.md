@@ -1,0 +1,15 @@
+---
+status: accepted
+---
+
+# The learner taps the microphone to take the floor, and taps again to send
+
+[ADR 0010](./0010-push-to-talk-and-the-handoff-gap.md) had the learner hold the microphone down and release to send, on the strength of the gesture WeChat has already taught every Chinese-speaking user. That gesture is not actually ours to use on a mobile web page: a long press on an element is the platform's *own* text-selection gesture, so pressing to speak selects the surrounding UI and raises the selection handles and the callout menu over the very button being held — and the small drag that follows a mis-grab is then read as "released outside the button", i.e. cancel. We're going back to a tap: one tap opens the microphone, a second tap closes it and submits everything recognized in between (`CONTEXT.md`'s Tap-to-Talk). Only the gesture is reverted — the Handoff Gap ADR 0010 introduced alongside it stands unchanged, and so does the principle both were chosen for, *the learner always knows whether they are being heard*, which a tap serves more directly anyway: being heard is a state of the button, visible on screen, rather than a state of the learner's finger.
+
+## Consequences
+
+- Both microphone surfaces go through one shared owner, `useMicListening` (`src/lib/use-mic-listening.ts`) — Practice's input form and `ask-in-chinese-sheet.tsx`. ADR 0008 already learned that a gesture change binds both. One tap owns one session id, so late lifecycle callbacks from a superseded WebKit recognizer cannot reset or release the session that replaced it.
+- A session also ends on its own at the recognizer's first final result, and that result is submitted without a second tap. The second tap is what covers everything the recognizer has *not* called final — a pause it is still waiting out, an interim still on screen — and it submits that latest transcript, interim included. Stopping must never produce silence; that invariant survives the change of gesture unaltered.
+- Nothing accumulates across recognizer runs any more. A tap session is at most one run, so the restart-and-accumulate machinery a hold needed is gone, and with it the words a mid-hold restart used to drop.
+- The guards that existed only to make a hold safe are gone with the hold: the 300ms stray-tap threshold, the 60-second cap, and release-outside-cancels. A stray tap now opens a real session and can spend one of the three consecutive `no-speech` strikes that fall back to text input — the strike counter is the only thing standing between an idle microphone and the learner; the browser's non-continuous recognizer ends the session itself, so nothing holds the microphone open indefinitely.
+- `startPushToTalkSession`, the `PUSH_TO_TALK_*` constants, the `holdMic` e2e fixture and the hold-specific spec are deleted rather than kept warm for a return this ADR says isn't coming. `speech-recognition.ts` is back to the single `startListening` seam, and its unit tests cover that seam instead — including the stop-after-end guard, which is the one piece of the iOS work that outlives the gesture.

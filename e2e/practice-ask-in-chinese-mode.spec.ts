@@ -5,6 +5,7 @@ import {
   mockSpeechApis,
   PRACTICE_URL,
   resetStorage,
+  startSpeaking,
 } from "./fixtures";
 import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
 
@@ -113,7 +114,7 @@ test.describe("Practice page — Chinese help mode", () => {
     await page.goto(PRACTICE_URL);
 
     // Outside help mode: the main mic listens in English.
-    await page.getByTestId("practice-mic-button").click();
+    await startSpeaking(page);
     const outsideLang = await page.evaluate(() => window.__mockSpeechRecognition?.getLang());
     expect(outsideLang).toBe("en-US");
     await page.evaluate(() => window.__mockSpeechRecognition?.emitEnd());
@@ -125,7 +126,7 @@ test.describe("Practice page — Chinese help mode", () => {
     // line finishes.
     await page.evaluate(() => window.__mockAudio?.endCurrent());
     await expect(page.getByTestId("ask-in-chinese-mic-button")).toBeEnabled();
-    await page.getByTestId("ask-in-chinese-mic-button").click();
+    await startSpeaking(page, "ask-in-chinese-mic-button");
     const insideLang = await page.evaluate(() => window.__mockSpeechRecognition?.getLang());
     expect(insideLang).toBe("zh-CN");
 
@@ -139,7 +140,7 @@ test.describe("Practice page — Chinese help mode", () => {
 
     // Closing help mode and using the main mic again reverts to English.
     await page.getByTestId("ask-in-chinese-close-button").click();
-    await page.getByTestId("practice-mic-button").click();
+    await startSpeaking(page);
     const backToEnglishLang = await page.evaluate(() => window.__mockSpeechRecognition?.getLang());
     expect(backToEnglishLang).toBe("en-US");
   });

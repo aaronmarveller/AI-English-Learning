@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { installScriptedPracticeApi, mockSpeechApis, PRACTICE_URL, resetStorage } from "./fixtures";
+import { installScriptedPracticeApi, mockSpeechApis, PRACTICE_URL, resetStorage, startSpeaking } from "./fixtures";
 import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
 
 /**
@@ -137,7 +137,7 @@ test.describe("Practice page — voice input", () => {
     await installScriptedPracticeApi(page, [{ verdict: "accepted" }], { delayMs: 300 });
     await page.goto(PRACTICE_URL);
 
-    await page.getByTestId("practice-mic-button").click();
+    await startSpeaking(page);
     await page.evaluate(() => window.__mockSpeechRecognition?.emitResult("Hi th", { isFinal: false }));
 
     // Interim text is visible but nothing has been submitted yet.
@@ -148,7 +148,7 @@ test.describe("Practice page — voice input", () => {
     await expect(page.getByTestId("learner-message-bubble")).toHaveText("Hi there");
   });
 
-  test("tapping the listening mic again stops recognition without submitting", async ({ page }) => {
+  test("tapping the listening mic again submits the speech recognized so far", async ({ page }) => {
     await resetStorage(page);
     await mockSpeechApis(page);
     await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
@@ -165,14 +165,13 @@ test.describe("Practice page — voice input", () => {
     await expect(micButton).toHaveAttribute("data-state", "listening");
     await expect(micButton).toHaveAccessibleName("停止说话 Stop listening");
 
+    await page.evaluate(() => window.__mockSpeechRecognition?.emitResult("This is what I said", { isFinal: false }));
+    await expect(page.getByTestId("practice-mic-status")).toHaveText("This is what I said");
     await micButton.click();
 
     await expect(micButton).toHaveAttribute("data-state", "idle");
     await expect(micButton).toHaveAccessibleName("开始说话 Start speaking");
-    await page.evaluate(() =>
-      window.__mockSpeechRecognition?.emitResult("This must not submit", { isFinal: true }),
-    );
-    await expect(page.getByTestId("learner-message-bubble")).toHaveCount(0);
+    await expect(page.getByTestId("learner-message-bubble")).toHaveText("This is what I said");
   });
 
   test("the next iOS mic turn does not stop an already-ended recognizer", async ({ page }) => {
@@ -256,12 +255,12 @@ test.describe("Practice page — voice input", () => {
     await page.evaluate(() => window.__mockAudio?.endCurrent());
     await expect(page.getByTestId("practice-mic-button")).toBeEnabled();
 
-    await page.getByTestId("practice-mic-button").click();
+    await startSpeaking(page);
     await page.evaluate(() => window.__mockSpeechRecognition?.emitError("no-speech"));
     await expect(page.getByTestId("practice-mic-button")).toBeVisible();
     await expect(page.getByTestId("practice-mic-status")).not.toContainText("没听清");
 
-    await page.getByTestId("practice-mic-button").click();
+    await startSpeaking(page);
     await page.evaluate(() => window.__mockSpeechRecognition?.emitError("no-speech"));
     await expect(page.getByTestId("practice-mic-status")).toContainText("没听清");
     await expect(page.getByTestId("practice-text-input")).toHaveCount(0);
@@ -311,7 +310,7 @@ test.describe("Practice page — voice input", () => {
     await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
     await page.goto(PRACTICE_URL);
 
-    await page.getByTestId("practice-mic-button").click();
+    await startSpeaking(page);
     await page.evaluate(() => window.__mockSpeechRecognition?.emitError("not-allowed"));
 
     await expect(page.getByTestId("practice-input-fallback-reason")).toBeVisible();
@@ -334,7 +333,7 @@ test.describe("Practice page — voice input", () => {
     await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
     await page.goto(PRACTICE_URL);
 
-    await page.getByTestId("practice-mic-button").click();
+    await startSpeaking(page);
     await page.evaluate(() => window.__mockSpeechRecognition?.emitError("audio-capture"));
 
     // Distinct from the permission-denied explanation — the learner should
