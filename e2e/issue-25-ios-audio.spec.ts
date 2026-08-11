@@ -4,6 +4,7 @@ import {
   mockSpeechApis,
   PRACTICE_URL,
   resetStorage,
+  startSpeaking,
   submitReply,
 } from "./fixtures";
 
@@ -31,7 +32,7 @@ test.describe("Practice page — iOS audio element reuse", () => {
     await installScriptedPracticeApi(page, [{ verdict: "accepted" }], { delayMs: 5_500 });
     await page.goto(PRACTICE_URL);
 
-    await page.getByTestId("practice-mic-button").click();
+    await startSpeaking(page);
     await expect.poll(() => page.evaluate(() => window.__mockAudio?.isUnlocked())).toBe(true);
     // Only the muted unlock source entered playback. The opening line's
     // assertive retry deliberately ignores the microphone gesture.
@@ -59,7 +60,7 @@ test.describe("Practice page — iOS audio element reuse", () => {
 
     const replies = ["Hi there!", "I'm good, and you?", "Heading to work.", "Take care!"];
     for (let turn = 0; turn < replies.length; turn += 1) {
-      await page.getByTestId("practice-mic-button").click();
+      await startSpeaking(page);
       await page.evaluate((reply) => {
         window.__mockSpeechRecognition?.emitResult(reply, { isFinal: true });
       }, replies[turn]);
@@ -82,7 +83,7 @@ test.describe("Practice page — iOS audio element reuse", () => {
     ]);
     await page.goto(PRACTICE_URL);
 
-    await page.getByTestId("practice-mic-button").click();
+    await startSpeaking(page);
     await page.evaluate(() => window.__mockSpeechRecognition?.emitError("not-allowed"));
     await expect(page.getByTestId("practice-text-input")).toBeVisible();
 

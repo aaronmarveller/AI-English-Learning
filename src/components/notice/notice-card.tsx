@@ -45,7 +45,7 @@ export function NoticeCard({ index, card, open, onToggle, children }: NoticeCard
         aria-expanded={open}
         aria-controls={bodyId}
         data-testid={`${testId}-header`}
-        className="flex w-full items-center gap-3 px-4 py-4 text-left active:brightness-95"
+        className="flex w-full items-start gap-3 px-4 py-4 text-left active:brightness-95"
         onClick={onToggle}
       >
         <span
@@ -55,15 +55,19 @@ export function NoticeCard({ index, card, open, onToggle, children }: NoticeCard
           {index}
         </span>
 
-        <span className="flex min-w-0 flex-1 flex-col gap-1">
+        <span className="flex min-w-0 flex-1 flex-col gap-3">
           <span className="text-h3 text-foreground">{card.title}</span>
           {!open ? (
-            <span className="flex items-center gap-1.5 text-body-sm text-muted">
-              <UsFlagIcon className="h-2.5 w-auto shrink-0 rounded-[2px]" />
-              <span aria-hidden>{card.preview.us}</span>
-              <span className="text-caption">VS</span>
-              <ChinaFlagIcon className="h-2.5 w-auto shrink-0 rounded-[2px]" />
-              <span aria-hidden>{card.preview.china}</span>
+            <span aria-hidden className="flex w-full flex-nowrap items-center justify-between gap-2">
+              <span className="flex shrink-0 flex-nowrap items-center gap-1.5 whitespace-nowrap">
+                <UsFlagIcon className="h-8 w-8 shrink-0 rounded-[2px] object-contain" />
+                <span className="whitespace-nowrap text-[32px] leading-none">{card.preview.us}</span>
+              </span>
+              <span className="shrink-0 text-caption text-muted">VS</span>
+              <span className="flex shrink-0 flex-nowrap items-center justify-end gap-1.5 whitespace-nowrap">
+                <span className="whitespace-nowrap text-[32px] leading-none">{card.preview.china}</span>
+                <ChinaFlagIcon className="h-8 w-8 shrink-0 rounded-[2px] object-contain" />
+              </span>
             </span>
           ) : null}
         </span>

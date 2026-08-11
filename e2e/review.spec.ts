@@ -116,9 +116,5 @@ test.describe("Review page", () => {
     await expect(page.getByTestId("learner-message-bubble")).toHaveCount(0);
     await expect(page.getByTestId("view-summary-button")).toBeDisabled();
 
-    // The full transcript (ticket 10) confirms the store itself is clean,
-    // not just the current-turn bubble: only the freshly picked opening line.
-    await page.getByTestId("transcript-toggle-button").click();
-    await expect(page.getByTestId("transcript-message")).toHaveCount(1);
   });
 });

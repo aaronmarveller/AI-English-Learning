@@ -43,18 +43,14 @@ import { askChineseQuestion } from "@/lib/ask-chinese-question";
 import {
   CHINESE_RECOGNITION_LANG,
   isSpeechRecognitionSupported,
-  startListening,
-  type ListeningController,
 } from "@/lib/speech-recognition";
+import { useMicListening } from "@/lib/use-mic-listening";
 import {
-  acquireMicListening,
-  getServerSpeakingSnapshot,
-  getSpeakingSnapshot,
-  releaseMicListening,
+  getServerTurnTakingSnapshot,
+  getTurnTakingSnapshot,
   speak,
   speakAssertively,
-  subscribeToSpeaking,
-  type MicListeningOwner,
+  subscribeToTurnTaking,
 } from "@/lib/speech-synthesis";
 
 type AskInChineseSheetProps = {
@@ -85,57 +81,21 @@ export function AskInChineseSheet({ conversationState, onClose, onExitWithEnglis
   const [followUps, setFollowUps] = useState<FollowUp[]>([]);
   const [isAsking, setIsAsking] = useState(false);
   const [textValue, setTextValue] = useState("");
-  const [isListening, setIsListening] = useState(false);
-  const [interimTranscript, setInterimTranscript] = useState("");
-
-  const controllerRef = useRef<ListeningController | null>(null);
-  const micListeningOwnerRef = useRef<MicListeningOwner | null>(null);
-  const listeningSessionRef = useRef(0);
   const spokenFollowUpIdsRef = useRef(new Set<string>());
   const isSupported = typeof window !== "undefined" && isSpeechRecognitionSupported();
-  const isEmilySpeaking = useSyncExternalStore(
-    subscribeToSpeaking,
-    getSpeakingSnapshot,
-    getServerSpeakingSnapshot,
+  const turnTakingState = useSyncExternalStore(
+    subscribeToTurnTaking,
+    getTurnTakingSnapshot,
+    getServerTurnTakingSnapshot,
   );
+  const isMicGated = turnTakingState !== "idle";
+  const { isListening, interimTranscript, beginListening, stopListening } = useMicListening({
+    lang: CHINESE_RECOGNITION_LANG,
+    onResult: (transcript, isFinal) => {
+      if (isFinal) void handleFollowUp(transcript);
+    },
+  });
 
-  function releaseOwnedMic() {
-    if (!micListeningOwnerRef.current) return;
-    releaseMicListening(micListeningOwnerRef.current);
-    micListeningOwnerRef.current = null;
-  }
-
-  function finishListeningSession(sessionId: number, stopRecognition = false): boolean {
-    if (listeningSessionRef.current !== sessionId) return false;
-    listeningSessionRef.current += 1;
-    const controller = controllerRef.current;
-    controllerRef.current = null;
-    releaseOwnedMic();
-    setIsListening(false);
-    setInterimTranscript("");
-    if (stopRecognition) controller?.stop();
-    return true;
-  }
-
-  function stopCurrentListening() {
-    listeningSessionRef.current += 1;
-    const controller = controllerRef.current;
-    controllerRef.current = null;
-    releaseOwnedMic();
-    setIsListening(false);
-    setInterimTranscript("");
-    controller?.stop();
-  }
-
-  useEffect(() => {
-    return () => {
-      listeningSessionRef.current += 1;
-      const controller = controllerRef.current;
-      controllerRef.current = null;
-      controller?.stop();
-      releaseOwnedMic();
-    };
-  }, []);
 
   useEffect(() => {
     const latest = followUps.at(-1);
@@ -188,40 +148,6 @@ export function AskInChineseSheet({ conversationState, onClose, onExitWithEnglis
     const value = textValue;
     setTextValue("");
     void handleFollowUp(value);
-  }
-
-  function handleMicClick() {
-    if (isAsking || getSpeakingSnapshot()) return;
-    if (isListening) {
-      stopCurrentListening();
-      return;
-    }
-    const sessionId = listeningSessionRef.current + 1;
-    listeningSessionRef.current = sessionId;
-    micListeningOwnerRef.current = acquireMicListening();
-    setInterimTranscript("");
-    setIsListening(true);
-
-    controllerRef.current = startListening(
-      {
-        onResult: (transcript, isFinal) => {
-          if (listeningSessionRef.current !== sessionId) return;
-          if (!isFinal) {
-            setInterimTranscript(transcript);
-            return;
-          }
-          if (!finishListeningSession(sessionId)) return;
-          void handleFollowUp(transcript);
-        },
-        onError: () => {
-          finishListeningSession(sessionId, true);
-        },
-        onEnd: () => {
-          finishListeningSession(sessionId);
-        },
-      },
-      { lang: CHINESE_RECOGNITION_LANG },
-    );
   }
 
   return (
@@ -329,27 +255,29 @@ export function AskInChineseSheet({ conversationState, onClose, onExitWithEnglis
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={handleMicClick}
-                disabled={isAsking || isEmilySpeaking}
+                onClick={() => (isListening ? stopListening() : beginListening())}
+                disabled={isAsking || isMicGated}
                 data-testid="ask-in-chinese-mic-button"
                 data-state={isListening ? "listening" : "idle"}
-                aria-label={isListening ? "停止中文录音 Stop listening" : "用中文提问 Ask in Chinese by voice"}
-                className={`btn-icon-pressed flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-h3 disabled:cursor-not-allowed disabled:opacity-40 ${
+                aria-label={isListening ? "停止说话 Stop listening" : "开始说话 Start speaking"}
+                className={`btn-icon-pressed select-none flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-h3 disabled:cursor-not-allowed disabled:opacity-40 ${
                   isListening ? "animate-pulse bg-accent text-accent-foreground" : "bg-accent-soft text-accent"
                 }`}
               >
                 <span aria-hidden>🎤</span>
               </button>
               <p data-testid="ask-in-chinese-mic-status" className="text-body-sm text-muted" role="status">
-                {isEmilySpeaking
+                {turnTakingState === "speaking"
                   ? "Emily 正在说话，请稍候... Emily is speaking. Please wait..."
+                  : turnTakingState === "handoff-gap"
+                  ? "等她话音落下再开口... Wait for her voice to settle..."
                   : isAsking
                   ? "Emily 正在思考... Thinking..."
                   : isListening
                     ? interimTranscript.length > 0
                       ? interimTranscript
                       : "正在聆听... Listening..."
-                    : "点击麦克风用中文提问"}
+                    : "点击麦克风用中文提问 Tap the mic to ask in Chinese"}
               </p>
             </div>
           ) : isAsking ? (

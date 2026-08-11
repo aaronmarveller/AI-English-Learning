@@ -269,6 +269,95 @@ describe("speech playback", () => {
     unsubscribe();
   });
 
+  it("enters the Handoff Gap after audible playback, then releases it after two seconds", async () => {
+    vi.useFakeTimers();
+
+    class FakeAudio extends EventTarget {
+      static instance: FakeAudio;
+      src = "";
+      muted = false;
+      playbackRate = 1;
+      constructor() {
+        super();
+        FakeAudio.instance = this;
+      }
+      pause(): void {}
+      play(): Promise<void> {
+        return Promise.resolve();
+      }
+    }
+
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("Audio", FakeAudio);
+    vi.resetModules();
+
+    const {
+      HANDOFF_GAP_MS,
+      getTurnTakingSnapshot,
+      speak,
+    } = await import("@/lib/speech-synthesis");
+    const playback = speak("Hi!");
+    expect(getTurnTakingSnapshot()).toBe("speaking");
+
+    await Promise.resolve();
+    FakeAudio.instance.dispatchEvent(new Event("ended"));
+    await expect(playback).resolves.toBe(true);
+    expect(getTurnTakingSnapshot()).toBe("handoff-gap");
+
+    await vi.advanceTimersByTimeAsync(HANDOFF_GAP_MS);
+    expect(getTurnTakingSnapshot()).toBe("idle");
+  });
+
+  it("does not impose a Handoff Gap when playback never starts", async () => {
+    vi.useFakeTimers();
+
+    class FakeAudio {
+      src = "";
+      muted = false;
+      playbackRate = 1;
+      pause(): void {}
+      addEventListener(): void {}
+      removeEventListener(): void {}
+      play(): Promise<void> {
+        return Promise.reject(new DOMException("blocked", "NotAllowedError"));
+      }
+    }
+
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("Audio", FakeAudio);
+    vi.resetModules();
+
+    const { getTurnTakingSnapshot, speak } = await import("@/lib/speech-synthesis");
+    await expect(speak("Hi!")).resolves.toBe(false);
+    expect(getTurnTakingSnapshot()).toBe("idle");
+  });
+
+  it("keeps the Handoff Gap when audible playback is cancelled", async () => {
+    vi.useFakeTimers();
+
+    class FakeAudio extends EventTarget {
+      src = "";
+      muted = false;
+      playbackRate = 1;
+      pause(): void {}
+      play(): Promise<void> {
+        return Promise.resolve();
+      }
+    }
+
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("Audio", FakeAudio);
+    vi.resetModules();
+
+    const { cancelSpeech, getTurnTakingSnapshot, speak } = await import("@/lib/speech-synthesis");
+    const playback = speak("Hi!");
+    await Promise.resolve();
+    cancelSpeech();
+
+    await expect(playback).resolves.toBe(false);
+    expect(getTurnTakingSnapshot()).toBe("handoff-gap");
+  });
+
   it("releases speaking state immediately when playback is cancelled", async () => {
     class FakeAudio extends EventTarget {
       src = "";

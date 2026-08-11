@@ -225,6 +225,11 @@ export async function submitReply(page: Page, text: string): Promise<void> {
   await page.getByTestId("practice-send-button").click();
 }
 
+/** Starts a learner speech Turn through either Practice microphone. */
+export async function startSpeaking(page: Page, microphoneTestId = "practice-mic-button"): Promise<void> {
+  await page.getByTestId(microphoneTestId).click();
+}
+
 // --- Web Speech API stub (for ticket 08/09+) ----------------------------
 
 type MockRecognitionResultOptions = {

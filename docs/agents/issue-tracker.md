@@ -47,5 +47,5 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
 ## Repo-specific notes
 
 - Remote: `aaronmarveller/AI-English-Learning` (inferred from `git remote -v`).
-- The `gh` CLI is **not installed yet** on this machine. Install it and run `gh auth login` before any skill that reads or writes issues.
+- The `gh` CLI is installed and authenticated (account `aaronmarveller`). Native issue dependencies are available on this repo — prefer them over a `Blocked by:` line in the body.
 - Pre-existing markdown issues from before this repo moved to GitHub Issues live under `.scratch/greeting-somebody-mvp/issues/`. They are historical; new issues go to GitHub.

@@ -4,6 +4,7 @@ import {
   mockSpeechApis,
   PRACTICE_URL,
   resetStorage,
+  startSpeaking,
 } from "./fixtures";
 import { PLAYBACK_START_TIMEOUT_MS } from "@/lib/speech-synthesis";
 
@@ -14,7 +15,7 @@ test.describe("Practice turn-taking", () => {
     await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
     await page.goto(PRACTICE_URL);
 
-    await page.getByTestId("practice-mic-button").click();
+    await startSpeaking(page);
     await page.evaluate(() =>
       window.__mockSpeechRecognition?.emitResult("Hi Emily!", { isFinal: true }),
     );
@@ -60,7 +61,7 @@ test.describe("Practice turn-taking", () => {
     await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
     await page.goto(PRACTICE_URL);
 
-    await page.getByTestId("practice-mic-button").click();
+    await startSpeaking(page);
     await page.evaluate(() =>
       window.__mockSpeechRecognition?.emitResult("Hi Emily!", { isFinal: true }),
     );
@@ -88,7 +89,7 @@ test.describe("Practice turn-taking", () => {
     await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
     await page.goto(PRACTICE_URL);
 
-    await page.getByTestId("practice-mic-button").click();
+    await startSpeaking(page);
     await page.evaluate(() => window.__mockAudio?.stallNext());
     await page.evaluate(() =>
       window.__mockSpeechRecognition?.emitResult("Hi Emily!", { isFinal: true }),
