@@ -35,6 +35,15 @@ import type { Lesson, ScriptLine } from "@/content/lesson";
  * the composition itself. Two Goals at a time is the real case the ticket's
  * headline scenario exercises (a reaction, then a steer); the single-Goal
  * cases are unchanged, still exactly one line.
+ *
+ * Issue #50 completes the composition's last two rules, both of which exist
+ * only because an earlier Goal may be left open: the steer toward an open
+ * `greeting`/`response` borrows that Goal's `needs_retry` pool (ratified
+ * against section 3 — see `selectSteerLineForFocusGoal`), and a Turn that
+ * completes Practice says a Closing line before the Completion line when
+ * `closing` was achieved in an earlier Turn. Both are inside
+ * `selectEmilyLinesForTurn`, so the caller's shape (#48 chose it) is
+ * unchanged.
  */
 
 /** Injectable RNG, defaulting to `Math.random` — see this file's top doc comment. */
@@ -113,9 +122,20 @@ export type SelectEmilyLinesInput = {
  *    and `greeting` have no steer pool of their own, so a Focus Goal that
  *    step 1 did not already address borrows one of its `needs_retry` lines
  *    (those lines already read as "here's what to say next" — see
- *    `selectSteerLineForFocusGoal` for how that reads on `response`). Whether
- *    those two Goals deserve a real steer pool, and the "an accepted Turn
- *    always yields at least one line" invariant, are #50's.
+ *    `selectSteerLineForFocusGoal`, which #50 ratifies against section 3).
+ * 3. **Farewell before completion** (issue #50) — if this Turn completes
+ *    Practice but `closing` was achieved in an *earlier* one, a Closing-pool
+ *    line is spoken before the Completion line, so Emily always says goodbye:
+ *    a learner who opened with "Hi! Bye!" hears "See you!" back when the
+ *    conversation finally closes, instead of being thanked and cut off. When
+ *    `closing` was achieved *in this Turn* there is nothing to add — the
+ *    Completion line answers the goodbye the learner just said.
+ *
+ * The three steps are what makes section 3's guarantee true — "Emily never
+ * ends a Turn silent: the composition above always yields at least one line" —
+ * which is why it is checked exhaustively rather than case by case in
+ * emily-reply-selector.test.ts: an `accepted` Turn achieves at least one open
+ * Goal by definition, so every branch here has to be one some line covers.
  *
  * A `needs_retry` Turn is a single line — one retry line is the whole reply to
  * a Turn whose parts that were right were not saved (#49's "don't grow the
@@ -123,9 +143,7 @@ export type SelectEmilyLinesInput = {
  * `needsRetryLines` in canonical order, or the Focus Goal's when the report
  * failed nothing at all. The ticket example is `checkin` achieved and `closing`
  * failed, where the nudge has to come from Closing, not from the Check-in the
- * learner just got right. Step 3 of section 3's composition — farewell before
- * completion when `closing` landed in an earlier Turn — is #50's, so a Turn
- * that completes Practice here ends on the Completion line alone.
+ * learner just got right.
  *
  * Deliberately returns an array even in the single-line cases: every call site
  * speaks and persists a sequence, and a caller that had to special-case
@@ -172,8 +190,21 @@ export function selectEmilyLinesForTurn(
   }
 
   if (focusGoal === null) {
-    // All four Goals achieved: the completion pool (English-only; see that
-    // pool's own doc comment in lesson.ts).
+    // All four Goals achieved, so this Turn completes Practice — step 2's own
+    // terminal case, and the Completion pool (English-only; see that pool's
+    // own doc comment in lesson.ts).
+    //
+    // Step 3: a farewell first, when `closing` was not among the Goals this
+    // Turn achieved. That is the same question as "was `closing` already in
+    // Goal Progress" — Practice only completes with all four in it — and it is
+    // the distinction the whole step turns on: a learner who said goodbye
+    // three Turns ago ("Hi! Bye!") never hears Emily return it otherwise. Her
+    // line comes from the Closing pool, the same one the steer toward an open
+    // `closing` draws from: a goodbye is a goodbye whether Emily is suggesting
+    // it or answering it.
+    if (input.progressBeforeTurn.includes("closing")) {
+      lines.push(pickOne(lesson.closingLines, random));
+    }
     lines.push({ en: pickOne(lesson.completionMessages, random), zh: "" });
     return lines;
   }
@@ -218,15 +249,27 @@ function selectRetryPoolGoal(
  * The steer line toward one Focus Goal (step 2 of the composition above).
  *
  * `greeting` and `response` have no steer pool, so they borrow their own
- * `needsRetryLines` — section 3's rule for both. For `response` that is a
- * deliberate reading of section 3 over #47's mapping, which sent this case to
- * the Response pool: that pool *reacts* to a check-in the learner gave, and a
- * Turn that leaves `response` as the Focus Goal without having just achieved
- * `checkin` has no check-in to react to. #47's mapping and §3 coincide for
- * every one-Goal-per-Turn conversation (where the reaction is always what
- * steers toward `response`), so this only differs in the non-contiguous case
- * this ticket makes reachable — #50 owns ratifying it and deciding whether
- * these two Goals deserve steer pools of their own.
+ * `needs_retry` lines. Issue #50 ratifies that against section 3, which states
+ * it outright ("When the Focus Goal is `greeting` or `response` (which have no
+ * steer pool of their own) and step 1 did not already address it, one line
+ * from that Goal's `needs_retry` pool serves as the steer — those lines
+ * already read as 'here's what to say next'"), and settles the one place #47's
+ * mapping disagreed: that mapping sent a `response` Focus Goal to the Response
+ * pool, which *reacts* to a check-in the learner gave — and a Turn that leaves
+ * `response` open without having just achieved `checkin` has no check-in to
+ * react to. The two coincide for every one-Goal-per-Turn conversation (where
+ * the reaction is always what steers toward `response`), so this only shows up
+ * in the non-contiguous Goal Progress #48 made reachable. Giving either Goal a
+ * steer pool of its own stays out of scope: it would need new lines and so new
+ * audio, which #50's design notes rule out — ADR-0012 names that as the fix if
+ * these borrowed lines ever read as criticism in practice.
+ *
+ * The "and step 1 did not already address it" half of that rule is the caller's
+ * `focusGoal === "response" && reacted` short-circuit, not a second condition
+ * here: only `response` has a reaction that doubles as its steer. A reaction
+ * (a Response-pool line answering the learner's check-in) says nothing about
+ * greeting, so an open `greeting` always gets its line — which is what keeps
+ * the composition's "never silent" guarantee true rather than mostly true.
  */
 function selectSteerLineForFocusGoal(
   lesson: Lesson,
