@@ -1,5 +1,5 @@
 import type { ActiveConversationState, Verdict } from "@/lib/conversation-state-machine";
-import { applyGoalReport, getFocusGoal, type GoalProgress } from "@/lib/goal-progress";
+import { applyGoalReport, getFocusGoal, getOpenGoals, type GoalProgress } from "@/lib/goal-progress";
 import type { GoalReport } from "@/lib/practice-turn-protocol";
 import type { Lesson, ScriptLine } from "@/content/lesson";
 
@@ -22,8 +22,10 @@ import type { Lesson, ScriptLine } from "@/content/lesson";
  * Conversation State pointer. Given the Goal Progress a Turn left behind:
  *   - `needs_retry` → that Progress is where it started (nothing from a
  *     `needs_retry` Turn is saved — src/lib/goal-progress.ts's
- *     `applyGoalReport`), so its Focus Goal is the Goal the Turn was judged
- *     against, and the line comes from that Goal's `needsRetryLines`.
+ *     `applyGoalReport`), and the line comes from the `needsRetryLines` of
+ *     the first Goal in canonical order the report marked `failed` — or of
+ *     the Focus Goal when nothing was `failed` (issue #49; section 3's own
+ *     rule — see `selectRetryPoolGoal`).
  *   - `accepted` → the *new* Focus Goal, or the completion pool once all four
  *     Goals are achieved.
  *
@@ -115,13 +117,15 @@ export type SelectEmilyLinesInput = {
  *    those two Goals deserve a real steer pool, and the "an accepted Turn
  *    always yields at least one line" invariant, are #50's.
  *
- * A `needs_retry` Turn is a single line from the Focus Goal's own
- * `needsRetryLines` — the Focus Goal, because Goal Progress does not move on
- * such a Turn, so it is still the Goal the learner was judged against. (Which
- * pool a `failed` Goal picks is #49's.) Step 3 of section 3's composition —
- * farewell before completion when `closing` landed in an earlier Turn — is
- * #50's too, so a Turn that completes Practice here ends on the Completion
- * line alone.
+ * A `needs_retry` Turn is a single line — one retry line is the whole reply to
+ * a Turn whose parts that were right were not saved (#49's "don't grow the
+ * sequence") — picked by `selectRetryPoolGoal`: the first `failed` Goal's
+ * `needsRetryLines` in canonical order, or the Focus Goal's when the report
+ * failed nothing at all. The ticket example is `checkin` achieved and `closing`
+ * failed, where the nudge has to come from Closing, not from the Check-in the
+ * learner just got right. Step 3 of section 3's composition — farewell before
+ * completion when `closing` landed in an earlier Turn — is #50's, so a Turn
+ * that completes Practice here ends on the Completion line alone.
  *
  * Deliberately returns an array even in the single-line cases: every call site
  * speaks and persists a sequence, and a caller that had to special-case
@@ -141,12 +145,13 @@ export function selectEmilyLinesForTurn(
   const focusGoal = getFocusGoal(progressAfterTurn);
 
   if (input.verdict === "needs_retry") {
-    if (focusGoal === null) {
+    const retryGoal = selectRetryPoolGoal(input.progressBeforeTurn, input.goalReport);
+    if (retryGoal === null) {
       // Unreachable: a Turn is only ever submitted while at least one Goal is
       // open, and a needs_retry Turn leaves Goal Progress exactly as it was.
       throw new Error("emily-reply-selector: no open Goal to retry against");
     }
-    return [pickOne(lesson.script[focusGoal].needsRetryLines, random)];
+    return [pickOne(lesson.script[retryGoal].needsRetryLines, random)];
   }
 
   // All-or-nothing, so this is empty on a needs_retry Turn: read off the one
@@ -177,6 +182,36 @@ export function selectEmilyLinesForTurn(
 
   lines.push(selectSteerLineForFocusGoal(lesson, focusGoal, random));
   return lines;
+}
+
+/**
+ * Which Goal's `needs_retry` pool a `needs_retry` Turn speaks from
+ * (issue #49; docs/ai-configuration.md section 3's `needs_retry` table: "the
+ * pool used is the first Goal in canonical order the Goal Report marked
+ * `failed`, or the Focus Goal's when nothing was `failed`").
+ *
+ * Reading the report, not only the Focus Goal, is what makes Emily answer the
+ * *right* half of a mixed Turn: in the ticket's example the Focus Goal is
+ * Check-in but the learner's "I'm fine. See you later alligator crocodile"
+ * achieved `checkin` and failed `closing`, so the nudge has to be a Closing
+ * one — pointing at what actually went wrong, not at the Goal they just got
+ * right. "First in canonical order" (rather than, say, the last `failed` Goal)
+ * keeps a Turn that fails several deterministic and non-arbitrary: the
+ * earliest Goal still wrong is the one nudged, and it is the one a learner
+ * fixing the message would repair first.
+ *
+ * Only the *open* Goals are considered, exactly as `deriveVerdict` considers
+ * only those (src/lib/goal-progress.ts): a report key naming a Goal already in
+ * Goal Progress can never redirect Emily's line. `null` only when no Goal is
+ * open, which no submitted Turn reaches (the client stops submitting once
+ * Practice is complete).
+ */
+function selectRetryPoolGoal(
+  progressBeforeTurn: GoalProgress,
+  goalReport: GoalReport,
+): ActiveConversationState | null {
+  const openGoals = getOpenGoals(progressBeforeTurn);
+  return openGoals.find((goal) => goalReport[goal] === "failed") ?? getFocusGoal(progressBeforeTurn);
 }
 
 /**

@@ -28,6 +28,12 @@ import {
  *     `needs_retry` Turn saves nothing from its report even the parts that
  *     were right (all-or-nothing);
  *   - a Goal Report's keys outside the open set are ignored, never an error.
+ *
+ * Issue #49 (docs/ai-configuration.md section 4's "Verdict derivation —
+ * all-or-nothing") pins the mixed-report cases in their own `describe` at the
+ * end: one `achieved` alongside one `failed` derives `needs_retry` and saves
+ * neither half, while a message that only ever *attempted* one Goal still
+ * counts — every other Goal is `untouched`, never `failed`.
  */
 
 const ALL_FOUR: GoalProgress = [...ACTIVE_CONVERSATION_STATES];
@@ -226,5 +232,61 @@ describe("unexpectedGoalReportKeys", () => {
       "greeting",
     ]);
     expect(unexpectedGoalReportKeys([], STRAY_KEY_REPORT)).toEqual(["pizza"]);
+  });
+});
+
+/**
+ * Issue #49 (docs/ai-configuration.md section 4's "Verdict derivation —
+ * all-or-nothing"; ADR-0012's rejected "Partial credit" option): the boundary
+ * between a Goal that was *attempted and missed* and one that was *never
+ * attempted* is what keeps a half-right message from being judged at all. The
+ * cases below are the ticket's own examples, each asserting both halves of
+ * all-or-nothing at once — the Verdict derived, and Goal Progress left exactly
+ * as it was.
+ */
+describe("all-or-nothing across a mixed Goal Report (issue #49)", () => {
+  it("derives needs_retry for one achieved plus one failed, saving neither", () => {
+    // "I'm fine. See you later alligator crocodile" on a Focus Goal of
+    // Check-in: `checkin` landed, `closing` did not. The learner says the
+    // whole thing again rather than being credited with half of it.
+    const progress: GoalProgress = ["greeting"];
+    const report: GoalReport = { checkin: "achieved", closing: "failed" };
+
+    expect(deriveVerdict(progress, report)).toBe("needs_retry");
+    expect(applyGoalReport(progress, report, "needs_retry")).toEqual(progress);
+  });
+
+  it("derives needs_retry when every open Goal was left untouched", () => {
+    const progress: GoalProgress = ["greeting"];
+    const report: GoalReport = { checkin: "untouched", response: "untouched", closing: "untouched" };
+
+    expect(deriveVerdict(progress, report)).toBe("needs_retry");
+    expect(applyGoalReport(progress, report, "needs_retry")).toEqual(progress);
+  });
+
+  it("derives needs_retry for a recognisable attempt at a Goal's intent that missed", () => {
+    const progress: GoalProgress = ["greeting"];
+    const report: GoalReport = { checkin: "failed" };
+
+    expect(deriveVerdict(progress, report)).toBe("needs_retry");
+    expect(applyGoalReport(progress, report, "needs_retry")).toEqual(progress);
+  });
+
+  it("still accepts a partial message that attempted nothing else — untouched is never failed", () => {
+    // "Hi! I like pizza." and "Hi! Yes." both achieve `greeting` and leave the
+    // other Goals untouched: progress was made, and the silence around it is
+    // not a failure (docs/ai-configuration.md section 4's Goal Report table).
+    const pizzaTurn: GoalReport = {
+      greeting: "achieved",
+      checkin: "untouched",
+      response: "untouched",
+      closing: "untouched",
+    };
+    const bareYesTurn: GoalReport = { greeting: "achieved", checkin: "untouched" };
+
+    for (const report of [pizzaTurn, bareYesTurn]) {
+      expect(deriveVerdict([], report)).toBe("accepted");
+      expect(applyGoalReport([], report, "accepted")).toEqual(["greeting"]);
+    }
   });
 });

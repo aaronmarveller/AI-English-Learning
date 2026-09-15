@@ -24,6 +24,12 @@ import { ACTIVE_CONVERSATION_STATES } from "@/lib/conversation-state-machine";
  * `learningGoal` texts describe their Goal rather than the line Emily just
  * said, and the Goal-set section says outright to judge every open Goal on its
  * own merits.
+ *
+ * Issue #49 (docs/ai-configuration.md section 4): the prompt defines
+ * `achieved` / `failed` / `untouched` itself, including the boundary that
+ * separates an attempt that missed from no attempt at all ("Hi! I like
+ * pizza." is `greeting` achieved and everything else `untouched`, never
+ * `failed`) and that grammar alone never makes an attempt `failed`.
  */
 describe("Practice system prompt", () => {
   it("describes the two-field submit_turn_result contract, not reply generation or a verdict", () => {
@@ -127,5 +133,30 @@ describe("Practice system prompt", () => {
       );
       expect(learningGoal.toLowerCase()).toContain("the learner");
     }
+  });
+
+  it("teaches the achieved / failed / untouched boundary in the prompt itself (issue #49)", () => {
+    // docs/ai-configuration.md section 4's Goal Report table: only a
+    // *recognisable attempt* at a Goal's intent that does not communicate it
+    // is "failed". Leave that boundary implicit and "Hi! I like pizza." reads
+    // as a failed check-in instead of a message that achieved `greeting` and
+    // left the rest untouched — so the prompt, not only the tool description
+    // (src/lib/practice-judge.ts), has to state it.
+    expect(GLOBAL_SYSTEM_RULES).toContain("Every open Goal gets exactly one of three reports");
+    expect(GLOBAL_SYSTEM_RULES).toContain(
+      '"failed": the message recognisably attempted this Goal\'s intent',
+    );
+    expect(GLOBAL_SYSTEM_RULES).toContain(
+      'Unrelated chatter, off-topic remarks, filler, and a bare "Yes." are all "untouched", never "failed"',
+    );
+    expect(GLOBAL_SYSTEM_RULES).toContain('Grammar alone never makes an attempt "failed"');
+    // A partial message that attempted nothing else is progress, not failure.
+    expect(GLOBAL_SYSTEM_RULES).toContain('leaves "checkin" "untouched"');
+
+    // The per-Goal section repeats the same two rules right where the model
+    // reports each Goal.
+    const prompt = buildGoalSetSystemPromptSection([]);
+    expect(prompt).toContain('grammar alone never makes an attempt "failed"');
+    expect(prompt).toContain('a bare "Yes." are "untouched", never "failed"');
   });
 });

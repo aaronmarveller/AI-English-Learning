@@ -94,7 +94,7 @@ function buildSubmitTurnResultTool(openGoals: ActiveConversationState[]): Anthro
         goal_report: {
           type: "object",
           description:
-            'One entry per open Conversation Goal listed here. "achieved": the learner\'s message communicated this Goal\'s intent — in their own words or not, prompted by Emily or not. "failed": the message recognisably attempted this Goal\'s intent but did not communicate it; grammar alone never makes an attempt "failed". "untouched": the message did not attempt this Goal — unrelated chatter, filler, and a bare "Yes." are all "untouched", never "failed".',
+            'One entry per open Conversation Goal listed here. "achieved": the learner\'s message communicated this Goal\'s intent — in their own words or not, prompted by Emily or not. "failed": the message recognisably attempted this Goal\'s intent (a greeting, an answer about how they are, a thank-you or a question back, a goodbye) but did not communicate it; grammar alone never makes an attempt "failed", and a message that simply did not try for this Goal is not "failed". "untouched": the message did not attempt this Goal — unrelated chatter, filler, and a bare "Yes." are all "untouched", never "failed".',
           properties: Object.fromEntries(
             openGoals.map((goal) => [
               goal,

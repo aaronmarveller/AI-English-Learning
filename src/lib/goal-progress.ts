@@ -32,12 +32,14 @@
  * rejects that), which is why the Focus Goal is defined as "first open Goal"
  * rather than "one past the last achieved one".
  *
- * Issue #47 deliberately fixes the protocol in its final three-state shape
+ * Issue #47 deliberately fixed the protocol in its final three-state shape
  * without yet using it: nothing here produces a multi-Goal report or a gap
- * (that is #48's one-Goal-per-Turn looseness), and no rule here picks a
- * `failed` Goal's retry pool in canonical order (that is #49's). The
- * functions already answer both shapes correctly because the shape itself is
- * final — see goal-progress.test.ts.
+ * (that was #48's one-Goal-per-Turn looseness — a Turn may now achieve
+ * several Goals at once and leave earlier ones open). The functions already
+ * answer every shape correctly because the shape itself is final — see
+ * goal-progress.test.ts. Which *line* a `failed` Goal earns Emily is not a
+ * Goal Progress question at all, so it lives with the rest of pool selection
+ * (issue #49 — src/lib/emily-reply-selector.ts's `selectRetryPoolGoal`).
  */
 
 import {

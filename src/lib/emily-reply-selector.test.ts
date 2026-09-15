@@ -24,6 +24,11 @@ function fixedRandom(value: number) {
  * Goal. The single-Goal cases must stay exactly one line, identical to what
  * #47 selected.
  *
+ * Issue #49 (section 3's `needs_retry` pool rule): a `needs_retry` Turn's one
+ * line comes from the first Goal in canonical order its report marked `failed`
+ * — the Focus Goal's only when nothing was `failed`. The `failed` cases are
+ * grouped in their own `describe` below.
+ *
  * The helper below mirrors the call site, deriving the Verdict exactly as
  * production derives it (src/lib/goal-progress.ts's `deriveVerdict`).
  */
@@ -41,7 +46,7 @@ function selectLines(progressBeforeTurn: GoalProgress, goalReport: GoalReport, l
 }
 
 describe("selectEmilyLinesForTurn", () => {
-  it("needs_retry picks one line from the Focus Goal's own needsRetryLines pool, leaving Goal Progress alone", () => {
+  it("needs_retry with nothing failed picks one line from the Focus Goal's own needsRetryLines pool, leaving Goal Progress alone", () => {
     const cases: [GoalProgress, ActiveConversationState][] = [
       [[], "greeting"],
       [["greeting"], "checkin"],
@@ -49,18 +54,67 @@ describe("selectEmilyLinesForTurn", () => {
       [["greeting", "checkin", "response"], "closing"],
     ];
     for (const [progressBeforeTurn, focusGoal] of cases) {
-      // A report that achieves nothing on any open Goal derives needs_retry.
+      // A report that attempts nothing on any open Goal derives needs_retry,
+      // and with no `failed` Goal the Focus Goal's pool is the one used
+      // (issue #49 — the `failed` cases are below).
       const lines = selectLines(progressBeforeTurn, {});
       expect(lines).toEqual([GREETING_SOMEBODY_LESSON.script[focusGoal].needsRetryLines[0]]);
     }
   });
 
-  it("needs_retry keys off the Focus Goal even when the Turn achieved a later Goal and failed another", () => {
-    // All-or-nothing: Goal Progress is where it started, so the line is still
-    // written for `greeting`, the Focus Goal — not for what the report
-    // happened to mark achieved.
-    const lines = selectLines([], { greeting: "failed", checkin: "achieved" });
-    expect(lines).toEqual([GREETING_SOMEBODY_LESSON.script.greeting.needsRetryLines[0]]);
+  describe("needs_retry speaks from the first failed Goal's pool (issue #49)", () => {
+    it("nudges the failed Goal, not the Focus Goal: Focus Goal checkin, but closing failed", () => {
+      // The ticket's example — "I'm fine. See you later alligator crocodile"
+      // against a Focus Goal of Check-in. `checkin` was achieved, `closing`
+      // failed, all-or-nothing leaves Goal Progress at ["greeting"], and the
+      // nudge has to come from the Closing pool: pointing at the goodbye the
+      // learner did not get, never at the check-in they just got right.
+      const lines = selectLines(["greeting"], { checkin: "achieved", closing: "failed" });
+
+      expect(lines).toEqual([GREETING_SOMEBODY_LESSON.script.closing.needsRetryLines[0]]);
+      expect(GREETING_SOMEBODY_LESSON.script.checkin.needsRetryLines).not.toContainEqual(lines[0]);
+    });
+
+    it("uses a failed Goal's pool even when the Focus Goal itself was left untouched", () => {
+      // Check-in (the Focus Goal) was not attempted at all; `response` was
+      // attempted and missed. "Untouched" is not a failure, so the retry line
+      // is `response`'s even though `response` is the later Goal.
+      const lines = selectLines(["greeting"], { checkin: "untouched", response: "failed" });
+
+      expect(lines).toEqual([GREETING_SOMEBODY_LESSON.script.response.needsRetryLines[0]]);
+      expect(GREETING_SOMEBODY_LESSON.script.checkin.needsRetryLines).not.toContainEqual(lines[0]);
+    });
+
+    it("takes the earliest failed Goal in canonical order when a Turn fails several", () => {
+      // Canonical order is greeting → checkin → response → closing: `response`
+      // wins over `closing` however the report happens to be keyed, so the
+      // next Turn's retry starts on the earliest Goal still wrong.
+      const lines = selectLines([], { closing: "failed", response: "failed" });
+
+      expect(lines).toEqual([GREETING_SOMEBODY_LESSON.script.response.needsRetryLines[0]]);
+      expect(GREETING_SOMEBODY_LESSON.script.closing.needsRetryLines).not.toContainEqual(lines[0]);
+    });
+
+    it("never lets a `failed` key outside the open Goals redirect the line", () => {
+      // The Judge is only asked about open Goals (ADR-0012), so a report key
+      // naming an already-achieved Goal neither fails the Turn nor changes
+      // which pool Emily speaks from — Goal Progress decides that.
+      const lines = selectLines(["greeting", "checkin"], { greeting: "failed" });
+
+      expect(deriveVerdict(["greeting", "checkin"], { greeting: "failed" })).toBe("needs_retry");
+      expect(lines).toEqual([GREETING_SOMEBODY_LESSON.script.response.needsRetryLines[0]]);
+    });
+
+    it("falls back to the Focus Goal's pool when every open Goal was untouched", () => {
+      // Off-topic chatter touches no Goal (docs/ai-configuration.md section 4):
+      // nothing failed, so this is the Focus Goal's own retry pool.
+      const lines = selectLines(["greeting", "checkin"], {
+        response: "untouched",
+        closing: "untouched",
+      });
+
+      expect(lines).toEqual([GREETING_SOMEBODY_LESSON.script.response.needsRetryLines[0]]);
+    });
   });
 
   it("accepted greeting advances the Focus Goal to checkin and picks one line from checkinLines", () => {
