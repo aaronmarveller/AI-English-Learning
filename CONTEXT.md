@@ -8,25 +8,43 @@ One round-trip in a Practice conversation: the learner's message, plus Emily's c
 
 ## Verdict
 
-The judgment a Turn receives: `accepted` or `needs_retry`. Produced by the Judge — never decided on the client. A learner who wanders off the Lesson's topic receives `needs_retry`; off-topic is not a Verdict of its own.
+The judgment a Turn receives: `accepted` when the Goal Report has at least one `achieved` Goal and no `failed` one; `needs_retry` otherwise. All-or-nothing — a Turn that gets one Goal right and another wrong is `needs_retry`, and none of it counts. Derived on the client from the Goal Report — the Judge never names a Verdict itself. A learner who wanders off the Lesson's topic receives `needs_retry`; off-topic is not a Verdict of its own.
 
 ## Turn Outcome
 
-What a learner's submission resolves to overall: `support_requested`, `accepted`, or `needs_retry`. The latter two are Verdicts, decided by the Judge. `support_requested` is decided on the client *before* the Judge is involved — the learner addressed Emily in Chinese — so it is an outcome that never becomes a Verdict.
+What a learner's submission resolves to overall: `support_requested`, `accepted`, or `needs_retry`. The latter two are Verdicts, derived from the Judge's Goal Report. `support_requested` is decided on the client *before* the Judge is involved — the learner addressed Emily in Chinese — so it is an outcome that never becomes a Verdict.
 _Avoid_: Validation Result
 
 ## Conversation Script
 
-A Lesson's verbatim library of Emily's lines: for each Conversation State, the pool of English sentences Emily may say on entering it. Emily selects from this library and never improvises, which is what makes every line she speaks pre-generatable as audio.
+A Lesson's verbatim library of Emily's lines: for each Conversation Goal, the pool of English sentences Emily may say to react to it being achieved or to steer toward it. Emily selects from this library and never improvises — a Turn that achieves several Goals at once is answered by several library lines in sequence, never by a composed one — which is what makes every line she speaks pre-generatable as audio.
 _Avoid_: reference conversation — the Script is not a stylistic example the Judge paraphrases
 
 ## Lesson
 
 One self-contained scenario the learner practices end to end, owning its Conversation Script, its Accepted Responses, and its Chinese help content. Today there is exactly one: `Greeting Somebody`.
 
+## Conversation Goal
+
+One of the four things a learner must communicate to complete a Lesson's Practice: `greeting`, `checkin`, `response`, `closing`. Goals have a canonical order but are not gates — a single Turn may achieve several, and a later Goal may be achieved before an earlier one.
+_Avoid_: step, Conversation Step — a step implies one-at-a-time in sequence, which Goals are not
+
+## Goal Report
+
+What the Judge returns for a Turn: for each still-open Conversation Goal, whether the learner's message `achieved` it, `failed` it (recognisably attempted its intent without communicating it), or left it `untouched`. The Judge is only ever asked about open Goals, so a Goal Report never re-credits one already achieved. Unrelated chatter is `untouched`, never `failed`; grammar alone never makes an attempt `failed`.
+
+## Goal Progress
+
+The set of Conversation Goals achieved so far in this Practice. Grows only through `accepted` Turns — every Goal that Turn's Goal Report marked `achieved` joins at once — and never shrinks: an achieved Goal is never asked for again. All four achieved means the Practice is complete.
+
+## Focus Goal
+
+The first open Conversation Goal in canonical order — the one Emily's next line steers toward, and the one a `needs_retry` line and the Chinese help content are written for. A `support_requested` Turn Outcome never changes it.
+
 ## Conversation State
 
-Where the learner currently is in Practice's fixed 4-step flow: `greeting → checkin → response → closing → complete`. Only a Turn's `accepted` Verdict advances Conversation State to the next step; `needs_retry` holds the learner on the current one, and a `support_requested` Turn Outcome never reaches the state machine at all.
+Where the learner is in Practice, derived from Goal Progress: the Focus Goal, or `complete` once all four Goals are achieved. Not a value that advances on its own — it is read off Goal Progress after every Turn.
+_Avoid_: treating it as a step counter — Goal Progress can be non-contiguous, so "the state" is not "how many steps are done"
 
 ## Learning Summary
 
