@@ -30,6 +30,17 @@ import { ACTIVE_CONVERSATION_STATES } from "@/lib/conversation-state-machine";
  * separates an attempt that missed from no attempt at all ("Hi! I like
  * pizza." is `greeting` achieved and everything else `untouched`, never
  * `failed`) and that grammar alone never makes an attempt `failed`.
+ *
+ * Issue #52 ran ticket 12's judgment-quality eval (scripts/eval-judgment.ts)
+ * against the real API with the **full Goal Report** asserted per case
+ * (prior Goal Progress in; one entry per open Goal out, plus
+ * `learner_asked_back`) and fixed the wording the first runs exposed: each
+ * Goal now names its *own* attempt, so a question back cannot be read as a
+ * failed answer; "meaning has to come through" is stated outright, so a
+ * garbled attempt is `failed` rather than generously `achieved`; and the
+ * off-topic constraint is per Goal and per part of the message instead of
+ * blanketing the whole message, so "Hi! I like pizza." still achieves
+ * `greeting`.
  */
 describe("Practice system prompt", () => {
   it("describes the two-field submit_turn_result contract, not reply generation or a verdict", () => {
@@ -152,11 +163,55 @@ describe("Practice system prompt", () => {
     expect(GLOBAL_SYSTEM_RULES).toContain('Grammar alone never makes an attempt "failed"');
     // A partial message that attempted nothing else is progress, not failure.
     expect(GLOBAL_SYSTEM_RULES).toContain('leaves "checkin" "untouched"');
+    // Issue #52: the mirror-image slip — a bare "Yes." credited as an
+    // acknowledgment of `response` — needed the boundary stated on the
+    // `achieved` side too, not only "never failed".
+    expect(GLOBAL_SYSTEM_RULES).toContain('and never "achieved" either');
 
     // The per-Goal section repeats the same two rules right where the model
     // reports each Goal.
     const prompt = buildGoalSetSystemPromptSection([]);
     expect(prompt).toContain('grammar alone never makes an attempt "failed"');
     expect(prompt).toContain('a bare "Yes." are "untouched", never "failed"');
+  });
+
+  it("names each Goal's own attempt, so one Goal's attempt is not another's failure (issue #52)", () => {
+    // #52's first live run: with the attempts listed as one shared pool
+    // ("a greeting, an answer about how they are, a thank-you or a question
+    // back, a goodbye") the model reported "How are you?" as a *failed*
+    // `checkin`, because a question back read as an attempt at the Goal it was
+    // reporting on. Each attempt now belongs to its own Goal, which is what
+    // puts a reciprocal question on `response`.
+    expect(GLOBAL_SYSTEM_RULES).toContain('a greeting attempt for "greeting"');
+    expect(GLOBAL_SYSTEM_RULES).toContain('a thank-you or a question back for "response"');
+    expect(GLOBAL_SYSTEM_RULES).toContain('a goodbye attempt for "closing"');
+    expect(GLOBAL_SYSTEM_RULES).toContain(
+      'An attempt at a *different* Goal never makes this one "failed"',
+    );
+    expect(GLOBAL_SYSTEM_RULES).toContain('which asks how *they* are');
+  });
+
+  it("says a garbled attempt is failed, not generously achieved (issue #52)", () => {
+    // #49's all-or-nothing rule is only as good as the model's willingness to
+    // report a recognisable attempt `failed`. #52's live run showed the
+    // prompt's generosity ("judge by communicative intent") swallowing that
+    // whole category — a goodbye attempt the learner garbled came back
+    // `achieved` — so "meaning has to come through" is now stated in so many
+    // words, while keeping grammar mistakes firmly on the `achieved` side.
+    expect(GLOBAL_SYSTEM_RULES).toContain("Meaning does have to come through");
+    expect(GLOBAL_SYSTEM_RULES).toContain("a message a listener would have to guess at");
+    expect(GLOBAL_SYSTEM_RULES).toContain('trails off into words that mean nothing here');
+  });
+
+  it("credits a Goal that a partly off-topic message did communicate (issue #52)", () => {
+    // #52's live run: the blanket "a learner who wanders off-topic leaves every
+    // Goal untouched" made the model withhold `greeting` from "Hi! I like
+    // pizza." — the case issue #52 pins as `greeting` achieved with everything
+    // else untouched. The rule is per Goal and per part of the message now.
+    expect(GLOBAL_SYSTEM_RULES).toContain("never applied to the message as a whole");
+    expect(GLOBAL_SYSTEM_RULES).toContain("a greeting is achieved by its own words");
+    expect(buildGoalSetSystemPromptSection([])).toContain(
+      "the off-topic part leaves its own Goals",
+    );
   });
 });

@@ -40,6 +40,14 @@ import {
  * same code path against the real API instead of reimplementing it — the
  * eval is only a meaningful regression guard for the system prompt if it
  * can't drift from what production actually sends.
+ *
+ * Issue #52: the tool description carries the same three-value boundary the
+ * system prompt does (src/content/practice.ts's "Global Conversation Rules"),
+ * and #52's eval run against the real API tightened both in step — each Goal's
+ * *attempt* named per Goal (a question back belongs to `response`, so it is no
+ * longer readable as a failed `checkin`), and "did not communicate it" spelled
+ * out as garbled or trailing into words that mean nothing here (`failed`
+ * rather than `achieved`, which #49's all-or-nothing rule depends on).
  */
 
 /** spec.md "三个适配层": Anthropic `claude-haiku-4-5-20251001` for this ticket's LLM adapter. */
@@ -94,7 +102,7 @@ function buildSubmitTurnResultTool(openGoals: ActiveConversationState[]): Anthro
         goal_report: {
           type: "object",
           description:
-            'One entry per open Conversation Goal listed here. "achieved": the learner\'s message communicated this Goal\'s intent — in their own words or not, prompted by Emily or not. "failed": the message recognisably attempted this Goal\'s intent (a greeting, an answer about how they are, a thank-you or a question back, a goodbye) but did not communicate it; grammar alone never makes an attempt "failed", and a message that simply did not try for this Goal is not "failed". "untouched": the message did not attempt this Goal — unrelated chatter, filler, and a bare "Yes." are all "untouched", never "failed".',
+            'One entry per open Conversation Goal listed here. "achieved": the learner\'s message communicated this Goal\'s intent — in their own words or not, prompted by Emily or not, and whether or not another part of the message said something else. "failed": the message recognisably attempted this Goal\'s intent (a greeting attempt for "greeting", an attempt to say how they are for "checkin", a thank-you or a question back for "response", a goodbye attempt for "closing") but did not communicate it, because it was garbled or trailed off into words that mean nothing here. Grammar alone never makes an attempt "failed", an attempt at a *different* Goal never makes this one "failed", and a message that simply did not try for this Goal is not "failed". "untouched": the message did not attempt this Goal — unrelated chatter, filler, and a bare "Yes." are all "untouched", never "failed" and never "achieved".',
           properties: Object.fromEntries(
             openGoals.map((goal) => [
               goal,
