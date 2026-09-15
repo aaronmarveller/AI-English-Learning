@@ -327,17 +327,46 @@ export function appendLearnerMessage(text: string): void {
  * `accepted` Turn adds every Goal the report marked `achieved`, at once, and
  * a `needs_retry` Turn saves nothing), appends Emily's reply as a message
  * tagged with the Goal the turn was judged against, bumps that Goal's attempt
- * count, and — only when the turn was accepted — appends a
- * `StateTurnRecord` for the Focus Goal (issue #20; see
+ * count, and — only when the turn was accepted — appends one
+ * `StateTurnRecord` per Goal the turn achieved (issue #20; see
  * src/lib/turn-record.ts). A `needs_retry` turn still bumps `attemptCounts`
  * (so a later accepted attempt against the same Goal correctly computes
  * `passedFirstTry: false`) but never itself contributes a record — only an
  * accepted Goal produces a highlight candidate.
  *
- * Issue #47: the record is still one per accepted Turn, attributed to the
- * Focus Goal. #51 re-grains that to one record per `achieved` Goal, which is
- * the same thing in #47's one-Goal-per-Turn conversations and different only
- * once a Turn can achieve several.
+ * Issue #51 re-grains that from #47's "one record per accepted Turn,
+ * attributed to the Focus Goal" to one record per `achieved` Goal, in
+ * canonical order (ADR-0012's Consequences). The two are identical in #47's
+ * one-Goal-per-Turn conversations and differ exactly once a Turn can achieve
+ * several: "Hi Emily! I'm good, thanks. How are you?" is one Turn and three
+ * records. The achieved-this-Turn set is derived here rather than passed in —
+ * it is `applyGoalReport`'s own diff against Goal Progress, so the store
+ * cannot disagree with itself about which Goals the Turn added, and a
+ * `needs_retry` Turn's diff is empty by construction, so no verdict branch is
+ * needed. Three things follow from ADR-0012 and are why each field is computed
+ * where it is:
+ *
+ *   - `passedFirstTry` — attempts are counted against the Focus Goal only, so
+ *     the Focus Goal's own record reflects its prior `needs_retry` Turns and a
+ *     Goal achieved while it was *not* the Focus Goal is always first-try
+ *     (there is nothing to have retried).
+ *   - `matchedAcceptedResponse` — `matchedAcceptedResponseGoals` is the set of
+ *     Goals whose Accepted Responses the learner's whole sentence matched, and
+ *     it is the caller's (practice-page-content.tsx's) because only it knows
+ *     `Lesson` content: this module stays ignorant of it. A *subset of Goal
+ *     Progress* rather than a per-Goal boolean map, so the page's check is the
+ *     same one-comparison-per-Goal expression that produces the set, and this
+ *     store's side is a single `includes`. Intersecting it with the achieved
+ *     set is automatic — a Goal this Turn did not achieve produces no record —
+ *     and whole-sentence exact match means a sentence that achieves several
+ *     Goals matches none of them, so the set is empty for every multi-Goal
+ *     Turn.
+ *   - `learnerAskedBack` — the Judge's `learner_asked_back` describes the
+ *     learner's message as a whole, but only the `response` Goal is *about*
+ *     answering or returning a question (docs/ai-configuration.md section 3's
+ *     Response sub-pool split), so it is written to the `response` record and
+ *     `false` on every other one. A Turn that did not achieve `response`
+ *     records nothing for it.
  *
  * Issue #48: `replyLines` is the *sequence* Emily's line selector returned
  * (src/lib/emily-reply-selector.ts) — one or more Conversation Script lines
@@ -345,15 +374,8 @@ export function appendLearnerMessage(text: string): void {
  * persist (see `appendMessages`), so the persisted transcript is a faithful
  * record of what Emily said, each line keeping its own Chinese subtitle and
  * its own pre-generated audio, and the learner can still read all of it.
- *
- * `matchedAcceptedResponse` and `learnerAskedBack` are passed straight
- * through from the caller (practice-page-content.tsx), which already has
- * both: the former from comparing the learner's raw text against
- * `Lesson.script[focusGoal].acceptedResponses`
- * (src/lib/turn-record.ts's `matchesAcceptedResponse`), the latter from the
- * Judge's `learner_asked_back`. This module stays ignorant of `Lesson`
- * content — it only assembles the record, it doesn't compute any part of
- * it.
+ * Messages stay tagged with the Focus Goal: that is the Goal the Turn was
+ * judged against (the Report's domain), not the Goal the learner achieved.
  *
  * Returns the resulting Goal Progress so the caller can act on it (e.g. know
  * immediately that the conversation just completed) without waiting on a
@@ -364,7 +386,12 @@ export function recordTurnResult(input: {
   verdict: Verdict;
   goalReport: GoalReport;
   replyLines: readonly ScriptLine[];
-  matchedAcceptedResponse: boolean;
+  /**
+   * The Goals whose Accepted Responses the learner's whole message matched
+   * verbatim (src/lib/turn-record.ts's `matchesAcceptedResponse`) — normally
+   * empty, or one entry; see this function's doc comment.
+   */
+  matchedAcceptedResponseGoals: readonly ActiveConversationState[];
   learnerAskedBack: boolean;
 }): GoalProgress {
   const current = store.getSnapshot();
@@ -374,19 +401,23 @@ export function recordTurnResult(input: {
   const attemptCounts = { ...current.attemptCounts, [input.focusGoal]: attempts };
 
   const goalProgress = applyGoalReport(current.goalProgress, input.goalReport, input.verdict);
+  // Exactly what this Turn added to Goal Progress: canonical order, no
+  // duplicates, and empty for a `needs_retry` Turn (applyGoalReport saves
+  // nothing from one).
+  const achievedThisTurn = goalProgress.filter((goal) => !current.goalProgress.includes(goal));
 
-  const turnRecords =
-    input.verdict === "accepted"
-      ? [
-          ...current.turnRecords,
-          {
-            state: input.focusGoal,
-            passedFirstTry: attempts === 1,
-            matchedAcceptedResponse: input.matchedAcceptedResponse,
-            learnerAskedBack: input.learnerAskedBack,
-          } satisfies StateTurnRecord,
-        ]
-      : current.turnRecords;
+  const turnRecords = [
+    ...current.turnRecords,
+    ...achievedThisTurn.map(
+      (goal) =>
+        ({
+          state: goal,
+          passedFirstTry: goal === input.focusGoal ? attempts === 1 : true,
+          matchedAcceptedResponse: input.matchedAcceptedResponseGoals.includes(goal),
+          learnerAskedBack: goal === "response" && input.learnerAskedBack,
+        }) satisfies StateTurnRecord,
+    ),
+  ];
 
   appendMessages(
     current,

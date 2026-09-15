@@ -7,6 +7,7 @@ import {
   type PracticeMessage,
 } from "@/lib/practice-state";
 import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
+import type { StateTurnRecord } from "@/lib/turn-record";
 
 /**
  * Issue #20 (#12's Further Notes: "In-flight practice sessions will reset")
@@ -252,7 +253,7 @@ describe("recordTurnResult — one Turn, several Goals, one sequence of lines", 
       verdict: "accepted",
       goalReport: { greeting: "achieved", checkin: "achieved", response: "achieved" },
       replyLines: GREETING_SOMEBODY_LESSON.closingLines.slice(0, 1),
-      matchedAcceptedResponse: false,
+      matchedAcceptedResponseGoals: [],
       learnerAskedBack: true,
     });
 
@@ -265,7 +266,7 @@ describe("recordTurnResult — one Turn, several Goals, one sequence of lines", 
       verdict: "accepted",
       goalReport: { greeting: "achieved", checkin: "achieved", closing: "achieved" },
       replyLines: [],
-      matchedAcceptedResponse: false,
+      matchedAcceptedResponseGoals: [],
       learnerAskedBack: false,
     });
     expect(afterClosing).toEqual(["greeting", "checkin", "response", "closing"]);
@@ -282,7 +283,7 @@ describe("recordTurnResult — one Turn, several Goals, one sequence of lines", 
       verdict: "accepted",
       goalReport: { greeting: "achieved", checkin: "achieved", response: "achieved" },
       replyLines: [reaction, steer],
-      matchedAcceptedResponse: false,
+      matchedAcceptedResponseGoals: [],
       learnerAskedBack: true,
     });
 
@@ -317,12 +318,174 @@ describe("recordTurnResult — one Turn, several Goals, one sequence of lines", 
       verdict: "needs_retry",
       goalReport: { greeting: "achieved", checkin: "failed" },
       replyLines: GREETING_SOMEBODY_LESSON.script.greeting.needsRetryLines.slice(0, 1),
-      matchedAcceptedResponse: false,
+      matchedAcceptedResponseGoals: [],
       learnerAskedBack: false,
     });
 
     expect(progress).toEqual([]);
     expect(persistedMessages()).toHaveLength(1);
+  });
+});
+
+/**
+ * Issue #51 (ADR-0012's Consequences: "`StateTurnRecord` bookkeeping keeps its
+ * meaning but changes its grain: an attempt counts against the Focus Goal only,
+ * so a Goal achieved early is always `passedFirstTry`; `matchedAcceptedResponse`
+ * stays whole-sentence exact match, so a multi-Goal sentence matches none of
+ * them"). One record is appended per Goal *achieved* in the Turn, in canonical
+ * order — not one record per accepted Turn, attributed to the Focus Goal.
+ *
+ * These are the records the Learning Summary's Highlights and its Suggestion
+ * pool are derived from, so the ticket example has to come out exactly as
+ * docs/ai-configuration.md section 5 describes: "Hi Emily! I'm good, thanks.
+ * How are you?" produces Greeting, Check-in and Response records, all
+ * first-try, none a verbatim Accepted Response match, "asked back" on the
+ * Response record only.
+ *
+ * Same seam as the sibling describe: the store exports no snapshot reader
+ * (src/lib/practice-state.ts is `"use client"`), so `window.localStorage` is
+ * stubbed in and what was persisted is read back with the module's own
+ * `deserialize`. Every call below passes at least one reply line, because the
+ * store only persists through `appendMessages` — a Turn that produced no line
+ * (which the Conversation Script never does) would leave its attempt count in
+ * memory only.
+ */
+describe("recordTurnResult — one record per Goal achieved, in canonical order", () => {
+  const STORAGE_KEY = "greeting-somebody:practice";
+  const written: string[] = [];
+
+  beforeEach(() => {
+    written.length = 0;
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: () => null,
+        setItem: (key: string, value: string) => {
+          if (key === STORAGE_KEY) written.push(value);
+        },
+      },
+    });
+    resetPractice();
+    written.length = 0;
+  });
+
+  function persistedTurnRecords(): StateTurnRecord[] {
+    return deserialize(written[written.length - 1]).turnRecords;
+  }
+
+  it("records the ticket example's three-Goal Turn, all first-try, none a verbatim match, asked-back on response only", () => {
+    const progress = recordTurnResult({
+      focusGoal: "greeting",
+      verdict: "accepted",
+      goalReport: { greeting: "achieved", checkin: "achieved", response: "achieved" },
+      replyLines: GREETING_SOMEBODY_LESSON.closingLines.slice(0, 1),
+      // The learner composed one sentence rather than quoting an Accepted
+      // Response, so the page hands over the empty set even though three Goals
+      // were achieved: whole-sentence exact match matches none of them.
+      matchedAcceptedResponseGoals: [],
+      learnerAskedBack: true,
+    });
+
+    expect(progress).toEqual(["greeting", "checkin", "response"]);
+    expect(persistedTurnRecords()).toEqual([
+      { state: "greeting", passedFirstTry: true, matchedAcceptedResponse: false, learnerAskedBack: false },
+      { state: "checkin", passedFirstTry: true, matchedAcceptedResponse: false, learnerAskedBack: false },
+      { state: "response", passedFirstTry: true, matchedAcceptedResponse: false, learnerAskedBack: true },
+    ]);
+  });
+
+  it("keeps a single-Goal Turn's Accepted Response match, on that Goal's record alone", () => {
+    recordTurnResult({
+      focusGoal: "greeting",
+      verdict: "accepted",
+      goalReport: { greeting: "achieved" },
+      replyLines: GREETING_SOMEBODY_LESSON.checkinLines.slice(0, 1),
+      matchedAcceptedResponseGoals: ["greeting"],
+      learnerAskedBack: false,
+    });
+
+    expect(persistedTurnRecords()).toEqual([
+      { state: "greeting", passedFirstTry: true, matchedAcceptedResponse: true, learnerAskedBack: false },
+    ]);
+  });
+
+  it("has the Focus Goal's own record reflect its prior needs_retry Turns on it", () => {
+    recordTurnResult({
+      focusGoal: "greeting",
+      verdict: "accepted",
+      goalReport: { greeting: "achieved" },
+      replyLines: GREETING_SOMEBODY_LESSON.checkinLines.slice(0, 1),
+      matchedAcceptedResponseGoals: ["greeting"],
+      learnerAskedBack: false,
+    });
+    recordTurnResult({
+      focusGoal: "checkin",
+      verdict: "needs_retry",
+      goalReport: {},
+      replyLines: GREETING_SOMEBODY_LESSON.script.checkin.needsRetryLines.slice(0, 1),
+      matchedAcceptedResponseGoals: [],
+      learnerAskedBack: false,
+    });
+    recordTurnResult({
+      focusGoal: "checkin",
+      verdict: "accepted",
+      goalReport: { checkin: "achieved" },
+      replyLines: GREETING_SOMEBODY_LESSON.responseLines.didNotAskBack.slice(0, 1),
+      matchedAcceptedResponseGoals: ["checkin"],
+      learnerAskedBack: false,
+    });
+
+    expect(persistedTurnRecords()).toEqual([
+      { state: "greeting", passedFirstTry: true, matchedAcceptedResponse: true, learnerAskedBack: false },
+      { state: "checkin", passedFirstTry: false, matchedAcceptedResponse: true, learnerAskedBack: false },
+    ]);
+  });
+
+  it("credits a Goal achieved while it was not the Focus Goal as first-try, accumulating out of order", () => {
+    // Check-in is the Focus Goal from the second Turn on, and the third Turn is
+    // a retry Turn for it — a Turn that happens to achieve `closing` instead.
+    // Attempts are counted against the Focus Goal, so `closing` is first-try
+    // even though that Turn was Check-in's second attempt, while Check-in's own
+    // record is not.
+    recordTurnResult({
+      focusGoal: "greeting",
+      verdict: "accepted",
+      goalReport: { greeting: "achieved" },
+      replyLines: GREETING_SOMEBODY_LESSON.checkinLines.slice(0, 1),
+      matchedAcceptedResponseGoals: ["greeting"],
+      learnerAskedBack: false,
+    });
+    recordTurnResult({
+      focusGoal: "checkin",
+      verdict: "needs_retry",
+      goalReport: {},
+      replyLines: GREETING_SOMEBODY_LESSON.script.checkin.needsRetryLines.slice(0, 1),
+      matchedAcceptedResponseGoals: [],
+      learnerAskedBack: false,
+    });
+    recordTurnResult({
+      focusGoal: "checkin",
+      verdict: "accepted",
+      goalReport: { closing: "achieved" },
+      replyLines: GREETING_SOMEBODY_LESSON.closingLines.slice(0, 1),
+      matchedAcceptedResponseGoals: [],
+      learnerAskedBack: false,
+    });
+    recordTurnResult({
+      focusGoal: "checkin",
+      verdict: "accepted",
+      goalReport: { checkin: "achieved" },
+      replyLines: GREETING_SOMEBODY_LESSON.responseLines.didNotAskBack.slice(0, 1),
+      matchedAcceptedResponseGoals: ["checkin"],
+      learnerAskedBack: true,
+    });
+
+    // `closing` is recorded before `checkin` — a non-contiguous accumulation
+    // order (issue #51's acceptance criterion), one record per Goal.
+    expect(persistedTurnRecords()).toEqual([
+      { state: "greeting", passedFirstTry: true, matchedAcceptedResponse: true, learnerAskedBack: false },
+      { state: "closing", passedFirstTry: true, matchedAcceptedResponse: false, learnerAskedBack: false },
+      { state: "checkin", passedFirstTry: false, matchedAcceptedResponse: true, learnerAskedBack: false },
+    ]);
   });
 });
 

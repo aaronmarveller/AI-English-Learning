@@ -23,6 +23,14 @@ import { installScriptedPracticeApi, PRACTICE_URL, resetStorage, submitReply } f
  * exact highlights a given run produces: the fixed 4-part shape (praise →
  * highlights → suggestion → closing), the reveal/disable mechanics, and
  * Retry's navigation + clean-slate guarantee.
+ *
+ * Issue #51 re-grained `StateTurnRecord` to one record per Goal achieved in a
+ * Turn, and the Learning Summary has to stay truthful when Goals arrive
+ * several at a time or out of order — so that run, and the Suggestion pool it
+ * switches to after a retry, has its own spec:
+ * e2e/review-goal-progress.spec.ts. The conversation below stays the
+ * one-Goal-per-Turn baseline, where the new grain is byte-for-byte the old
+ * one.
  */
 
 /**

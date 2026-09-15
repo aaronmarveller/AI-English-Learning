@@ -12,6 +12,7 @@ import { MessageBubblePair } from "@/components/practice/message-bubble-pair";
 import { PracticeInputForm } from "@/components/practice/practice-input-form";
 import { StageTag } from "@/components/stage-tag";
 import { GREETING_SOMEBODY_LESSON, pickRandomOpeningLine } from "@/content/lesson";
+import { ACTIVE_CONVERSATION_STATES } from "@/lib/conversation-state-machine";
 import { containsChineseText } from "@/lib/detect-chinese-input";
 import { selectEmilyLinesForTurn, selectSilenceNudge } from "@/lib/emily-reply-selector";
 import { deriveVerdict } from "@/lib/goal-progress";
@@ -324,21 +325,24 @@ export function PracticePageContent() {
         learnerAskedBack,
       });
       // Issue #20 (#12's "Learning Summary inputs are derived, not
-      // reported"): whether the learner's text matched this Goal's Accepted
-      // Responses is computed here, client-side, rather than reported by the
-      // model — the same "compare against
-      // Lesson.script[goal].acceptedResponses" the system prompt already
-      // hands the model as guidance, but as a real client-side check feeding
-      // the Learning Summary's per-Turn record. Exact whole-sentence match:
-      // a message that achieves several Goals matches none of them.
+      // reported"): whether the learner's text matched an Accepted Response is
+      // computed here, client-side, rather than reported by the model — the
+      // same "compare against Lesson.script[goal].acceptedResponses" the
+      // system prompt already hands the model as guidance, but as a real
+      // client-side check feeding the Learning Summary's per-Turn records.
+      // Exact whole-sentence match, and since issue #51 against *every* Goal
+      // rather than only the Focus Goal, because one Turn can achieve several
+      // (ADR-0012): a sentence that achieves several Goals matches none of
+      // them, so this set is empty for a multi-Goal Turn and the store — which
+      // stays ignorant of Lesson content — intersects it with the Goals the
+      // Turn achieved.
       recordTurnResult({
         focusGoal,
         verdict,
         goalReport,
         replyLines,
-        matchedAcceptedResponse: matchesAcceptedResponse(
-          text,
-          GREETING_SOMEBODY_LESSON.script[focusGoal].acceptedResponses,
+        matchedAcceptedResponseGoals: ACTIVE_CONVERSATION_STATES.filter((goal) =>
+          matchesAcceptedResponse(text, GREETING_SOMEBODY_LESSON.script[goal].acceptedResponses),
         ),
         learnerAskedBack,
       });
