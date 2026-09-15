@@ -18,6 +18,12 @@ import { ACTIVE_CONVERSATION_STATES } from "@/lib/conversation-state-machine";
  * achieved before Emily has prompted for it. Part 2
  * (`buildGoalSetSystemPromptSection`) lists all four Goals, marks the achieved
  * ones as not re-creditable, and asks only about the open ones.
+ *
+ * Issue #48: the prompt must credit a Goal the learner achieved whether or not
+ * Emily prompted for it, and a Turn may achieve several at once — so the four
+ * `learningGoal` texts describe their Goal rather than the line Emily just
+ * said, and the Goal-set section says outright to judge every open Goal on its
+ * own merits.
  */
 describe("Practice system prompt", () => {
   it("describes the two-field submit_turn_result contract, not reply generation or a verdict", () => {
@@ -96,5 +102,30 @@ describe("Practice system prompt", () => {
       expect(complete).toContain(GREETING_SOMEBODY_LESSON.script[state].learningGoal);
     }
     expect(complete).not.toContain("— OPEN");
+  });
+
+  it("tells the model to judge every open Goal on its own merits, prompted or not", () => {
+    // Issue #48's headline scenario: one message ("Hi Emily! I'm good, thanks.
+    // How are you?") achieves three Goals even though Emily steered toward
+    // only one of them, so the prompt has to say that crediting is not limited
+    // to the Goal she last prompted for.
+    const prompt = buildGoalSetSystemPromptSection([]);
+    expect(prompt).toContain("Judge every open Goal below on its own merits");
+    expect(prompt).toContain("one message may achieve several");
+    expect(prompt).toContain("a Goal may be achieved before Emily has prompted for it");
+  });
+
+  it("describes each Goal rather than the line Emily just said", () => {
+    // Issue #48: these texts used to open with "You just asked..."/"You just
+    // greeted..." — true only of a one-Goal-per-Turn conversation in canonical
+    // order, and wrong for the headline Turn (three Goals at once) or for a
+    // Goal achieved before Emily prompted for it.
+    for (const state of ACTIVE_CONVERSATION_STATES) {
+      const { learningGoal } = GREETING_SOMEBODY_LESSON.script[state];
+      expect(learningGoal, `${state}'s Learning Goal assumes Emily just prompted`).not.toMatch(
+        /^You just /,
+      );
+      expect(learningGoal.toLowerCase()).toContain("the learner");
+    }
   });
 });

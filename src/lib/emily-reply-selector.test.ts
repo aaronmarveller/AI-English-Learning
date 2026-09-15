@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { selectEmilyLineForTurn, selectSilenceNudge } from "@/lib/emily-reply-selector";
+import { selectEmilyLinesForTurn, selectSilenceNudge } from "@/lib/emily-reply-selector";
 import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
 import type { ActiveConversationState } from "@/lib/conversation-state-machine";
-import { applyGoalReport, type GoalProgress } from "@/lib/goal-progress";
+import { applyGoalReport, deriveVerdict, type GoalProgress } from "@/lib/goal-progress";
 import type { GoalReport } from "@/lib/practice-turn-protocol";
 import type { ScriptLine } from "@/content/lesson";
 
@@ -15,24 +15,43 @@ function fixedRandom(value: number) {
  * Issue #47 (ADR-0012): selection keys off the Focus Goal — the first open
  * Goal in the Goal Progress a Turn left behind — rather than a Conversation
  * State pointer. These tests drive it the way practice-page-content.tsx does:
- * apply the Turn's Goal Report to Goal Progress (all-or-nothing), then ask for
- * Emily's line.
+ * hand it the Goal Progress the Judge's report was judged against plus the
+ * report itself, and read the sequence back.
+ *
+ * Issue #48 (docs/ai-configuration.md section 3's "Line composition"): that
+ * sequence is ordered and can hold more than one line — a reaction to
+ * `checkin` being achieved in this Turn, then a steer toward the new Focus
+ * Goal. The single-Goal cases must stay exactly one line, identical to what
+ * #47 selected.
+ *
+ * The helper below mirrors the call site, deriving the Verdict exactly as
+ * production derives it (src/lib/goal-progress.ts's `deriveVerdict`).
  */
-describe("selectEmilyLineForTurn", () => {
-  it("needs_retry picks from the Focus Goal's own needsRetryLines pool, leaving Goal Progress alone", () => {
+function selectLines(progressBeforeTurn: GoalProgress, goalReport: GoalReport, learnerAskedBack = false) {
+  return selectEmilyLinesForTurn(
+    GREETING_SOMEBODY_LESSON,
+    {
+      verdict: deriveVerdict(progressBeforeTurn, goalReport),
+      progressBeforeTurn,
+      goalReport,
+      learnerAskedBack,
+    },
+    fixedRandom(0),
+  );
+}
+
+describe("selectEmilyLinesForTurn", () => {
+  it("needs_retry picks one line from the Focus Goal's own needsRetryLines pool, leaving Goal Progress alone", () => {
     const cases: [GoalProgress, ActiveConversationState][] = [
       [[], "greeting"],
       [["greeting"], "checkin"],
       [["greeting", "checkin"], "response"],
       [["greeting", "checkin", "response"], "closing"],
     ];
-    for (const [progressAfterTurn, focusGoal] of cases) {
-      const line = selectEmilyLineForTurn(
-        GREETING_SOMEBODY_LESSON,
-        { verdict: "needs_retry", progressAfterTurn, learnerAskedBack: false },
-        fixedRandom(0),
-      );
-      expect(GREETING_SOMEBODY_LESSON.script[focusGoal].needsRetryLines).toContainEqual(line);
+    for (const [progressBeforeTurn, focusGoal] of cases) {
+      // A report that achieves nothing on any open Goal derives needs_retry.
+      const lines = selectLines(progressBeforeTurn, {});
+      expect(lines).toEqual([GREETING_SOMEBODY_LESSON.script[focusGoal].needsRetryLines[0]]);
     }
   });
 
@@ -40,88 +59,149 @@ describe("selectEmilyLineForTurn", () => {
     // All-or-nothing: Goal Progress is where it started, so the line is still
     // written for `greeting`, the Focus Goal — not for what the report
     // happened to mark achieved.
-    const progressAfterTurn: GoalProgress = [];
-    const line = selectEmilyLineForTurn(
-      GREETING_SOMEBODY_LESSON,
-      { verdict: "needs_retry", progressAfterTurn, learnerAskedBack: false },
-      fixedRandom(0),
-    );
-    expect(GREETING_SOMEBODY_LESSON.script.greeting.needsRetryLines).toContainEqual(line);
+    const lines = selectLines([], { greeting: "failed", checkin: "achieved" });
+    expect(lines).toEqual([GREETING_SOMEBODY_LESSON.script.greeting.needsRetryLines[0]]);
   });
 
-  it("accepted greeting advances the Focus Goal to checkin and picks from checkinLines", () => {
-    const line = selectEmilyLineForTurn(
-      GREETING_SOMEBODY_LESSON,
-      { verdict: "accepted", progressAfterTurn: ["greeting"], learnerAskedBack: false },
-      fixedRandom(0),
-    );
-    expect(GREETING_SOMEBODY_LESSON.checkinLines).toContainEqual(line);
+  it("accepted greeting advances the Focus Goal to checkin and picks one line from checkinLines", () => {
+    const lines = selectLines([], { greeting: "achieved" });
+    expect(lines).toEqual([GREETING_SOMEBODY_LESSON.checkinLines[0]]);
   });
 
-  it("accepted checkin with learnerAskedBack=false picks from responseLines.didNotAskBack, never askedBack", () => {
+  it("accepted checkin with learnerAskedBack=false picks one line from responseLines.didNotAskBack, never askedBack", () => {
     for (let i = 0; i < 20; i++) {
-      const line = selectEmilyLineForTurn(
+      const lines = selectEmilyLinesForTurn(
         GREETING_SOMEBODY_LESSON,
-        { verdict: "accepted", progressAfterTurn: ["greeting", "checkin"], learnerAskedBack: false },
+        {
+          verdict: "accepted",
+          progressBeforeTurn: ["greeting"],
+          goalReport: { checkin: "achieved" },
+          learnerAskedBack: false,
+        },
         () => i / 20,
       );
-      expect(GREETING_SOMEBODY_LESSON.responseLines.didNotAskBack).toContainEqual(line);
-      expect(GREETING_SOMEBODY_LESSON.responseLines.askedBack).not.toContainEqual(line);
+      // One line: the reaction to `checkin` *is* the steer toward `response`,
+      // so it is never spoken twice.
+      expect(lines).toHaveLength(1);
+      expect(GREETING_SOMEBODY_LESSON.responseLines.didNotAskBack).toContainEqual(lines[0]);
+      expect(GREETING_SOMEBODY_LESSON.responseLines.askedBack).not.toContainEqual(lines[0]);
     }
   });
 
   it("accepted checkin with learnerAskedBack=true always picks from responseLines.askedBack, never didNotAskBack", () => {
     for (let i = 0; i < 20; i++) {
-      const line = selectEmilyLineForTurn(
+      const lines = selectEmilyLinesForTurn(
         GREETING_SOMEBODY_LESSON,
-        { verdict: "accepted", progressAfterTurn: ["greeting", "checkin"], learnerAskedBack: true },
+        {
+          verdict: "accepted",
+          progressBeforeTurn: ["greeting"],
+          goalReport: { checkin: "achieved" },
+          learnerAskedBack: true,
+        },
         () => i / 20,
       );
-      expect(GREETING_SOMEBODY_LESSON.responseLines.askedBack).toContainEqual(line);
-      expect(GREETING_SOMEBODY_LESSON.responseLines.didNotAskBack).not.toContainEqual(line);
+      expect(lines).toHaveLength(1);
+      expect(GREETING_SOMEBODY_LESSON.responseLines.askedBack).toContainEqual(lines[0]);
+      expect(GREETING_SOMEBODY_LESSON.responseLines.didNotAskBack).not.toContainEqual(lines[0]);
     }
   });
 
-  it("accepted response advances the Focus Goal to closing and picks from closingLines", () => {
-    const line = selectEmilyLineForTurn(
-      GREETING_SOMEBODY_LESSON,
-      { verdict: "accepted", progressAfterTurn: ["greeting", "checkin", "response"], learnerAskedBack: false },
-      fixedRandom(0),
-    );
-    expect(GREETING_SOMEBODY_LESSON.closingLines).toContainEqual(line);
+  it("accepted response advances the Focus Goal to closing and picks one line from closingLines", () => {
+    const lines = selectLines(["greeting", "checkin"], { response: "achieved" });
+    expect(lines).toEqual([GREETING_SOMEBODY_LESSON.closingLines[0]]);
+  });
+
+  it("accepted closing completes Goal Progress and picks one line from completionMessages", () => {
+    const lines = selectLines(["greeting", "checkin", "response"], { closing: "achieved" });
+    expect(lines).toHaveLength(1);
+    expect(GREETING_SOMEBODY_LESSON.completionMessages).toContain(lines[0].en);
+    expect(lines[0].zh).toBe("");
   });
 
   it("an accepted Turn that leaves `greeting` open steers back with one of greeting's needs_retry lines", () => {
-    // Non-contiguous Goal Progress (reachable only once a Turn can achieve a
-    // later Goal than the Focus Goal — #48's multi-Goal Turns, and #50's
-    // steering-back rule): `greeting` has no steer pool of its own, so per
-    // docs/ai-configuration.md section 3's Line composition it borrows one of
-    // its needs_retry lines as the steer. It must not throw.
-    const line = selectEmilyLineForTurn(
-      GREETING_SOMEBODY_LESSON,
-      { verdict: "accepted", progressAfterTurn: ["checkin"], learnerAskedBack: false },
-      fixedRandom(0),
-    );
-    expect(GREETING_SOMEBODY_LESSON.script.greeting.needsRetryLines).toContainEqual(line);
+    // Non-contiguous Goal Progress — the shape #48's multi-Goal Turns produce:
+    // `greeting` has no steer pool of its own, so per docs/ai-configuration.md
+    // section 3's Line composition it borrows one of its needs_retry lines as
+    // the steer. It must not throw.
+    const lines = selectLines([], { checkin: "achieved" });
+    expect(lines).toHaveLength(2);
+    expect(GREETING_SOMEBODY_LESSON.script.greeting.needsRetryLines).toContainEqual(lines[1]);
   });
 
-  it("accepted closing completes Goal Progress and picks from completionMessages", () => {
-    const line = selectEmilyLineForTurn(
-      GREETING_SOMEBODY_LESSON,
-      {
-        verdict: "accepted",
-        progressAfterTurn: ["greeting", "checkin", "response", "closing"],
-        learnerAskedBack: false,
-      },
-      fixedRandom(0),
-    );
-    expect(GREETING_SOMEBODY_LESSON.completionMessages).toContain(line.en);
+  describe("the ticket's headline Turn: greeting + checkin + response achieved at once", () => {
+    const TICKET_TURN_REPORT: GoalReport = {
+      greeting: "achieved",
+      checkin: "achieved",
+      response: "achieved",
+    };
+
+    it("speaks a reaction, then a Closing steer — two lines, in that order", () => {
+      const lines = selectLines([], TICKET_TURN_REPORT, true);
+
+      expect(lines).toHaveLength(2);
+      expect(GREETING_SOMEBODY_LESSON.responseLines.askedBack).toContainEqual(lines[0]);
+      expect(GREETING_SOMEBODY_LESSON.closingLines).toContainEqual(lines[1]);
+      // Never the Check-in pool: Emily must not ask "How are you doing today?"
+      // of a learner who just told her.
+      expect(GREETING_SOMEBODY_LESSON.checkinLines).not.toContainEqual(lines[0]);
+      expect(GREETING_SOMEBODY_LESSON.checkinLines).not.toContainEqual(lines[1]);
+    });
+
+    it("picks the didNotAskBack reaction sub-pool when the learner did not ask back", () => {
+      const lines = selectLines([], TICKET_TURN_REPORT, false);
+
+      expect(lines).toHaveLength(2);
+      expect(GREETING_SOMEBODY_LESSON.responseLines.didNotAskBack).toContainEqual(lines[0]);
+      expect(GREETING_SOMEBODY_LESSON.responseLines.askedBack).not.toContainEqual(lines[0]);
+      expect(GREETING_SOMEBODY_LESSON.closingLines).toContainEqual(lines[1]);
+    });
+
+    it("reacts, then completes, when the same Turn also achieves the last Goal", () => {
+      // All four Goals in one message: reaction first, then the Completion
+      // pool. A Farewell line before it is #50's rule, not this ticket's.
+      const lines = selectLines(["closing"], { ...TICKET_TURN_REPORT });
+
+      expect(lines).toHaveLength(2);
+      expect(GREETING_SOMEBODY_LESSON.responseLines.didNotAskBack).toContainEqual(lines[0]);
+      expect(GREETING_SOMEBODY_LESSON.completionMessages).toContain(lines[1].en);
+    });
+
+    it("reacts without repeating itself when `response` is the new Focus Goal", () => {
+      // The reaction line is spoken once: it both reacts to `checkin` and
+      // steers toward the only Focus Goal left, `response` — so a Turn that
+      // achieves just `checkin` (the ordinary one-Goal check-in Turn) still
+      // produces exactly one line, the Response-pool line #47 produced.
+      const lines = selectLines(["greeting"], { checkin: "achieved" });
+      expect(lines).toHaveLength(1);
+      expect(GREETING_SOMEBODY_LESSON.responseLines.didNotAskBack).toContainEqual(lines[0]);
+    });
+
+    it("steers with response's needs_retry line when `closing` lands while `checkin` is already achieved", () => {
+      // Non-contiguous: `response` is the Focus Goal but no reaction is due, so
+      // — per section 3 — its needs_retry pool supplies the steer. (For this
+      // one case §3 and #47 disagree: #47 sent a `response` Focus Goal to the
+      // Response pool, which reacts to a check-in this Turn didn't achieve.
+      // See `selectSteerLineForFocusGoal`.)
+      const lines = selectLines(["greeting", "checkin"], { closing: "achieved" });
+      expect(lines).toEqual([GREETING_SOMEBODY_LESSON.script.response.needsRetryLines[0]]);
+    });
+
+    it("reacts and steers separately while `greeting` is still the Focus Goal", () => {
+      // `greeting` is first in canonical order, so it stays the Focus Goal even
+      // though `checkin` and `closing` are now achieved: the reaction is due
+      // (checkin landed this Turn) and the steer is greeting's borrowed one.
+      const lines = selectLines([], { checkin: "achieved", closing: "achieved" }, false);
+      expect(lines).toHaveLength(2);
+      expect(GREETING_SOMEBODY_LESSON.responseLines.didNotAskBack).toContainEqual(lines[0]);
+      expect(GREETING_SOMEBODY_LESSON.script.greeting.needsRetryLines).toContainEqual(lines[1]);
+    });
   });
 
   it("walks a whole one-Goal-at-a-time conversation through the same pools as before", () => {
     // The learner-visible behaviour #47 must preserve exactly: greet, answer
     // the check-in, respond, say goodbye — one Goal per Turn, each answer from
-    // the pool the old state-machine pointer would have picked.
+    // the pool the old state-machine pointer would have picked, and never more
+    // than one line.
     const turns: { report: GoalReport; pool: ScriptLine[] }[] = [
       { report: { greeting: "achieved" }, pool: GREETING_SOMEBODY_LESSON.checkinLines },
       {
@@ -133,34 +213,32 @@ describe("selectEmilyLineForTurn", () => {
 
     let goalProgress: GoalProgress = [];
     for (const turn of turns) {
+      const lines = selectLines(goalProgress, turn.report);
+      expect(lines).toHaveLength(1);
+      expect(turn.pool).toContainEqual(lines[0]);
       goalProgress = applyGoalReport(goalProgress, turn.report, "accepted");
-      const line = selectEmilyLineForTurn(
-        GREETING_SOMEBODY_LESSON,
-        { verdict: "accepted", progressAfterTurn: goalProgress, learnerAskedBack: false },
-        fixedRandom(0),
-      );
-      expect(turn.pool).toContainEqual(line);
     }
 
-    goalProgress = applyGoalReport(goalProgress, { closing: "achieved" }, "accepted");
-    const completion = selectEmilyLineForTurn(
-      GREETING_SOMEBODY_LESSON,
-      { verdict: "accepted", progressAfterTurn: goalProgress, learnerAskedBack: false },
-      fixedRandom(0),
-    );
-    expect(GREETING_SOMEBODY_LESSON.completionMessages).toContain(completion.en);
+    const completion = selectLines(goalProgress, { closing: "achieved" });
+    expect(completion).toHaveLength(1);
+    expect(GREETING_SOMEBODY_LESSON.completionMessages).toContain(completion[0].en);
   });
 
   it("random source spans the full pool (deterministic coverage, not just index 0)", () => {
     const seenTexts = new Set<string>();
     const pool = GREETING_SOMEBODY_LESSON.checkinLines;
     for (let i = 0; i < pool.length; i++) {
-      const line = selectEmilyLineForTurn(
+      const lines = selectEmilyLinesForTurn(
         GREETING_SOMEBODY_LESSON,
-        { verdict: "accepted", progressAfterTurn: ["greeting"], learnerAskedBack: false },
+        {
+          verdict: "accepted",
+          progressBeforeTurn: [],
+          goalReport: { greeting: "achieved" },
+          learnerAskedBack: false,
+        },
         () => i / pool.length,
       );
-      seenTexts.add(line.en);
+      seenTexts.add(lines[0].en);
     }
     expect(seenTexts.size).toBe(pool.length);
   });

@@ -114,11 +114,12 @@ const COMPLETION_MESSAGES = [
 
 // --- Conversation Script pools added by issue #16 (docs/ai-configuration.md
 // section 3) — verbatim English from that document, Chinese translations
-// authored fresh here. Emily selects one line at random from the pool that
-// matches the Conversation State she's entering (see
+// authored fresh here. Emily picks lines at random from the pool the settled
+// Turn calls for — the reaction to `checkin` being achieved, then the steer
+// toward the new Focus Goal (issue #48; see
 // src/lib/emily-reply-selector.ts); she never paraphrases or composes. ------
 
-/** Check-in (3) — spoken entering the `checkin` state, after an accepted `greeting` turn. */
+/** Check-in (3) — the steer line toward the `checkin` Goal, spoken whenever `checkin` is the Focus Goal. */
 const CHECKIN_LINES: ScriptLine[] = [
   { en: "How are you doing today?", zh: "你今天过得怎么样？" },
   { en: "How's it going?", zh: "最近怎么样？" },
@@ -126,14 +127,17 @@ const CHECKIN_LINES: ScriptLine[] = [
 ];
 
 /**
- * Response (6 total, split into two sub-pools) — spoken entering the
- * `response` state, after an accepted `checkin` turn. Which sub-pool Emily
- * draws from is decided by `learner_asked_back` (the Judge's boolean for
- * that same `checkin` turn) — never a random pick across both, since a plain
- * acknowledgement and a reply that answers a returned question aren't
- * interchangeable (issue #16 acceptance criteria: a learner who didn't ask
- * back must never hear "thanks for asking"; a learner who did must always
- * hear an answer).
+ * Response (6 total, split into two sub-pools) — the one reaction-type pool
+ * (docs/ai-configuration.md section 3's "Line composition"), spoken when the
+ * `checkin` Goal was achieved in this Turn. Which sub-pool Emily draws from
+ * is decided by `learner_asked_back` (the Judge's boolean for that same
+ * Turn) — never a random pick across both, since a plain acknowledgement and
+ * a reply that answers a returned question aren't interchangeable (issue #16
+ * acceptance criteria: a learner who didn't ask back must never hear "thanks
+ * for asking"; a learner who did must always hear an answer). Because
+ * `checkin` and `response` are achieved together in the ticket's headline
+ * Turn, this line also *is* the steer toward `response` — which is why it is
+ * not repeated as a second line when that is the new Focus Goal.
  */
 const RESPONSE_LINES: { didNotAskBack: ScriptLine[]; askedBack: ScriptLine[] } = {
   didNotAskBack: [
@@ -148,7 +152,7 @@ const RESPONSE_LINES: { didNotAskBack: ScriptLine[]; askedBack: ScriptLine[] } =
   ],
 };
 
-/** Closing (4) — spoken entering the `closing` state, after an accepted `response` turn. */
+/** Closing (4) — the steer line toward the `closing` Goal, spoken whenever `closing` is the Focus Goal. */
 const CLOSING_LINES: ScriptLine[] = [
   { en: "See you!", zh: "再见啦！" },
   { en: "Have a nice day!", zh: "祝你今天愉快！" },
@@ -165,13 +169,19 @@ export type PracticeStateScript = {
   /** English label for UI / system-prompt reference. */
   labelEn: string;
   /**
-   * Short instruction fed into the system prompt: what Emily's line into
-   * this state was doing, and what the learner's turn is expected to do.
+   * Short instruction fed into the system prompt (and into the Chinese
+   * explanation prompt, src/lib/chinese-explanation.ts): what this
+   * Conversation Goal asks the learner to communicate. Written for the Goal
+   * itself, never as "you just said X, judge the learner's reply to X" — an
+   * achieved Goal is credited whenever the learner communicated it, prompted
+   * or not (docs/ai-configuration.md section 1's Global Conversation Rules),
+   * and a single Turn may achieve several Goals at once, so a text that
+   * assumed Emily had just prompted for *this* one would mis-describe both.
    */
   learningGoal: string;
   /**
-   * Example correct answers for this turn. Per spec.md's single most
-   * load-bearing acceptance point ("判定以沟通意图为准，不以字面匹配为准"),
+   * Example correct answers for this Conversation Goal. Per spec.md's single
+   * most load-bearing acceptance point ("判定以沟通意图为准，不以字面匹配为准"),
    * natural equivalents outside this list must still be judged "accepted" —
    * this whitelist is guidance for the model, not an exhaustive match list.
    * Kept in sync with AI Configuration's Completion & Accepted Responses.
@@ -179,10 +189,12 @@ export type PracticeStateScript = {
   acceptedResponses: string[];
   /**
    * Issue #16 (docs/ai-configuration.md section 3): the fixed 3-line pool
-   * Emily selects from, verbatim, when this state's turn is judged
-   * `needs_retry`. Per-state (not global) so the line can point the learner
-   * back at *this* step specifically, and — per the Global Constraints —
-   * never names or implies this state's `acceptedResponses`.
+   * Emily selects from, verbatim, when a Turn judged against this Goal is
+   * `needs_retry`. Per-Goal (not global) so the line can point the learner at
+   * what *this* Goal is asking for, and — per the Global Constraints — never
+   * names or implies the Goal's `acceptedResponses`. These lines double as the
+   * steer toward `greeting` and `response`, which have no steer pool of their
+   * own (src/lib/emily-reply-selector.ts).
    */
   needsRetryLines: ScriptLine[];
 };
@@ -197,6 +209,12 @@ export type PracticeStateScript = {
  * combo both work (`response`) → Emily signals wrapping up → learner says
  * goodbye (`closing`) → Emily gives a brief closing
  * encouragement and invites the learner to view their summary.
+ *
+ * That is the shape, not a gate: since #48 a single learner Turn may achieve
+ * several of these Goals and a later one may land before an earlier one, so
+ * the pools below are keyed to what a Goal *needs* — a steer toward it, or a
+ * reaction to `checkin` being achieved — rather than to a position in this
+ * sequence (see src/lib/emily-reply-selector.ts's `selectEmilyLinesForTurn`).
  */
 const PRACTICE_SCRIPT: Record<ActiveConversationState, PracticeStateScript> = {
   greeting: {
@@ -204,7 +222,7 @@ const PRACTICE_SCRIPT: Record<ActiveConversationState, PracticeStateScript> = {
     labelZh: CONVERSATION_STAGE_LABELS.greeting.labelZh,
     labelEn: CONVERSATION_STAGE_LABELS.greeting.labelEn,
     learningGoal:
-      "You just greeted the learner as your opening line. The learner's job this turn is to greet you back in a natural, friendly way.",
+      "The learner greets Emily with a short, natural hello. Emily's opening line is usually what invites it, but the learner may greet first or greet again later in the conversation — the Goal is credited whenever the learner communicates a greeting, prompted or not.",
     acceptedResponses: [
       "Hi.",
       "Hello.",
@@ -233,7 +251,7 @@ const PRACTICE_SCRIPT: Record<ActiveConversationState, PracticeStateScript> = {
     labelZh: CONVERSATION_STAGE_LABELS.checkin.labelZh,
     labelEn: CONVERSATION_STAGE_LABELS.checkin.labelEn,
     learningGoal:
-      "You just asked the learner how they are doing. The learner's job this turn is to answer that — saying how they're doing. Asking a question back to you too is a nice bonus but isn't required to complete this turn.",
+      "The learner says how they are doing. Emily usually asks how the learner is before they answer, but a learner who volunteers it (\"I'm good, thanks\") before being asked has achieved this Goal too — it is credited whenever the learner communicated how they are, prompted or not. Asking Emily how she is as well is a nice bonus, not a requirement.",
     // These are answers to "how are you?", not the question itself — fixed
     // 2026-08 after cross-referencing the team's "AI Configuration" doc's
     // Step 2 Accepted Responses. The prior whitelist here was
@@ -268,7 +286,7 @@ const PRACTICE_SCRIPT: Record<ActiveConversationState, PracticeStateScript> = {
     labelZh: CONVERSATION_STAGE_LABELS.response.labelZh,
     labelEn: CONVERSATION_STAGE_LABELS.response.labelEn,
     learningGoal:
-      "You just responded to the learner's check-in. The learner's job this turn is to continue the conversation politely with a short acknowledgment or a question back.",
+      "The learner keeps the conversation going politely after Emily has said something to them — a short acknowledgment (\"Thanks.\") or a question back to Emily (\"How about you?\"). One short phrase is enough. Asking Emily how she is also communicates this Goal, and so does thanking her after she answered.",
     // Reversed 2026-08 (was: required all 3 parts — ack + question back +
     // detail — combined in a single turn). The team's "AI Configuration"
     // doc's Step 3 Accepted Responses are short standalone continuations
@@ -302,7 +320,7 @@ const PRACTICE_SCRIPT: Record<ActiveConversationState, PracticeStateScript> = {
     labelZh: CONVERSATION_STAGE_LABELS.closing.labelZh,
     labelEn: CONVERSATION_STAGE_LABELS.closing.labelEn,
     learningGoal:
-      "You just signaled that the conversation is wrapping up. The learner's job this turn is to say goodbye in a natural, friendly way. If this turn is accepted, the conversation is complete and the learner can view the Learning Summary.",
+      "The learner says goodbye in a natural, friendly way. Emily usually signals that the conversation is wrapping up first, but a learner who says goodbye early has achieved this Goal too — it is credited whenever the learner communicates a goodbye, prompted or not. Once all four Goals are in Goal Progress, Practice is complete and the learner can view the Learning Summary.",
     acceptedResponses: [
       ...CLOSING_EXPRESSIONS.map((expression) => expression.expression),
       "Bye.",

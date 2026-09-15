@@ -1,5 +1,6 @@
 import type { ActiveConversationState, Verdict } from "@/lib/conversation-state-machine";
-import { getFocusGoal, type GoalProgress } from "@/lib/goal-progress";
+import { applyGoalReport, getFocusGoal, type GoalProgress } from "@/lib/goal-progress";
+import type { GoalReport } from "@/lib/practice-turn-protocol";
 import type { Lesson, ScriptLine } from "@/content/lesson";
 
 /**
@@ -26,13 +27,12 @@ import type { Lesson, ScriptLine } from "@/content/lesson";
  *   - `accepted` → the *new* Focus Goal, or the completion pool once all four
  *     Goals are achieved.
  *
- * A single line, deliberately, for now. ADR-0012's "Line composition" makes
- * an `accepted` Turn a *sequence* — a reaction to a Goal just achieved, then a
- * line steering toward the new Focus Goal, with a farewell before completion
- * when `closing` landed earlier — which is #48's job. The seam is this
- * function's shape: it already receives the whole settled Turn
- * (`SelectEmilyLineInput`) rather than one state, so #48 adds a second picked
- * line (and a plural return) without the caller changing what it hands in.
+ * Issue #48 (same section's "Line composition"): the return is an **ordered
+ * sequence**, because one Turn can achieve several Goals (ADR-0012) and every
+ * line is spoken in full, in order — see `selectEmilyLinesForTurn` below for
+ * the composition itself. Two Goals at a time is the real case the ticket's
+ * headline scenario exercises (a reaction, then a steer); the single-Goal
+ * cases are unchanged, still exactly one line.
  */
 
 /** Injectable RNG, defaulting to `Math.random` — see this file's top doc comment. */
@@ -62,43 +62,83 @@ function pickOneExcluding<T extends { en: string }>(
 }
 
 /**
- * What Emily's line selection reads off one already-settled Turn: its Verdict
- * (derived on the client from the Judge's Goal Report — src/lib/goal-progress.ts's
- * `deriveVerdict`), the Goal Progress it left behind, and whether the learner
- * asked a question back. Grouped rather than positional because they are three
- * readings of the same Turn, and because #48 grows this input (a Turn that
- * achieves several Goals needs the whole achieved set, not just the new Focus
- * Goal) without changing the call site's shape.
+ * What Emily's sequence selection reads off one already-settled Turn: its
+ * Verdict (derived on the client from the Judge's Goal Report —
+ * src/lib/goal-progress.ts's `deriveVerdict`), the Goal Progress the Judge's
+ * report was judged against, that report, and whether the learner asked a
+ * question back. Grouped rather than positional because they are four
+ * readings of the same Turn.
+ *
+ * The report is carried rather than the Goal Progress it produced (the older
+ * shape's `progressAfterTurn`) because composition #48 needs to know which
+ * Goals *this Turn* achieved, not only where Goal Progress ended up: the
+ * reaction line is chosen for `checkin` having been achieved here, and the
+ * same distinction is what #50's farewell-before-completion needs
+ * (`closing` achieved earlier vs. now). Both are derived from these two
+ * fields by the one rule that moves Goal Progress at all —
+ * `applyGoalReport`, applied inside this module — rather than by a second
+ * "newly achieved" computation at the call site.
  */
-export type SelectEmilyLineInput = {
+export type SelectEmilyLinesInput = {
   verdict: Verdict;
-  /**
-   * Goal Progress *after* this Turn — identical to what it was before the Turn
-   * when the Verdict is `needs_retry`, since nothing from such a Turn is saved.
-   */
-  progressAfterTurn: GoalProgress;
+  /** Goal Progress as it stood *before* this Turn — the open Goals the Judge's report was about. */
+  progressBeforeTurn: GoalProgress;
+  /** The Judge's Goal Report for this Turn (src/lib/practice-turn-protocol.ts). */
+  goalReport: GoalReport;
   learnerAskedBack: boolean;
 };
 
 /**
- * Selects Emily's next line for one judged learner turn — see this file's top
- * doc comment for the two cases and why one line is enough until #48.
+ * Selects the ordered sequence of Conversation Script lines Emily speaks after
+ * one judged learner turn (issue #48; docs/ai-configuration.md section 3's
+ * "Line composition").
  *
- * Every pool it draws from is written for a Conversation Goal, never for a
- * Conversation State's position in a sequence: the `needsRetryLines` are the
- * Focus Goal's own (docs/ai-configuration.md section 3's 12-line table),
- * `checkinLines`/`closingLines` are the steer toward that Focus Goal, and the
- * Response sub-pools are the reaction to the check-in Goal just achieved —
- * with `learner_asked_back` choosing between them, which is the whole reason
- * that boolean is on the wire (issue #16 acceptance criteria: never thank a
- * learner for a question they didn't ask; always answer one they did).
+ * Emily never composes a line, so a Turn that achieves several Goals is
+ * answered by several existing pool lines, in this order:
+ *
+ * 1. **Reaction** — if `checkin` was achieved *in this Turn*, one line from the
+ *    Response pool, the sub-pool chosen by `learner_asked_back`. The Response
+ *    pool is the only reaction-type pool: it is the one place a floor line
+ *    answers the learner rather than asking them for something, which is
+ *    exactly what an achieved check-in calls for on both counts (they told her
+ *    how they are, and — if they asked — she owes them her own answer; issue
+ *    #16 acceptance criteria: never thank a learner for a question they didn't
+ *    ask; always answer one they did).
+ * 2. **Steer** — one line toward the *new* Focus Goal: Check-in pool for
+ *    `checkin`, Closing pool for `closing`, the Completion pool once all four
+ *    Goals are achieved. When that Focus Goal is `response` and step 1 just
+ *    spoke, the reaction *is* the steer and nothing more is added; `response`
+ *    and `greeting` have no steer pool of their own, so a Focus Goal that
+ *    step 1 did not already address borrows one of its `needs_retry` lines
+ *    (those lines already read as "here's what to say next" — see
+ *    `selectSteerLineForFocusGoal` for how that reads on `response`). Whether
+ *    those two Goals deserve a real steer pool, and the "an accepted Turn
+ *    always yields at least one line" invariant, are #50's.
+ *
+ * A `needs_retry` Turn is a single line from the Focus Goal's own
+ * `needsRetryLines` — the Focus Goal, because Goal Progress does not move on
+ * such a Turn, so it is still the Goal the learner was judged against. (Which
+ * pool a `failed` Goal picks is #49's.) Step 3 of section 3's composition —
+ * farewell before completion when `closing` landed in an earlier Turn — is
+ * #50's too, so a Turn that completes Practice here ends on the Completion
+ * line alone.
+ *
+ * Deliberately returns an array even in the single-line cases: every call site
+ * speaks and persists a sequence, and a caller that had to special-case
+ * `length === 1` would be the second playback mechanism this ticket's design
+ * notes rule out.
  */
-export function selectEmilyLineForTurn(
+export function selectEmilyLinesForTurn(
   lesson: Lesson,
-  input: SelectEmilyLineInput,
+  input: SelectEmilyLinesInput,
   random: RandomSource = Math.random,
-): ScriptLine {
-  const focusGoal = getFocusGoal(input.progressAfterTurn);
+): ScriptLine[] {
+  const progressAfterTurn = applyGoalReport(
+    input.progressBeforeTurn,
+    input.goalReport,
+    input.verdict,
+  );
+  const focusGoal = getFocusGoal(progressAfterTurn);
 
   if (input.verdict === "needs_retry") {
     if (focusGoal === null) {
@@ -106,22 +146,56 @@ export function selectEmilyLineForTurn(
       // open, and a needs_retry Turn leaves Goal Progress exactly as it was.
       throw new Error("emily-reply-selector: no open Goal to retry against");
     }
-    return pickOne(lesson.script[focusGoal].needsRetryLines, random);
+    return [pickOne(lesson.script[focusGoal].needsRetryLines, random)];
+  }
+
+  // All-or-nothing, so this is empty on a needs_retry Turn: read off the one
+  // rule that moves Goal Progress rather than re-deriving "what changed" here.
+  const achievedThisTurn = progressAfterTurn.filter(
+    (goal) => !input.progressBeforeTurn.includes(goal),
+  );
+
+  const lines: ScriptLine[] = [];
+  const reacted = achievedThisTurn.includes("checkin");
+  if (reacted) {
+    lines.push(
+      pickOne(
+        input.learnerAskedBack ? lesson.responseLines.askedBack : lesson.responseLines.didNotAskBack,
+        random,
+      ),
+    );
   }
 
   if (focusGoal === null) {
     // All four Goals achieved: the completion pool (English-only; see that
     // pool's own doc comment in lesson.ts).
-    return { en: pickOne(lesson.completionMessages, random), zh: "" };
+    lines.push({ en: pickOne(lesson.completionMessages, random), zh: "" });
+    return lines;
   }
 
-  return selectLineForFocusGoal(lesson, focusGoal, input.learnerAskedBack, random);
+  if (focusGoal === "response" && reacted) return lines;
+
+  lines.push(selectSteerLineForFocusGoal(lesson, focusGoal, random));
+  return lines;
 }
 
-function selectLineForFocusGoal(
+/**
+ * The steer line toward one Focus Goal (step 2 of the composition above).
+ *
+ * `greeting` and `response` have no steer pool, so they borrow their own
+ * `needsRetryLines` — section 3's rule for both. For `response` that is a
+ * deliberate reading of section 3 over #47's mapping, which sent this case to
+ * the Response pool: that pool *reacts* to a check-in the learner gave, and a
+ * Turn that leaves `response` as the Focus Goal without having just achieved
+ * `checkin` has no check-in to react to. #47's mapping and §3 coincide for
+ * every one-Goal-per-Turn conversation (where the reaction is always what
+ * steers toward `response`), so this only differs in the non-contiguous case
+ * this ticket makes reachable — #50 owns ratifying it and deciding whether
+ * these two Goals deserve steer pools of their own.
+ */
+function selectSteerLineForFocusGoal(
   lesson: Lesson,
   focusGoal: ActiveConversationState,
-  learnerAskedBack: boolean,
   random: RandomSource,
 ): ScriptLine {
   switch (focusGoal) {
@@ -130,29 +204,15 @@ function selectLineForFocusGoal(
     case "closing":
       return pickOne(lesson.closingLines, random);
     case "response":
-      // The steer toward `response` is the check-in's *reaction*
-      // (docs/ai-configuration.md section 3's "Line composition": the
-      // Response pool is the one reaction-type pool every other pool
-      // steers). `response` can only be the Focus Goal with `checkin`
-      // already achieved, so a Response-pool line is always the right one
-      // here — `learner_asked_back` chooses the sub-pool, which is the whole
-      // reason that boolean is on the wire (issue #16 acceptance criteria:
-      // never thank a learner for a question they didn't ask; always answer
-      // one they did).
-      return pickOne(
-        learnerAskedBack ? lesson.responseLines.askedBack : lesson.responseLines.didNotAskBack,
-        random,
-      );
+      // See this function's doc comment.
+      return pickOne(lesson.script[focusGoal].needsRetryLines, random);
     case "greeting":
     default:
-      // `greeting` has no steer pool of its own, so — per section 3's own
-      // rule — one of its `needs_retry` lines serves as the steer; those
-      // lines already read as "here's what to say next". Reachable only when
-      // an accepted Turn achieved a *later* Goal while `greeting` stayed
-      // open, which is the non-contiguous Goal Progress #47's one-Goal-per-Turn
-      // conversations never produce (the Judge reports the Focus Goal's own
-      // turn) — #48 owns multi-Goal Turns, and #50 owns the steering-back
-      // behaviour and whether these two Goals deserve a steer pool.
+      // `greeting` has no steer pool of its own either, so — per section 3's
+      // own rule — one of its `needs_retry` lines serves as the steer; those
+      // lines already read as "here's what to say next". Reachable when a Turn
+      // achieved a *later* Goal while `greeting` stayed open, which is the
+      // non-contiguous Goal Progress this ticket's multi-Goal Turns produce.
       return pickOne(lesson.script[focusGoal].needsRetryLines, random);
   }
 }

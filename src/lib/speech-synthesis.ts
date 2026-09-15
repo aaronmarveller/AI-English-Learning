@@ -3,9 +3,10 @@ import { AUDIO_MANIFEST } from "@/lib/audio-manifest";
 /**
  * Speech-synthesis adapter (spec.md "三个适配层" > 语音合成).
  *
- * Three playback paths behind the single `speak()` seam, tried in order —
- * nothing outside this module may touch `window.speechSynthesis` or an
- * `<audio>` element directly:
+ * Three playback paths behind one playback core (`speakLines`, reached through
+ * `speak`, `speakLines` and their assertive siblings `speakAssertively` /
+ * `speakLinesAssertively`), tried per line, in order — nothing outside this
+ * module may touch `window.speechSynthesis` or an `<audio>` element directly:
  *
  * 1. Pre-generated audio (ticket 13): if `text` exactly matches an entry in
  *    src/lib/audio-manifest.ts, play its `public/audio/<id>.mp3` file —
@@ -128,7 +129,7 @@ function getVoicesOnceReady(): Promise<SpeechSynthesisVoice[]> {
   });
 }
 
-/** User gestures recognized by both the reusable-element unlock and `speakAssertively`'s retry path. */
+/** User gestures recognized by both the reusable-element unlock and `speakLinesAssertively`'s retry path. */
 const FIRST_INTERACTION_EVENTS = ["pointerdown", "touchend", "click", "keydown"] as const;
 
 /**
@@ -321,13 +322,13 @@ export function releaseMicListening(owner: MicListeningOwner): void {
  * live-generated tier that "again" costs a real, wasted API call for audio
  * this function already has a free file for. A superseded attempt isn't a
  * problem with this file at all: `cancelSpeech()` (called at the top of
- * every `speak()`) stops whatever's currently playing before starting the
+ * every `speakLines()`) stops whatever's currently playing before starting the
  * new request, and pausing a still-pending `play()` rejects it with
  * `AbortError` — a race that's especially live for the opening line, whose
- * `speakAssertively` immediate-attempt-plus-listener design (see that
- * function's own doc comment) can have a second `speak()` call for the same
- * text land while the first is still resolving. Either way,
- * `speakAssertively`'s gesture-triggered retry (or the newer call that
+ * `speakLinesAssertively` immediate-attempt-plus-listener design (see that
+ * function's own doc comment) can have a second `speakLines()` call for the
+ * same line land while the first is still resolving. Either way,
+ * `speakLinesAssertively`'s gesture-triggered retry (or the newer call that
  * superseded this one) is what actually gets audio playing — see
  * practice-page-content.tsx.
  */
@@ -436,7 +437,7 @@ function playLiveGeneratedAudio(
   });
 }
 
-/** Silence inserted between segments of a "/"-delimited text (see `speak()`). */
+/** Silence inserted between two spoken pieces — the segments of a "/"-delimited text (see `speak()`), or two consecutive Conversation Script lines of one Turn's sequence (see `speakLines`). */
 const SEGMENT_PAUSE_MS = 1000;
 
 /** Maximum time allowed for a playback attempt to actually start. */
@@ -446,8 +447,8 @@ export const PLAYBACK_START_TIMEOUT_MS = 30_000;
  * Speaks one segment through the pregenerated-audio → live-generated-audio →
  * browser-synthesis pipeline. Never rejects. Resolves `true` if audio
  * actually started through any of the three, `false` if all three were
- * unavailable or blocked — `speakAssertively` below uses this to know
- * whether it needs to fall back to the next user interaction.
+ * unavailable or blocked — `speakLines` below uses this to know whether it
+ * needs to fall back to the next user interaction.
  */
 async function speakSegment(
   text: string,
@@ -499,38 +500,41 @@ function pause(ms: number): Promise<void> {
 }
 
 /**
- * Speaks `text` aloud and resolves once playback ends (or immediately, as a
- * no-op, if neither playback path is available — callers don't need to
- * feature-detect first). Never rejects: a synthesis error resolves the same
- * as a normal end, since a failed pronunciation playback shouldn't surface
- * as an app error. Resolves `true` if audio actually started at any point,
- * `false` if every segment was blocked/unavailable (e.g. the browser's
- * autoplay-without-a-user-gesture restriction) — see `speakAssertively`,
- * which is what most callers that care about this want.
+ * Speaks several lines aloud, in order, and resolves once the last one ends
+ * (or immediately, as a no-op, if no playback path is available — callers
+ * don't need to feature-detect first). Never rejects: a synthesis error
+ * resolves the same as a normal end, since a failed pronunciation playback
+ * shouldn't surface as an app error. Resolves `true` if audio actually started
+ * at any point, `false` if every line was blocked/unavailable (e.g. the
+ * browser's autoplay-without-a-user-gesture restriction) — see
+ * `speakLinesAssertively`, which is what most callers that care about this
+ * want, and which retries the whole sequence on the learner's next gesture.
+ *
+ * This is the one playback core. `speak()` is it for a single line (or a
+ * "/"-delimited one), and Emily's per-Turn sequence reaches it through here
+ * too — the 🔊 replay button re-speaks a Turn's several lines through their own
+ * pre-generated files rather than handing the joined text to a synthesiser
+ * that has never heard of it (and would fall through to a paid live-TTS call).
+ *
+ * One speaking owner is held across the whole sequence, so Turn-Taking (the
+ * microphone gate) stays closed until the *last* line has finished and
+ * releases it exactly once, into a single Handoff Gap. That is the point of
+ * this being the one playback mechanism: playing a sequence as a sequence of
+ * separate `speak()` calls would hand the floor back to the learner in the
+ * middle of what Emily is saying.
  *
  * Cancels any utterance/audio already in flight (from EITHER playback path)
- * before starting a new one, so repeat clicks (including on a different
- * card, or a click that lands mid-fallback) always restart cleanly instead
- * of overlapping.
- *
- * Slash splitting is opt-in for teaching-card callers. Ordinary text keeps
- * "/" intact because Chinese prose can naturally use it (for example,
- * "上午/下午都可以说"). Opted-in segments receive a fixed pause and each still
- * goes through the normal playback ladder independently.
+ * before starting, so repeat clicks (including on a different card, or a
+ * click that lands mid-fallback) always restart cleanly instead of
+ * overlapping.
  */
-export async function speak(text: string, options: SpeakOptions = {}): Promise<boolean> {
+export async function speakLines(texts: readonly string[], options: SpeakOptions = {}): Promise<boolean> {
   cancelSpeech();
 
+  if (texts.length === 0) return false;
   if (isMicListening()) return false;
   const owner = acquireSpeaking();
   let didAudiblyStart = false;
-
-  const segments = options.splitOnSlash
-    ? text
-        .split("/")
-        .map((segment) => segment.trim())
-        .filter(Boolean)
-    : [text];
 
   let timeoutId: ReturnType<typeof setTimeout>;
   const onPlaybackStarted = () => {
@@ -540,15 +544,11 @@ export async function speak(text: string, options: SpeakOptions = {}): Promise<b
   };
 
   const playback = async () => {
-    if (segments.length <= 1) {
-      return speakSegment(text, options, owner, onPlaybackStarted);
-    }
-
     let playedAny = false;
-    for (let i = 0; i < segments.length && ownsSpeaking(owner); i++) {
-      const played = await speakSegment(segments[i], options, owner, onPlaybackStarted);
+    for (let i = 0; i < texts.length && ownsSpeaking(owner); i++) {
+      const played = await speakSegment(texts[i], options, owner, onPlaybackStarted);
       playedAny = playedAny || played;
-      if (i < segments.length - 1 && ownsSpeaking(owner)) await pause(SEGMENT_PAUSE_MS);
+      if (i < texts.length - 1 && ownsSpeaking(owner)) await pause(SEGMENT_PAUSE_MS);
     }
     return playedAny;
   };
@@ -572,8 +572,28 @@ export async function speak(text: string, options: SpeakOptions = {}): Promise<b
 }
 
 /**
+ * Speaks one line aloud and resolves once playback ends — `speakLines` with a
+ * single piece, so this is the whole of the old `speak()` behaviour, plus the
+ * empty-text no-op.
+ *
+ * Slash splitting is opt-in for teaching-card callers. Ordinary text keeps
+ * "/" intact because Chinese prose can naturally use it (for example,
+ * "上午/下午都可以说"). Opted-in segments receive a fixed pause and each still
+ * goes through the normal playback ladder independently.
+ */
+export async function speak(text: string, options: SpeakOptions = {}): Promise<boolean> {
+  const texts = options.splitOnSlash
+    ? text
+        .split("/")
+        .map((segment) => segment.trim())
+        .filter(Boolean)
+    : [text];
+  return speakLines(texts, options);
+}
+
+/**
  * User-gesture events that count as "the learner interacted with the page"
- * for `speakAssertively`'s fallback below. Deliberately more than just
+ * for `speakLinesAssertively`'s fallback below. Deliberately more than just
  * `pointerdown` — real devices vary in which of these a given browser
  * recognizes as satisfying its autoplay-unlock gesture requirement (e.g.
  * older/embedded mobile browsers lean on `touchend` or plain `click` more
@@ -582,7 +602,7 @@ export async function speak(text: string, options: SpeakOptions = {}): Promise<b
  */
 /**
  * A control marked with this attribute never counts as the "first
- * interaction" `speakAssertively` is listening for — see the mic button in
+ * interaction" `speakLinesAssertively` is listening for — see the mic button in
  * practice-input-form.tsx, marked for exactly this reason: starting speech
  * *recognition* at the same instant this function starts speech *synthesis*
  * plays Emily's audio back through the speaker at the exact moment the
@@ -598,14 +618,21 @@ function isAudioUnlockExempt(event: Event): boolean {
 }
 
 /**
- * Speaks `text` "as soon as possible" despite browsers blocking unmuted
- * audio that isn't triggered by a user gesture: tries `speak()` immediately
- * (succeeds outright wherever the browser already grants autoplay — e.g. the
- * user has interacted with this origin before) while *simultaneously*
- * listening for the learner's very next interaction anywhere on the page,
- * and speaks again then if the immediate attempt turns out to have been
- * blocked — that interaction is a genuine user gesture the browser will
- * always honor.
+ * Speaks several lines "as soon as possible" despite browsers blocking
+ * unmuted audio that isn't triggered by a user gesture: tries `speakLines`
+ * immediately (succeeds outright wherever the browser already grants autoplay
+ * — e.g. the user has interacted with this origin before) while
+ * *simultaneously* listening for the learner's very next interaction anywhere
+ * on the page, and speaks again then if the immediate attempt turns out to
+ * have been blocked — that interaction is a genuine user gesture the browser
+ * will always honor.
+ *
+ * Issue #48: this is what the Practice page speaks Emily's replies with, and
+ * it takes the whole sequence because her reply to one learner Turn can be
+ * more than one line (docs/ai-configuration.md section 3's "Line
+ * composition"). The lines go through `speakLines` — one owner, one Handoff
+ * Gap at the end — and the gesture retry re-arms the *whole* sequence, exactly
+ * as it re-spoke the one line before.
  *
  * The listeners are armed synchronously, up front, rather than only after
  * learning the immediate attempt was blocked: on a real device the browser's
@@ -616,8 +643,8 @@ function isAudioUnlockExempt(event: Event): boolean {
  * existed and be silently lost, with nothing left to prompt a second one.
  * Arming immediately closes that window at the cost of a rare, harmless
  * double-attempt (handled below): if the immediate attempt actually
- * succeeds around the same moment as a stray early tap, the second `speak()`
- * call simply cancels and restarts the same line (see `speak()`'s own
+ * succeeds around the same moment as a stray early tap, the second call
+ * simply cancels and restarts the same sequence (see `speakLines`'s own
  * cancel-before-starting behavior) rather than overlapping it.
  *
  * For call sites that want a line spoken "on load" (Practice's opening line
@@ -635,9 +662,15 @@ function isAudioUnlockExempt(event: Event): boolean {
  * caller driven by a React effect should return this from the effect so it
  * runs on cleanup, same as any other effect subscription.
  */
-export function speakAssertively(text: string, options: SpeakOptions = {}): () => void {
+export function speakLinesAssertively(texts: readonly string[], options: SpeakOptions = {}): () => void {
+  // Emily never ends a Turn silent (every accepted Turn yields at least one
+  // line — src/lib/emily-reply-selector.ts), so an empty sequence is a caller
+  // bug rather than a case to handle; do nothing rather than reject, same
+  // contract as everything else here.
+  if (texts.length === 0) return () => {};
+
   if (typeof document === "undefined") {
-    void speak(text, options);
+    void speakLines(texts, options);
     return () => {};
   }
 
@@ -674,20 +707,31 @@ export function speakAssertively(text: string, options: SpeakOptions = {}): () =
     // do; otherwise (blocked, or its outcome isn't known yet) this gesture
     // is the cue to speak now.
     if (outcomeKnown && succeeded) return;
-    void speak(text, options);
+    void speakLines(texts, options);
   }
 
   for (const event of FIRST_INTERACTION_EVENTS) {
     document.addEventListener(event, onFirstInteraction);
   }
 
-  void speak(text, options).then((played) => {
+  void speakLines(texts, options).then((played) => {
     outcomeKnown = true;
     succeeded = played;
     if (played) removeListeners();
   });
 
   return removeListeners;
+}
+
+/**
+ * The single-line case of `speakLinesAssertively` — "speak this line as soon
+ * as possible". Kept as its own name because most call sites really do have
+ * one line (Explore's pronunciation cards, the Ask-in-Chinese sheet), and it
+ * reads better than `speakLinesAssertively([text])` there; there is no second
+ * playback mechanism behind it.
+ */
+export function speakAssertively(text: string, options: SpeakOptions = {}): () => void {
+  return speakLinesAssertively([text], options);
 }
 
 function stopActivePlayback(): void {
@@ -703,7 +747,8 @@ export function cancelSpeech(): void {
   const owner = activeSpeechOwner;
   stopActivePlayback();
   // A cancelled line still earns the Handoff Gap if its audio had begun.
-  // The owner-local flag lives in `speak`; expose it here through a marker on
-  // the active call so cancellation can preserve the same invariant.
+  // The owner-local flag lives in `speakLines`; expose it here through a
+  // marker on the active call so cancellation can preserve the same
+  // invariant.
   if (owner) releaseSpeaking(owner, activePlaybackHasStarted);
 }

@@ -19,7 +19,7 @@ import {
 } from "@/lib/goal-progress";
 import type { GoalReport } from "@/lib/practice-turn-protocol";
 import { isStateTurnRecord, type StateTurnRecord } from "@/lib/turn-record";
-import type { OpeningLine, SupportNudge } from "@/content/lesson";
+import type { OpeningLine, ScriptLine, SupportNudge } from "@/content/lesson";
 
 /**
  * Practice conversation store (ticket 08) — built on the same shared
@@ -45,6 +45,17 @@ import type { OpeningLine, SupportNudge } from "@/content/lesson";
  * (`applyGoalReport`, all-or-nothing per ADR-0012), and keys `attemptCounts`
  * by the Focus Goal at submission time — "an attempt counts against the Focus
  * Goal only, so a Goal achieved early is always `passedFirstTry`".
+ *
+ * Issue #48: one Turn can be answered by several Conversation Script lines
+ * (docs/ai-configuration.md section 3), so `recordTurnResult` takes the
+ * whole sequence and persists one `PracticeMessage` per line, in order, in a
+ * single write — each line keeps its own Chinese subtitle and its own
+ * pre-generated audio, and the transcript stays a faithful record of the
+ * Turn. `getCurrentTurnEmilyMessages` reads that Turn's lines back off the
+ * transcript for the page's current-turn bubble, keyed on the `sequenceId`
+ * that write stamped rather than on adjacency (a support nudge and the
+ * opening line are each their own Turn, even though no learner message
+ * separates them from the line before).
  *
  * Issue #20 (#12's "Learning Summary inputs are derived, not reported"):
  * replaced the old model-reported `highlightKeys: HighlightKey[]` list with
@@ -72,6 +83,25 @@ export type PracticeMessage = {
   textZh: string;
   /** The Conversation State active when this message was produced — for a graded Turn, the Focus Goal it was judged against (see `recordTurnResult`). */
   state: ConversationState;
+  /**
+   * Which write this message arrived in: every `appendMessages` call stamps
+   * one fresh id, so the several Script lines of one graded Turn's reply share
+   * a value while the opening line, each learner echo and each support nudge
+   * are each their own (issue #48).
+   *
+   * This is what makes "the lines of the current Turn" decidable at all.
+   * Adjacency is not enough: a silence nudge arrives right after Emily's
+   * previous line with no learner message in between, so a tail-walk over
+   * consecutive Emily messages would read "Hi! No rush — whenever you're ready."
+   * as one Turn's line sequence.
+   *
+   * Optional because snapshots persisted before #48 have no such field —
+   * `isPracticeMessage` accepts their absence, and
+   * `getCurrentTurnEmilyMessages` treats a message without it as its own Turn,
+   * which is exactly what a pre-#48 transcript (never more than one line per
+   * Turn) means.
+   */
+  sequenceId?: string;
 };
 
 export type PracticeStoreState = {
@@ -105,7 +135,10 @@ function isPracticeMessage(value: unknown): value is PracticeMessage {
     (v.role === "emily" || v.role === "learner") &&
     typeof v.textEn === "string" &&
     typeof v.textZh === "string" &&
-    isConversationState(v.state)
+    isConversationState(v.state) &&
+    // Absent in snapshots persisted before issue #48 — accepted, since a
+    // pre-#48 transcript is still a valid one (see PracticeMessage.sequenceId).
+    (v.sequenceId === undefined || typeof v.sequenceId === "string")
   );
 }
 
@@ -169,12 +202,30 @@ function nextMessageId(): string {
   return `practice-msg-${Date.now()}-${messageIdCounter}`;
 }
 
+let sequenceIdCounter = 0;
+/** One fresh id per `appendMessages` call — see PracticeMessage.sequenceId. */
+function nextSequenceId(): string {
+  sequenceIdCounter += 1;
+  return `practice-sequence-${Date.now()}-${sequenceIdCounter}`;
+}
+
 /**
- * Shared internal helper: constructs a `PracticeMessage` (assigning it a
- * fresh id) and persists it appended to `messages`. Every exported function
- * below that appends an Emily/learner message goes through this, rather
- * than each hand-rolling the same "build the message object, spread it onto
- * the end of `messages`, persist" shape.
+ * Shared internal helper: constructs `PracticeMessage`s (assigning each a
+ * fresh id, and all of them one shared `sequenceId`) and persists them
+ * appended to `messages`, in the order given. Every exported function below
+ * that appends an Emily/learner message goes through this, rather than each
+ * hand-rolling the same "build the message object, spread it onto the end of
+ * `messages`, persist" shape.
+ *
+ * Plural since issue #48: one Turn can be answered by a *sequence* of
+ * Conversation Script lines (docs/ai-configuration.md section 3), and the
+ * whole sequence belongs to a single persist — a per-line persist would let a
+ * rehydration or a re-render observe a half-appended Turn, and would make the
+ * "one Turn's messages arrived together" invariant a thing callers have to
+ * remember instead of something this helper guarantees. That one write is also
+ * what `sequenceId` records, which is how
+ * `getCurrentTurnEmilyMessages` can tell a graded reply's several lines from
+ * two unrelated Emily messages that merely sit next to each other.
  *
  * `stateOverrides` lets a caller update the other top-level store fields in
  * the same persist call — only `recordTurnResult` needs this, to move
@@ -183,13 +234,58 @@ function nextMessageId(): string {
  * (ensureOpeningMessage's no-op guard when messages already exist,
  * recordTurnResult's `applyGoalReport` call) stays in the caller, not here.
  */
-function appendMessage(
+function appendMessages(
   current: PracticeStoreState,
-  input: { role: PracticeMessage["role"]; textEn: string; textZh: string; state: ConversationState },
+  inputs: { role: PracticeMessage["role"]; textEn: string; textZh: string; state: ConversationState }[],
   stateOverrides: Partial<Pick<PracticeStoreState, "goalProgress" | "turnRecords" | "attemptCounts">> = {},
 ): void {
-  const message: PracticeMessage = { id: nextMessageId(), ...input };
-  store.persist({ ...current, ...stateOverrides, messages: [...current.messages, message] });
+  if (inputs.length === 0) return;
+  const sequenceId = nextSequenceId();
+  const appended: PracticeMessage[] = inputs.map((input) => ({
+    id: nextMessageId(),
+    ...input,
+    sequenceId,
+  }));
+  store.persist({ ...current, ...stateOverrides, messages: [...current.messages, ...appended] });
+}
+
+/**
+ * The Emily messages of the *current* Turn — what the Practice page's current
+ * double bubble shows (src/components/practice/message-bubble-pair.tsx), in
+ * order, and what the page speaks as one sequence.
+ *
+ * "This Turn's lines" means lines that arrived *together*: `sequenceId`
+ * matches the one `appendMessages` stamped on them (issue #48). Adjacency
+ * alone is not the same thing — a silence nudge, or the opening line, is an
+ * Emily message with no learner message in front of it, so a tail-walk over
+ * consecutive Emily messages would merge the nudge into the previous line
+ * ("Hi! No rush — whenever you're ready."). A message with no `sequenceId`
+ * (persisted before #48) is its own Turn, which is what a pre-#48 transcript —
+ * never more than one line per Turn — always was.
+ *
+ * While a learner Turn is still being graded their echo is the last message,
+ * and the lines above them are the previous Turn's, which is exactly the pair
+ * the page renders: Emily's line(s), then the learner's echo.
+ */
+export function getCurrentTurnEmilyMessages(messages: readonly PracticeMessage[]): PracticeMessage[] {
+  const withoutTrailingLearner =
+    messages[messages.length - 1]?.role === "learner" ? messages.slice(0, -1) : messages;
+  const last = withoutTrailingLearner[withoutTrailingLearner.length - 1];
+  if (last === undefined || last.role !== "emily") return [];
+
+  const lines: PracticeMessage[] = [last];
+  for (let i = withoutTrailingLearner.length - 2; i >= 0; i--) {
+    const message = withoutTrailingLearner[i];
+    if (
+      message.role !== "emily" ||
+      message.sequenceId === undefined ||
+      message.sequenceId !== last.sequenceId
+    ) {
+      break;
+    }
+    lines.unshift(message);
+  }
+  return lines;
 }
 
 /**
@@ -201,23 +297,27 @@ function appendMessage(
 export function ensureOpeningMessage(line: OpeningLine): void {
   const current = store.getSnapshot();
   if (current.messages.length > 0) return;
-  appendMessage(current, {
-    role: "emily",
-    textEn: line.en,
-    textZh: line.zh,
-    state: deriveConversationState(current.goalProgress),
-  });
+  appendMessages(current, [
+    {
+      role: "emily",
+      textEn: line.en,
+      textZh: line.zh,
+      state: deriveConversationState(current.goalProgress),
+    },
+  ]);
 }
 
 /** Appends the learner's echoed input as a message in the current state, ahead of grading. */
 export function appendLearnerMessage(text: string): void {
   const current = store.getSnapshot();
-  appendMessage(current, {
-    role: "learner",
-    textEn: text,
-    textZh: "",
-    state: deriveConversationState(current.goalProgress),
-  });
+  appendMessages(current, [
+    {
+      role: "learner",
+      textEn: text,
+      textZh: "",
+      state: deriveConversationState(current.goalProgress),
+    },
+  ]);
 }
 
 /**
@@ -239,6 +339,13 @@ export function appendLearnerMessage(text: string): void {
  * the same thing in #47's one-Goal-per-Turn conversations and different only
  * once a Turn can achieve several.
  *
+ * Issue #48: `replyLines` is the *sequence* Emily's line selector returned
+ * (src/lib/emily-reply-selector.ts) — one or more Conversation Script lines
+ * for this Turn. Each becomes its own `PracticeMessage`, in order, in a single
+ * persist (see `appendMessages`), so the persisted transcript is a faithful
+ * record of what Emily said, each line keeping its own Chinese subtitle and
+ * its own pre-generated audio, and the learner can still read all of it.
+ *
  * `matchedAcceptedResponse` and `learnerAskedBack` are passed straight
  * through from the caller (practice-page-content.tsx), which already has
  * both: the former from comparing the learner's raw text against
@@ -256,8 +363,7 @@ export function recordTurnResult(input: {
   focusGoal: ActiveConversationState;
   verdict: Verdict;
   goalReport: GoalReport;
-  replyEn: string;
-  replyZh: string;
+  replyLines: readonly ScriptLine[];
   matchedAcceptedResponse: boolean;
   learnerAskedBack: boolean;
 }): GoalProgress {
@@ -282,9 +388,14 @@ export function recordTurnResult(input: {
         ]
       : current.turnRecords;
 
-  appendMessage(
+  appendMessages(
     current,
-    { role: "emily", textEn: input.replyEn, textZh: input.replyZh, state: input.focusGoal },
+    input.replyLines.map((line) => ({
+      role: "emily" as const,
+      textEn: line.en,
+      textZh: line.zh,
+      state: input.focusGoal,
+    })),
     { goalProgress, turnRecords, attemptCounts },
   );
   return goalProgress;
@@ -310,12 +421,14 @@ export function recordTurnResult(input: {
  */
 export function appendSupportMessage(input: SupportNudge): void {
   const current = store.getSnapshot();
-  appendMessage(current, {
-    role: "emily",
-    textEn: input.en,
-    textZh: input.zh,
-    state: deriveConversationState(current.goalProgress),
-  });
+  appendMessages(current, [
+    {
+      role: "emily",
+      textEn: input.en,
+      textZh: input.zh,
+      state: deriveConversationState(current.goalProgress),
+    },
+  ]);
 }
 
 /** Clears the conversation back to a clean start — ticket 11's Retry button will call this. */

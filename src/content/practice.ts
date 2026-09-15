@@ -40,9 +40,14 @@
  * as never re-creditable, and asks only about the open ones — the model
  * returns a Goal Report over those. The old "Never skip a Conversation Step"
  * constraint is gone with the linear pointer it described; a Goal may now be
- * achieved before Emily has prompted for it. (Rewording the four
- * `learningGoal` texts, which still read as if Emily had just prompted for
- * that Goal, belongs to #48 — deliberately untouched here.)
+ * achieved before Emily has prompted for it.
+ *
+ * Issue #48 finished that rewording at the content layer too: each Goal's
+ * `learningGoal` (src/content/lesson.ts) now describes the Goal itself rather
+ * than "you just said X", so the prompt reads the same whether the learner
+ * answers a steer line or volunteers the Goal unprompted — and whether the
+ * Turn achieves one Goal or several. Nothing else in the prompt assumed the
+ * prompt order.
  */
 
 import { ACTIVE_CONVERSATION_STATES } from "@/lib/conversation-state-machine";
@@ -118,7 +123,7 @@ ${whitelist}`;
 
   return `
 ## Conversation Goals
-The learner must communicate all four of these Goals to complete Practice, in any order: one message may achieve several, and a Goal may be achieved before Emily has prompted for it. You are asked about the OPEN Goals only — report each of them in your \`goal_report\`, and say nothing at all about the Goals already in Goal Progress ("achieved" means the message communicated that Goal's intent; "failed" means it recognisably attempted it but did not communicate it; "untouched" means it did not attempt it — unrelated chatter and filler are "untouched", never "failed").
+The learner must communicate all four of these Goals to complete Practice, in any order: one message may achieve several, and a Goal may be achieved before Emily has prompted for it. Judge every open Goal below on its own merits — report it "achieved" whenever the message communicated its intent, even though Emily steered toward only one of them, and even if the learner volunteered it before being asked. You are asked about the OPEN Goals only — report each of them in your \`goal_report\`, and say nothing at all about the Goals already in Goal Progress ("achieved" means the message communicated that Goal's intent; "failed" means it recognisably attempted it but did not communicate it; "untouched" means it did not attempt it — unrelated chatter and filler are "untouched", never "failed").
 
 ${goalSections}
 `.trim();

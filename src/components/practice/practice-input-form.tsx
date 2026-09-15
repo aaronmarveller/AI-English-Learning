@@ -238,7 +238,7 @@ export function PracticeInputForm({ disabled, onSubmit, asideAction }: PracticeI
               // audio out of the speaker at that exact moment reliably
               // drowns out or echo-cancels the learner's own voice out of
               // the recognized transcript, so this tap must never double as
-              // the "learner interacted with the page" cue speakAssertively
+              // the "learner interacted with the page" cue speakLinesAssertively
               // listens for.
               data-audio-unlock-exempt
               aria-label={micState === "listening" ? "停止说话 Stop listening" : "开始说话 Start speaking"}

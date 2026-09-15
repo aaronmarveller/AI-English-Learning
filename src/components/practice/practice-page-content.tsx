@@ -13,11 +13,11 @@ import { PracticeInputForm } from "@/components/practice/practice-input-form";
 import { StageTag } from "@/components/stage-tag";
 import { GREETING_SOMEBODY_LESSON, pickRandomOpeningLine } from "@/content/lesson";
 import { containsChineseText } from "@/lib/detect-chinese-input";
-import { selectEmilyLineForTurn, selectSilenceNudge } from "@/lib/emily-reply-selector";
-import { applyGoalReport, deriveVerdict } from "@/lib/goal-progress";
+import { selectEmilyLinesForTurn, selectSilenceNudge } from "@/lib/emily-reply-selector";
+import { deriveVerdict } from "@/lib/goal-progress";
 import { markStepComplete } from "@/lib/progress";
-import { usePractice } from "@/lib/practice-state";
-import { cancelSpeech, speakAssertively } from "@/lib/speech-synthesis";
+import { getCurrentTurnEmilyMessages, usePractice } from "@/lib/practice-state";
+import { cancelSpeech, speakLinesAssertively } from "@/lib/speech-synthesis";
 import { submitPracticeTurn } from "@/lib/submit-practice-turn";
 import { matchesAcceptedResponse } from "@/lib/turn-record";
 
@@ -46,12 +46,13 @@ const TALKING_DURATION_MS = 1400;
 
 /**
  * The most recent Emily message id the reply-autoplay effect below has
- * already fired `speak`/`speakAssertively` for — module-scoped, not a
+ * already fired `speakLinesAssertively` for — module-scoped, not a
  * component ref, deliberately: a `useRef` resets on any full remount of the
  * component (React Strict Mode's dev-only double-invoke of effects, or a
  * Fast Refresh reload), but the store-persisted message id doesn't, so
  * keying on it here survives a remount without risking the same line
- * audibly playing twice.
+ * audibly playing twice. Since #48 it is the *last* line of a Turn's
+ * sequence, which is what makes one Turn's whole sequence play once.
  */
 let autoSpokenMessageId: string | undefined;
 
@@ -72,6 +73,14 @@ const SILENCE_TIMEOUT_MS = 18000;
  * same reason as Explore's page/content split — everything here is client-only
  * state (the practice store, in-flight request status, avatar animation
  * timing).
+ *
+ * Issue #48: one learner Turn can achieve several Goals, so the judged Turn
+ * produces a *sequence* of Emily lines — selected here
+ * (src/lib/emily-reply-selector.ts), persisted as one message each
+ * (src/lib/practice-state.ts), shown joined in the one current-turn bubble
+ * and spoken as one sequence (src/lib/speech-synthesis.ts's
+ * `speakLinesAssertively`), which is what keeps Turn-Taking closed until the
+ * last line ends.
  *
  * Voice input (ticket 09, still landing in a sibling worktree against this
  * same file) is explicitly out of scope here — this page's text form must
@@ -144,19 +153,25 @@ export function PracticePageContent() {
     };
   }, []);
 
-  const emilyMessage = [...messages].reverse().find((message) => message.role === "emily") ?? null;
+  // Issue #48: this Turn's Emily lines, in order — one line for a one-Goal
+  // Turn, two when Emily reacted to a check-in and then steered (see
+  // src/lib/emily-reply-selector.ts). The bubble shows them joined, and the
+  // autoplay effect below speaks them as one sequence.
+  const currentTurnEmilyLines = getCurrentTurnEmilyMessages(messages);
+  const lastEmilyLine = currentTurnEmilyLines[currentTurnEmilyLines.length - 1] ?? null;
   const lastMessage = messages[messages.length - 1];
   const learnerMessage = lastMessage?.role === "learner" ? lastMessage : null;
 
   // Whenever a new Emily line lands (the opening line, or a fresh reply),
-  // kick off a brief "talking" beat. This adjusts state during render
+  // kick off a brief "talking" beat — one beat per Turn's whole sequence, so
+  // it keys off that sequence's last line. This adjusts state during render
   // (React's documented pattern for reacting to a changed value —
   // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes)
   // rather than in a useEffect body: this repo's lint config
   // (react-hooks/set-state-in-effect) flags a setState call made directly
   // and synchronously in an effect as a cascading-render risk.
-  if (emilyMessage && emilyMessage.id !== talkingForMessageId) {
-    setTalkingForMessageId(emilyMessage.id);
+  if (lastEmilyLine && lastEmilyLine.id !== talkingForMessageId) {
+    setTalkingForMessageId(lastEmilyLine.id);
     setAvatarState("talking");
   }
 
@@ -173,39 +188,47 @@ export function PracticePageContent() {
 
   // Emily speaks every one of her lines proactively — the opening line, and
   // every reply after it — so the learner hears her without ever needing the
-  // manual 🔊 replay tap. Every line uses `speakAssertively`: the reusable
+  // manual 🔊 replay tap. Every line uses `speakLinesAssertively`: the reusable
   // audio element should normally have been unlocked by the learner's first
   // gesture, while the retry remains a safety net for WebKit versions that
-  // still reject a later programmatic play.
+  // still reject a later programmatic play. One call per Turn speaks that
+  // Turn's whole sequence — one speaking owner, one Handoff Gap at the end —
+  // so Turn-Taking holds across both of Emily's lines rather than handing the
+  // mic back between them (#48; see src/lib/speech-synthesis.ts).
   //
   // `hasCheckedReplyAutoplayRef` distinguishes a genuinely new reply that
   // arrived during this session from a resumed session's already-persisted
   // last message (see that ref's own doc comment) — without it, every page
   // load/refresh mid-conversation would replay Emily's last line out loud.
-  // `autoSpokenMessageId` (module scope, keyed on the message's own id)
-  // guards against speaking the exact same message twice — including across
-  // a restarted conversation's new opening line, a genuinely new id that
+  // `autoSpokenMessageId` (module scope, keyed on the *last* line's own id)
+  // guards against speaking the exact same Turn twice — including across a
+  // restarted conversation's new opening line, a genuinely new id that
   // auto-plays again with no manual reset needed — see handleRestart.
   useEffect(() => {
     const isOpeningLine = messages.length === 1;
     // False only on this effect's very first run after mount; true from its
     // second run onward. Since the dependency array below only re-runs this
-    // effect when emilyMessage or messages.length actually changes, "not the
-    // first run" reliably means a live event happened during this session (a
-    // new reply, a support nudge, or a restart) rather than a resumed
-    // session's already-persisted history rendering for the first time.
+    // effect when the transcript actually changes, "not the first run"
+    // reliably means a live event happened during this session (a new reply,
+    // a support nudge, or a restart) rather than a resumed session's
+    // already-persisted history rendering for the first time.
     const isLiveUpdate = hasCheckedReplyAutoplayRef.current;
     hasCheckedReplyAutoplayRef.current = true;
 
-    if (isAskInChineseOpen || !emilyMessage || (!isOpeningLine && !isLiveUpdate)) return;
-    if (autoSpokenMessageId === emilyMessage.id) return;
-    autoSpokenMessageId = emilyMessage.id;
+    // Re-derived from `messages` (the dependency) rather than read off the
+    // render's own `currentTurnEmilyLines`, so this effect's inputs are all
+    // declared and nothing goes stale.
+    const lines = getCurrentTurnEmilyMessages(messages);
+    const lastLine = lines[lines.length - 1];
+    if (isAskInChineseOpen || !lastLine || (!isOpeningLine && !isLiveUpdate)) return;
+    if (autoSpokenMessageId === lastLine.id) return;
+    autoSpokenMessageId = lastLine.id;
 
-    return speakAssertively(emilyMessage.textEn);
-  }, [emilyMessage, messages.length, isAskInChineseOpen]);
+    return speakLinesAssertively(lines.map((line) => line.textEn));
+  }, [messages, isAskInChineseOpen]);
 
   // Chinese help owns the floor from the moment it opens. This also clears
-  // any pending speakAssertively gesture retry from the English conversation.
+  // any pending speakSequence gesture retry from the English conversation.
   useEffect(() => {
     if (isAskInChineseOpen) cancelSpeech();
   }, [isAskInChineseOpen]);
@@ -282,17 +305,22 @@ export function PracticePageContent() {
     if (result.ok) {
       // Issue #47 (ADR-0012): the Judge returns a Goal Report, not a Verdict —
       // the Verdict is derived here (all-or-nothing: at least one open Goal
-      // achieved, none failed) and Goal Progress is advanced by the same pure
-      // rule the store applies again when it persists the Turn. Emily's line is
-      // still selected client-side, at random from the Lesson's fixed
-      // Conversation Script pools, now keyed off the Focus Goal the Turn left
-      // behind rather than a Conversation State pointer.
+      // achieved, none failed). Emily's lines are still selected client-side,
+      // at random from the Lesson's fixed Conversation Script pools.
+      //
+      // Issue #48: the selector is handed the Goal Progress the report was
+      // judged against plus the report itself, so it can tell which Goals
+      // *this Turn* achieved — it needs that, not only where Goal Progress
+      // ended up, to know whether a reaction line is due — and returns the
+      // ordered sequence of lines Emily speaks (see its own doc comment for
+      // the composition). The store persists one message per line in a single
+      // write, and the autoplay effect above speaks the same sequence.
       const { goal_report: goalReport, learner_asked_back: learnerAskedBack } = result.data;
       const verdict = deriveVerdict(goalProgress, goalReport);
-      const progressAfterTurn = applyGoalReport(goalProgress, goalReport, verdict);
-      const line = selectEmilyLineForTurn(GREETING_SOMEBODY_LESSON, {
+      const replyLines = selectEmilyLinesForTurn(GREETING_SOMEBODY_LESSON, {
         verdict,
-        progressAfterTurn,
+        progressBeforeTurn: goalProgress,
+        goalReport,
         learnerAskedBack,
       });
       // Issue #20 (#12's "Learning Summary inputs are derived, not
@@ -307,8 +335,7 @@ export function PracticePageContent() {
         focusGoal,
         verdict,
         goalReport,
-        replyEn: line.en,
-        replyZh: line.zh,
+        replyLines,
         matchedAcceptedResponse: matchesAcceptedResponse(
           text,
           GREETING_SOMEBODY_LESSON.script[focusGoal].acceptedResponses,
@@ -376,8 +403,11 @@ export function PracticePageContent() {
         }
         bottomOverlay={
           <MessageBubblePair
-            key={emilyMessage?.id}
-            emilyMessage={emilyMessage ? { textEn: emilyMessage.textEn, textZh: emilyMessage.textZh } : null}
+            key={lastEmilyLine?.id}
+            emilyMessages={currentTurnEmilyLines.map((line) => ({
+              textEn: line.textEn,
+              textZh: line.textZh,
+            }))}
             learnerMessage={learnerMessage ? { textEn: learnerMessage.textEn, textZh: learnerMessage.textZh } : null}
           />
         }
