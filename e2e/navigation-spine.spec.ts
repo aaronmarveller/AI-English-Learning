@@ -23,9 +23,14 @@ function expectedDotState(dotStep: StepId, currentStep: StepId): "current" | "co
  * Unlike every other step, Practice has no simple "Continue" button —
  * its primary action ("查看学习总结") only unlocks once its own inner
  * 4-step Greeting→Check-in→Response→Closing conversation completes. This
- * stubs the LLM proxy route to always accept, drives all 4 turns, then
+ * stubs the LLM proxy route to accept each Turn, drives all 4 turns, then
  * clicks View Summary — the walkthrough's equivalent of "click Continue"
  * for this one step.
+ *
+ * Issue #47 (ADR-0012): a scripted Turn is a Goal Report now, not a Verdict —
+ * one entry per Turn, each naming the Goal that reply communicates. The loop
+ * below answers Emily in canonical order, one Goal per Turn, exactly as a
+ * learner following her lines would, so entry *n* is Goal *n*.
  *
  * Uses the shared `installScriptedPracticeApi` stub (e2e/fixtures.ts)
  * rather than its own inline `page.route` (as this predates issue #10's
@@ -34,7 +39,12 @@ function expectedDotState(dotStep: StepId, currentStep: StepId): "current" | "co
  * — see that helper's doc comment for why (issue #5).
  */
 async function completePracticeConversation(page: Page): Promise<void> {
-  await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+  await installScriptedPracticeApi(page, [
+    { goalReport: { greeting: "achieved" } },
+    { goalReport: { checkin: "achieved" } },
+    { goalReport: { response: "achieved" } },
+    { goalReport: { closing: "achieved" } },
+  ]);
 
   // Ticket 09 made the microphone the default input mode; this walkthrough
   // isn't concerned with voice, so it switches to the (always-available)

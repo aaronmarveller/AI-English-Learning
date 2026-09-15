@@ -5,11 +5,19 @@ import { createPersistedStore } from "@/lib/create-persisted-store";
 import {
   ACTIVE_CONVERSATION_STATES,
   isConversationState,
-  nextConversationState,
   type ActiveConversationState,
   type ConversationState,
   type Verdict,
 } from "@/lib/conversation-state-machine";
+import {
+  applyGoalReport,
+  deriveConversationState,
+  getFocusGoal,
+  isGoalProgress,
+  isGoalProgressComplete,
+  type GoalProgress,
+} from "@/lib/goal-progress";
+import type { GoalReport } from "@/lib/practice-turn-protocol";
 import { isStateTurnRecord, type StateTurnRecord } from "@/lib/turn-record";
 import type { OpeningLine, SupportNudge } from "@/content/lesson";
 
@@ -20,31 +28,37 @@ import type { OpeningLine, SupportNudge } from "@/content/lesson";
  * own distinct storage key so it never collides with the Learning Flow
  * progress store.
  *
- * This module owns *persisted conversation state*: the current
- * ConversationState, the turn-by-turn message history (populated here so
- * ticket 10's transcript drawer has data to render, even though this ticket
- * doesn't render the full log itself), and the accumulated per-state
- * `turnRecords` the Learning Summary derives from (issue #20). It wraps the
- * pure state machine in src/lib/conversation-state-machine.ts — this module
- * is the only place that calls `nextConversationState` and persists the
- * result — but never does the network call itself; the LLM request is the
- * Practice page component's job (see
- * src/components/practice/practice-page-content.tsx), which then reports the
- * result back here via `recordTurnResult`.
+ * This module owns *persisted conversation state*: Goal Progress, the
+ * turn-by-turn message history (populated here so a transcript has data to
+ * render), and the accumulated per-state `turnRecords` the Learning Summary
+ * derives from (issue #20). It performs no model call of its own — the LLM
+ * request is the Practice page component's job (see
+ * src/components/practice/practice-page-content.tsx), which reports the
+ * judged Turn back here via `recordTurnResult`.
+ *
+ * Issue #47 (ADR-0012): the persisted pointer is gone. What this store
+ * persists instead is `goalProgress` — the *set* of Conversation Goals
+ * achieved so far — and the Conversation State the rest of the page reads
+ * (`usePractice().conversationState`, `.focusGoal`, `.isComplete`) is derived
+ * from it every render via src/lib/goal-progress.ts, never stored. The store
+ * applies the Judge's Goal Report to Goal Progress itself
+ * (`applyGoalReport`, all-or-nothing per ADR-0012), and keys `attemptCounts`
+ * by the Focus Goal at submission time — "an attempt counts against the Focus
+ * Goal only, so a Goal achieved early is always `passedFirstTry`".
  *
  * Issue #20 (#12's "Learning Summary inputs are derived, not reported"):
  * replaced the old model-reported `highlightKeys: HighlightKey[]` list with
  * `turnRecords: StateTurnRecord[]` (src/lib/turn-record.ts) — one record per
  * Conversation State that was ever accepted, carrying whether it was passed
- * first try, whether the reply matched an Accepted Response, and whether
- * the learner asked back. `attemptCounts` is new bookkeeping this store
- * needs to compute `passedFirstTry` itself: how many times the learner has
- * submitted against each state so far, incremented on every turn regardless
- * of verdict. Pre-issue-#20 persisted data (the old `highlightKeys` shape)
- * has no `turnRecords` field at all — `deserialize` below treats that
- * mismatch as "no saved state" and discards the whole snapshot rather than
- * trying to salvage individual fields (see #12's Further Notes: "In-flight
- * practice sessions will reset").
+ * first try, whether the reply matched an Accepted Response, and whether the
+ * learner asked back. `attemptCounts` is the bookkeeping this store needs to
+ * compute `passedFirstTry` itself: how many times the learner has submitted
+ * against each Goal so far, incremented on every turn regardless of verdict.
+ * Pre-issue-#20 persisted data (the old `highlightKeys` shape) has no
+ * `turnRecords` field at all, and pre-issue-#47 data has no `goalProgress`
+ * field — `deserialize` below treats either mismatch as "no saved state" and
+ * discards the whole snapshot rather than trying to salvage individual fields
+ * (see #12's Further Notes: "In-flight practice sessions will reset").
  */
 
 export type PracticeMessage = {
@@ -56,15 +70,16 @@ export type PracticeMessage = {
    * Conversation Script line's `zh` — see src/lib/emily-reply-selector.ts —
    * or the opening line's `zh`); empty string for the learner's own echoed input. */
   textZh: string;
-  /** The Conversation State active when this message was produced. */
+  /** The Conversation State active when this message was produced — for a graded Turn, the Focus Goal it was judged against (see `recordTurnResult`). */
   state: ConversationState;
 };
 
 export type PracticeStoreState = {
-  conversationState: ConversationState;
+  /** The set of Conversation Goals achieved so far (ADR-0012) — what replaced the old `conversationState` pointer, and the only thing the Conversation State is derived from. */
+  goalProgress: GoalProgress;
   messages: PracticeMessage[];
   turnRecords: StateTurnRecord[];
-  /** How many times the learner has submitted against each active state so far (all verdicts, not just accepted) — used to compute a newly-accepted record's `passedFirstTry`. */
+  /** How many times the learner has submitted against each Conversation Goal so far (all verdicts, not just accepted) — used to compute a newly-accepted record's `passedFirstTry`. Keyed by the Focus Goal at submission time. */
   attemptCounts: Partial<Record<ActiveConversationState, number>>;
 };
 
@@ -76,7 +91,7 @@ const STORAGE_KEY = "greeting-somebody:practice";
 // exact reference from its getServerSnapshot. Never mutated in place — every
 // update goes through `store.persist`, which always builds a new object.
 const INITIAL_STATE: PracticeStoreState = {
-  conversationState: "greeting",
+  goalProgress: [],
   messages: [],
   turnRecords: [],
   attemptCounts: {},
@@ -94,7 +109,7 @@ function isPracticeMessage(value: unknown): value is PracticeMessage {
   );
 }
 
-/** Sanitizes a persisted `attemptCounts` value, dropping anything that isn't a number keyed by a real active state. Never fails the whole deserialize on its own — unlike `turnRecords`, a malformed `attemptCounts` isn't evidence of a pre-issue-#20 shape, so it degrades to "no attempts recorded yet" instead of discarding the rest of the snapshot. */
+/** Sanitizes a persisted `attemptCounts` value, dropping anything that isn't a number keyed by a real Conversation Goal. Never fails the whole deserialize on its own — unlike `turnRecords`/`goalProgress`, a malformed `attemptCounts` isn't evidence of a pre-change shape, so it degrades to "no attempts recorded yet" instead of discarding the rest of the snapshot. */
 function sanitizeAttemptCounts(value: unknown): Partial<Record<ActiveConversationState, number>> {
   if (typeof value !== "object" || value === null) return {};
   const v = value as Record<string, unknown>;
@@ -106,13 +121,16 @@ function sanitizeAttemptCounts(value: unknown): Partial<Record<ActiveConversatio
 }
 
 /**
- * Issue #20 (#12's Further Notes: "In-flight practice sessions will
- * reset"): `turnRecords` is the one field that must be present and
- * well-shaped for this snapshot to be trusted at all — its absence (the old
- * `highlightKeys` shape) or corruption is treated as "no saved state"
- * rather than a partial-recovery case, discarding the whole snapshot
- * (falling back to `INITIAL_STATE`, same as a JSON.parse failure) instead
- * of crashing or silently mixing old and new shapes.
+ * Issue #20 (#12's Further Notes: "In-flight practice sessions will reset"):
+ * a snapshot is only trusted if the two fields this store cannot work without
+ * are present and well-shaped — `turnRecords` (whose absence means the old
+ * pre-#20 `highlightKeys` shape) and `goalProgress` (whose absence means the
+ * old pre-#47 `conversationState` shape). Either mismatch is treated as "no
+ * saved state" rather than a partial-recovery case: the whole snapshot is
+ * discarded (falling back to `INITIAL_STATE`, same as a JSON.parse failure)
+ * instead of crashing or silently mixing old and new shapes. `messages` and
+ * `attemptCounts` degrade per-entry instead, since neither is load-bearing for
+ * correctness.
  */
 /** Exported for practice-state.test.ts's discard-safely coverage (the persisted-store factory's own `serialize`/`deserialize` contract is otherwise private per store). */
 export function deserialize(raw: string): PracticeStoreState {
@@ -123,14 +141,15 @@ export function deserialize(raw: string): PracticeStoreState {
   if (!Array.isArray(p.turnRecords) || !p.turnRecords.every(isStateTurnRecord)) {
     return INITIAL_STATE;
   }
+  if (!isGoalProgress(p.goalProgress)) {
+    return INITIAL_STATE;
+  }
 
-  const conversationState = isConversationState(p.conversationState)
-    ? p.conversationState
-    : INITIAL_STATE.conversationState;
+  const goalProgress = p.goalProgress;
   const messages = Array.isArray(p.messages) ? p.messages.filter(isPracticeMessage) : [];
   const turnRecords = p.turnRecords;
   const attemptCounts = sanitizeAttemptCounts(p.attemptCounts);
-  return { conversationState, messages, turnRecords, attemptCounts };
+  return { goalProgress, messages, turnRecords, attemptCounts };
 }
 
 function serialize(state: PracticeStoreState): string {
@@ -158,17 +177,16 @@ function nextMessageId(): string {
  * the end of `messages`, persist" shape.
  *
  * `stateOverrides` lets a caller update the other top-level store fields in
- * the same persist call — only `recordTurnResult` needs this, to advance
- * `conversationState`/`turnRecords`/`attemptCounts` alongside appending
- * Emily's reply. Everything else distinct about each caller
+ * the same persist call — only `recordTurnResult` needs this, to move
+ * `goalProgress`/`turnRecords`/`attemptCounts` alongside appending Emily's
+ * reply. Everything else distinct about each caller
  * (ensureOpeningMessage's no-op guard when messages already exist,
- * recordTurnResult's `nextConversationState` call) stays in the caller, not
- * here.
+ * recordTurnResult's `applyGoalReport` call) stays in the caller, not here.
  */
 function appendMessage(
   current: PracticeStoreState,
   input: { role: PracticeMessage["role"]; textEn: string; textZh: string; state: ConversationState },
-  stateOverrides: Partial<Pick<PracticeStoreState, "conversationState" | "turnRecords" | "attemptCounts">> = {},
+  stateOverrides: Partial<Pick<PracticeStoreState, "goalProgress" | "turnRecords" | "attemptCounts">> = {},
 ): void {
   const message: PracticeMessage = { id: nextMessageId(), ...input };
   store.persist({ ...current, ...stateOverrides, messages: [...current.messages, message] });
@@ -187,7 +205,7 @@ export function ensureOpeningMessage(line: OpeningLine): void {
     role: "emily",
     textEn: line.en,
     textZh: line.zh,
-    state: current.conversationState,
+    state: deriveConversationState(current.goalProgress),
   });
 }
 
@@ -198,56 +216,65 @@ export function appendLearnerMessage(text: string): void {
     role: "learner",
     textEn: text,
     textZh: "",
-    state: current.conversationState,
+    state: deriveConversationState(current.goalProgress),
   });
 }
 
 /**
  * Records the server's structured result for the just-submitted learner
- * turn: advances (or holds) `conversationState` via the pure state machine,
- * appends Emily's reply as a message tagged with the state the turn was
- * judged against, bumps that state's attempt count, and — only when the
- * turn was accepted — appends a `StateTurnRecord` for `priorState` to
- * `turnRecords` (issue #20; see src/lib/turn-record.ts). A `needs_retry`
- * turn still bumps `attemptCounts` (so a later accepted attempt in the same
- * state can correctly compute `passedFirstTry: false`) but never itself
- * contributes a record — only an accepted state produces a highlight
- * candidate.
+ * turn: applies the Judge's Goal Report to Goal Progress via the pure
+ * all-or-nothing rule (src/lib/goal-progress.ts's `applyGoalReport` — an
+ * `accepted` Turn adds every Goal the report marked `achieved`, at once, and
+ * a `needs_retry` Turn saves nothing), appends Emily's reply as a message
+ * tagged with the Goal the turn was judged against, bumps that Goal's attempt
+ * count, and — only when the turn was accepted — appends a
+ * `StateTurnRecord` for the Focus Goal (issue #20; see
+ * src/lib/turn-record.ts). A `needs_retry` turn still bumps `attemptCounts`
+ * (so a later accepted attempt against the same Goal correctly computes
+ * `passedFirstTry: false`) but never itself contributes a record — only an
+ * accepted Goal produces a highlight candidate.
+ *
+ * Issue #47: the record is still one per accepted Turn, attributed to the
+ * Focus Goal. #51 re-grains that to one record per `achieved` Goal, which is
+ * the same thing in #47's one-Goal-per-Turn conversations and different only
+ * once a Turn can achieve several.
  *
  * `matchedAcceptedResponse` and `learnerAskedBack` are passed straight
  * through from the caller (practice-page-content.tsx), which already has
  * both: the former from comparing the learner's raw text against
- * `Lesson.script[priorState].acceptedResponses`
+ * `Lesson.script[focusGoal].acceptedResponses`
  * (src/lib/turn-record.ts's `matchesAcceptedResponse`), the latter from the
  * Judge's `learner_asked_back`. This module stays ignorant of `Lesson`
  * content — it only assembles the record, it doesn't compute any part of
  * it.
  *
- * Returns the resulting ConversationState so the caller can act on it (e.g.
- * know immediately that the conversation just completed) without waiting on
- * a re-render.
+ * Returns the resulting Goal Progress so the caller can act on it (e.g. know
+ * immediately that the conversation just completed) without waiting on a
+ * re-render.
  */
 export function recordTurnResult(input: {
-  priorState: ActiveConversationState;
+  focusGoal: ActiveConversationState;
   verdict: Verdict;
+  goalReport: GoalReport;
   replyEn: string;
   replyZh: string;
   matchedAcceptedResponse: boolean;
   learnerAskedBack: boolean;
-}): ConversationState {
+}): GoalProgress {
   const current = store.getSnapshot();
-  const resultingState = nextConversationState(input.priorState, input.verdict);
 
-  const priorAttempts = current.attemptCounts[input.priorState] ?? 0;
+  const priorAttempts = current.attemptCounts[input.focusGoal] ?? 0;
   const attempts = priorAttempts + 1;
-  const attemptCounts = { ...current.attemptCounts, [input.priorState]: attempts };
+  const attemptCounts = { ...current.attemptCounts, [input.focusGoal]: attempts };
+
+  const goalProgress = applyGoalReport(current.goalProgress, input.goalReport, input.verdict);
 
   const turnRecords =
     input.verdict === "accepted"
       ? [
           ...current.turnRecords,
           {
-            state: input.priorState,
+            state: input.focusGoal,
             passedFirstTry: attempts === 1,
             matchedAcceptedResponse: input.matchedAcceptedResponse,
             learnerAskedBack: input.learnerAskedBack,
@@ -257,21 +284,29 @@ export function recordTurnResult(input: {
 
   appendMessage(
     current,
-    { role: "emily", textEn: input.replyEn, textZh: input.replyZh, state: input.priorState },
-    { conversationState: resultingState, turnRecords, attemptCounts },
+    { role: "emily", textEn: input.replyEn, textZh: input.replyZh, state: input.focusGoal },
+    { goalProgress, turnRecords, attemptCounts },
   );
-  return resultingState;
+  return goalProgress;
 }
 
 /**
- * Appends an Emily message without touching `conversationState` or
- * `turnRecords` — for support features that must never transition the
- * conversation (ticket 10's silence-timeout nudge; spec.md user story 62:
- * "20 秒没说话时 Emily 只轻轻推一下、不催也不给答案"). Unlike
- * `recordTurnResult`, this never calls `nextConversationState` — the learner
- * hasn't submitted a turn to grade, so there is nothing to advance. Takes a
- * single `SupportNudge`-shaped object (rather than two positional `en`/`zh`
- * strings) so call sites can pass a nudge value straight through.
+ * Appends an Emily message without touching Goal Progress or `turnRecords` —
+ * for support features that must never move a conversation forward (ticket
+ * 10's silence-timeout nudge; spec.md user story 62: "20 秒没说话时 Emily
+ * 只轻轻推一下、不催也不给答案"). Unlike `recordTurnResult`, this never
+ * applies a Goal Report — the learner hasn't submitted a turn to judge, so
+ * there is nothing to apply.
+ *
+ * Issue #47: the message is tagged with the Focus Goal (the Conversation
+ * State derived from Goal Progress) — the nudge is aimed at whatever Emily is
+ * waiting for, which is the Focus Goal by definition. The nudge *text* is
+ * still drawn from the Lesson's one global 3-line pool
+ * (docs/ai-configuration.md section 3 specifies a single pool, not one per
+ * Goal); selection happens at the call site
+ * (src/lib/emily-reply-selector.ts's `selectSilenceNudge`). Takes a single
+ * `SupportNudge`-shaped object (rather than two positional `en`/`zh` strings)
+ * so call sites can pass a nudge value straight through.
  */
 export function appendSupportMessage(input: SupportNudge): void {
   const current = store.getSnapshot();
@@ -279,13 +314,13 @@ export function appendSupportMessage(input: SupportNudge): void {
     role: "emily",
     textEn: input.en,
     textZh: input.zh,
-    state: current.conversationState,
+    state: deriveConversationState(current.goalProgress),
   });
 }
 
 /** Clears the conversation back to a clean start — ticket 11's Retry button will call this. */
 export function resetPractice(): void {
-  store.persist({ conversationState: "greeting", messages: [], turnRecords: [], attemptCounts: {} });
+  store.persist({ goalProgress: [], messages: [], turnRecords: [], attemptCounts: {} });
 }
 
 /**
@@ -294,14 +329,22 @@ export function resetPractice(): void {
  * and the first client hydration pass agree (no hydration mismatch); React
  * then swaps in the real localStorage-backed value immediately after
  * hydrating, same pattern as src/lib/progress.ts's `useProgress`.
+ *
+ * `conversationState`, `focusGoal`, and `isComplete` are derived here rather
+ * than stored (ADR-0012): a snapshot with `goalProgress: []` reads exactly
+ * like a brand-new conversation, so a discarded pre-#47 snapshot needs no
+ * special case beyond `deserialize`'s wholesale fallback.
  */
 export function usePractice() {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getServerSnapshot);
   return {
-    conversationState: state.conversationState,
+    goalProgress: state.goalProgress,
+    /** The first open Goal in canonical order, or `null` once every Goal is achieved. */
+    focusGoal: getFocusGoal(state.goalProgress),
+    conversationState: deriveConversationState(state.goalProgress),
     messages: state.messages,
     turnRecords: state.turnRecords,
-    isComplete: state.conversationState === "complete",
+    isComplete: isGoalProgressComplete(state.goalProgress),
     ensureOpeningMessage,
     appendLearnerMessage,
     recordTurnResult,

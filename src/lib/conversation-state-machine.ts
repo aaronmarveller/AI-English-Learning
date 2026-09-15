@@ -1,44 +1,50 @@
 /**
- * Conversation State Machine — pure functions only (ticket 08; spec.md
- * "模块划分" > "Conversation 状态机模块": "纯函数，不依赖网络与 UI"). No React,
- * no localStorage, no fetch — trivially unit-testable even though this repo
- * has no unit-test runner; it's exercised end-to-end through the E2E seam
- * (e2e/practice-conversation.spec.ts) instead.
+ * Conversation State vocabulary — pure values and validators only (ticket 08;
+ * spec.md "模块划分" > "Conversation 状态机模块": "纯函数，不依赖网络与 UI"). No
+ * React, no localStorage, no fetch — trivially unit-testable.
  *
- * Transition contract (spec.md "Conversation State Machine", grounded in the
- * ticket's own diagram: Conversation Start → Greeting → Check-in → Response
- * → Closing → Complete → Review):
+ * Issue #47 (ADR-0012;
+ * docs/adr/0012-flexible-goal-tracking-replaces-the-linear-state-machine.md):
+ * this module used to own the linear transition — `nextConversationState`
+ * advanced a pointer one step along `greeting → checkin → response → closing
+ * → complete` per `accepted` Verdict. That pointer is gone. The four names are
+ * now Conversation Goals the learner may achieve in any order and several per
+ * Turn, and where a conversation stands is not a pointer at all but the
+ * Conversation State derived off Goal Progress (CONTEXT.md "Conversation
+ * State") — see src/lib/goal-progress.ts, which owns that derivation and is
+ * what every caller of the deleted function now reads instead.
  *
- *   accepted     → advance to the next state (Closing's accept → "complete")
- *   needs_retry  → stay on the current state
- *
- * Issue #15 (docs/adr/0006-off-topic-collapses-into-needs-retry.md):
- * `off_topic` was previously a third Verdict value that also held the
- * learner on the current state. It never behaved differently from
- * `needs_retry` at the state-machine level, so it's gone — a learner who
- * wanders off-topic now simply receives `needs_retry`.
+ * The identifiers below keep their names so the #47 diff stays reviewable
+ * (per that ticket's own instruction): the *values* and the *Verdict* are the
+ * domain terms they always were — `ActiveConversationState`,
+ * `ConversationState`, `Verdict` — and only the pointer between them moved.
  *
  * "Conversation Start" isn't modeled as a state here — it's just "before the
  * opening line renders" (see src/content/practice.ts's opening-line pool and
- * src/lib/practice-state.ts's `ensureOpeningMessage`). "Review" isn't
- * modeled here either — it's the next page (ticket 11), reached only once
- * `nextConversationState` returns "complete" and the learner clicks
- * "查看学习总结".
+ * src/lib/practice-state.ts's `ensureOpeningMessage`). "Review" isn't modeled
+ * here either — it's the next page (ticket 11), reached once Goal Progress is
+ * complete (`isGoalProgressComplete`) and the learner clicks "查看学习总结".
  */
 
-/** The 4 active conversation states the learner walks through, in fixed order. */
+/** The 4 active Conversation Goals the learner must communicate, in canonical order. */
 export const ACTIVE_CONVERSATION_STATES = ["greeting", "checkin", "response", "closing"] as const;
 
 export type ActiveConversationState = (typeof ACTIVE_CONVERSATION_STATES)[number];
 
-/** All conversation states, including the terminal "complete" state reached after Closing is accepted. */
+/** All Conversation States, including the terminal "complete" state reached once all four Goals are achieved. */
 export type ConversationState = ActiveConversationState | "complete";
 
 /**
- * The per-turn judgment the LLM proxy route returns (spec.md "大模型契约").
- * Exactly two values (issue #15) — `off_topic` is not a Verdict of its own;
- * off-topic input is judged `needs_retry` (docs/ai-configuration.md
- * section 4).
+ * The two Verdict values (spec.md "大模型契约"). Exactly two (issue #15) —
+ * `off_topic` is not a Verdict of its own; off-topic input is judged
+ * `needs_retry` (docs/ai-configuration.md section 4).
+ *
+ * Issue #47 (ADR-0012): a Verdict is no longer the model's output at all — it
+ * is derived on the client from the Judge's Goal Report (src/lib/goal-progress.ts's
+ * `deriveVerdict`), which is why the wire protocol
+ * (src/lib/practice-turn-protocol.ts) no longer mentions this list. It stays
+ * here, next to the state vocabulary, because it is still how the app talks
+ * about a Turn: `accepted` means "at least one Goal achieved and none failed".
  */
 export const VERDICTS = ["accepted", "needs_retry"] as const;
 export type Verdict = (typeof VERDICTS)[number];
@@ -52,21 +58,6 @@ export function isActiveConversationState(value: unknown): value is ActiveConver
 
 export function isConversationState(value: unknown): value is ConversationState {
   return value === "complete" || isActiveConversationState(value);
-}
-
-/**
- * Pure state transition. `current` must be one of the 4 active states (once
- * a conversation reaches "complete" there is nothing left to submit against
- * — callers should stop invoking this once `isConversationComplete` is true).
- */
-export function nextConversationState(
-  current: ActiveConversationState,
-  verdict: Verdict,
-): ConversationState {
-  if (verdict !== "accepted") return current;
-  const index = ACTIVE_CONVERSATION_STATES.indexOf(current);
-  const next = ACTIVE_CONVERSATION_STATES[index + 1];
-  return next ?? "complete";
 }
 
 export function isConversationComplete(state: ConversationState): state is "complete" {

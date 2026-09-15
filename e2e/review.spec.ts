@@ -26,17 +26,19 @@ import { installScriptedPracticeApi, PRACTICE_URL, resetStorage, submitReply } f
  */
 
 /**
- * Drives a full 4-turn Practice conversation to completion via a scripted
- * "accepted" response per active state, then clicks View Summary to land on
- * /review.
+ * Drives a full 4-turn Practice conversation to completion — one Goal
+ * achieved per Turn, in canonical order, each Turn's scripted Goal Report
+ * naming exactly the Goal the reply below communicates (issue #47: the wire
+ * carries a Goal Report, and the client derives the Verdict from it) — then
+ * clicks View Summary to land on /review.
  */
 async function completeConversation(page: Page): Promise<void> {
   await resetStorage(page);
   await installScriptedPracticeApi(page, [
-    { verdict: "accepted" },
-    { verdict: "accepted" },
-    { verdict: "accepted" },
-    { verdict: "accepted" },
+    { goalReport: { greeting: "achieved" } },
+    { goalReport: { checkin: "achieved" } },
+    { goalReport: { response: "achieved" } },
+    { goalReport: { closing: "achieved" } },
   ]);
   await page.goto(PRACTICE_URL);
 

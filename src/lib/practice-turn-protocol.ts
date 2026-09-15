@@ -1,4 +1,4 @@
-import { VERDICTS, type Verdict } from "@/lib/conversation-state-machine";
+import type { ActiveConversationState } from "@/lib/conversation-state-machine";
 
 /**
  * Practice turn wire protocol: the shapes that cross the client/server
@@ -11,39 +11,79 @@ import { VERDICTS, type Verdict } from "@/lib/conversation-state-machine";
  * that SDK is a ~171KB client bundle the /practice page has no business
  * shipping, and this module is the seam that keeps it from leaking across.
  *
- * Issue #16 (docs/ai-configuration.md; ADR-0005): the model's structured
- * output shrinks to exactly two fields. `reply_en`, `reply_zh`, and
- * `highlight_key` are gone — Emily no longer improvises a reply; the client
- * selects her line at random from the current Lesson's Conversation Script
- * pool (src/content/lesson.ts, src/lib/emily-reply-selector.ts). The model's
- * only remaining job is judging communicative intent (`verdict`) and
- * detecting whether the learner asked a question back
- * (`learner_asked_back`), which src/lib/emily-reply-selector.ts uses to pick
- * between the Response state's two sub-pools.
+ * Issue #47 (ADR-0012; docs/ai-configuration.md section 4): the wire contract
+ * is set-shaped now, in both directions, in its final form. Up, the Judge
+ * request carries Goal Progress — the set of Conversation Goals achieved so
+ * far, instead of one Conversation State. Down, the model's structured output
+ * is a **Goal Report** over the open Goals plus `learner_asked_back`; it no
+ * longer carries a `verdict` at all, because the Verdict is derived from that
+ * report on the client (src/lib/goal-progress.ts's `deriveVerdict`). What the
+ * model is asked has changed; what it is *for* has not — Emily's line
+ * selection stays client-side (src/lib/emily-reply-selector.ts), now keyed
+ * off the Focus Goal rather than a state pointer.
  */
 
 /** One prior turn of conversation history, as sent to (and echoed back by) the judge. */
 export type HistoryTurn = { role: "user" | "assistant"; content: string };
 
 /**
- * The judge's structured verdict on one learner turn (issue #16: exactly two
- * fields — see this file's top doc comment).
+ * What the Judge reports about one still-open Conversation Goal
+ * (docs/ai-configuration.md section 4's Goal Report table; CONTEXT.md "Goal
+ * Report"): the learner's message `achieved` it, `failed` it (recognisably
+ * attempted its intent without communicating it), or left it `untouched`.
+ * Unrelated chatter is `untouched`, never `failed`; grammar alone never makes
+ * an attempt `failed`.
+ */
+export const GOAL_REPORT_VALUES = ["achieved", "failed", "untouched"] as const;
+export type GoalReportValue = (typeof GOAL_REPORT_VALUES)[number];
+
+/**
+ * The Judge's structured output for one learner Turn: one entry per open
+ * Conversation Goal, in the final three-state shape (ADR-0012). A Goal
+ * already in Goal Progress is never asked about, so a report never
+ * re-credits one; that is the Judge's instruction, not this type's job to
+ * enforce — see `isGoalReport` below.
+ */
+export type GoalReport = Partial<Record<ActiveConversationState, GoalReportValue>>;
+
+/**
+ * Runtime shape check for a parsed `GoalReport` — used to validate both the
+ * model's tool-call output and incoming SSE `final` events.
+ *
+ * Deliberately checks the *values* only, never the keys: ADR-0012 requires a
+ * report key outside the open Goals to be "dropped silently on the client
+ * (logged server-side), never treated as invalid model output", so a
+ * three-state value under an unexpected key is not model misbehaviour and
+ * must not fail the Turn. Only a value that is none of
+ * `achieved`/`failed`/`untouched` is. (Which keys are unexpected is decided
+ * against Goal Progress by src/lib/goal-progress.ts's
+ * `unexpectedGoalReportKeys`, since this validator has no Goal Progress to
+ * compare against.)
+ */
+export function isGoalReport(value: unknown): value is GoalReport {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  return Object.values(value).every(
+    (entry) => typeof entry === "string" && (GOAL_REPORT_VALUES as readonly string[]).includes(entry),
+  );
+}
+
+/**
+ * The judge's structured output for one learner turn (issue #47: exactly two
+ * fields — see this file's top doc comment). `goal_report` is keyed by
+ * Conversation Goal; the four Goals kept their identifiers, but they are no
+ * longer a sequence a conversation advances through.
  */
 export type TurnResult = {
-  verdict: Verdict;
+  goal_report: GoalReport;
   /** Whether the learner's message asked Emily a question back (e.g. "How about you?"). */
   learner_asked_back: boolean;
 };
 
-/** Runtime shape check for a parsed `TurnResult` — used to validate both the model's tool-call output and incoming SSE `final` events. */
+/** Runtime shape check for a parsed `TurnResult`. */
 export function isTurnResult(value: unknown): value is TurnResult {
   if (typeof value !== "object" || value === null) return false;
   const v = value as Record<string, unknown>;
-  return (
-    typeof v.verdict === "string" &&
-    (VERDICTS as readonly string[]).includes(v.verdict) &&
-    typeof v.learner_asked_back === "boolean"
-  );
+  return isGoalReport(v.goal_report) && typeof v.learner_asked_back === "boolean";
 }
 
 /**

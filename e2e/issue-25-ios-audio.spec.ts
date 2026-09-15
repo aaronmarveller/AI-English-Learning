@@ -29,7 +29,7 @@ test.describe("Practice page — iOS audio element reuse", () => {
     // Chromium's transient user activation lasts several seconds. Waiting
     // beyond it proves the reply is authorized by the reused element, not by
     // the Send click that began this turn.
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }], { delayMs: 5_500 });
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }], { delayMs: 5_500 });
     await page.goto(PRACTICE_URL);
 
     await startSpeaking(page);
@@ -50,11 +50,13 @@ test.describe("Practice page — iOS audio element reuse", () => {
   test("every Emily reply in a four-turn voice conversation enters playback", async ({ page }) => {
     await resetStorage(page);
     await mockSpeechApis(page);
+    // Issue #47: one Goal Report per Turn, each naming the one Goal that
+    // reply below communicates (`greeting`, then `checkin`, and so on).
     await installScriptedPracticeApi(page, [
-      { verdict: "accepted" },
-      { verdict: "accepted", learner_asked_back: true },
-      { verdict: "accepted" },
-      { verdict: "accepted" },
+      { goalReport: { greeting: "achieved" } },
+      { goalReport: { checkin: "achieved" }, learner_asked_back: true },
+      { goalReport: { response: "achieved" } },
+      { goalReport: { closing: "achieved" } },
     ]);
     await page.goto(PRACTICE_URL);
 
@@ -75,11 +77,13 @@ test.describe("Practice page — iOS audio element reuse", () => {
   test("every Emily reply in a four-turn text conversation enters playback", async ({ page }) => {
     await resetStorage(page);
     await mockSpeechApis(page);
+    // Issue #47: one Goal Report per Turn, each naming the one Goal that
+    // reply below communicates (`greeting`, then `checkin`, and so on).
     await installScriptedPracticeApi(page, [
-      { verdict: "accepted" },
-      { verdict: "accepted", learner_asked_back: true },
-      { verdict: "accepted" },
-      { verdict: "accepted" },
+      { goalReport: { greeting: "achieved" } },
+      { goalReport: { checkin: "achieved" }, learner_asked_back: true },
+      { goalReport: { response: "achieved" } },
+      { goalReport: { closing: "achieved" } },
     ]);
     await page.goto(PRACTICE_URL);
 

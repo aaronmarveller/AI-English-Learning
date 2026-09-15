@@ -1,4 +1,5 @@
 import type { Page, Route } from "@playwright/test";
+import type { GoalReport } from "@/lib/practice-turn-protocol";
 
 /**
  * Shared E2E helpers (ticket 03).
@@ -47,7 +48,7 @@ export async function resetStorage(page: Page): Promise<void> {
  *
  * Ticket 08 hasn't built the LLM proxy route yet, so there's no real path
  * to point this at today — this helper exists so that ticket's tests can
- * do `mockApiRoute(page, "/api/whatever-ticket-08-calls-it", { verdict: ... })`
+ * do `mockApiRoute(page, "/api/whatever-ticket-08-calls-it", { goalReport: ... })`
  * without inventing their own route-mocking plumbing. This is the pattern
  * tickets 08/09 should reuse for stubbing the LLM proxy route rather than
  * hitting the real Anthropic API in E2E.
@@ -82,18 +83,38 @@ export const PRACTICE_URL = "/practice?debug=1";
 export const TURN_ENDPOINT = "**/api/practice/turn";
 
 /**
- * Issue #16: the wire contract shrank to exactly two fields. `reply_en`,
- * `reply_zh`, and `highlight_key` are gone — Emily's line is now picked
- * client-side from the Lesson's fixed Conversation Script pools (see
- * src/content/lesson.ts / src/lib/emily-reply-selector.ts), so a spec can no
- * longer dictate Emily's exact reply text through this stub. Specs that used
- * to assert `emily-message-bubble` against a scripted `reply_en` now assert
- * membership in the relevant pool instead (imported straight from
- * src/content/lesson.ts, so the assertion can never silently drift from the
- * production content it's checking).
+ * Issue #16: the wire contract shrank to two fields. `reply_en`, `reply_zh`,
+ * and `highlight_key` are gone — Emily's line is now picked client-side from
+ * the Lesson's fixed Conversation Script pools (see src/content/lesson.ts /
+ * src/lib/emily-reply-selector.ts), so a spec can no longer dictate Emily's
+ * exact reply text through this stub. Specs that used to assert
+ * `emily-message-bubble` against a scripted `reply_en` now assert membership
+ * in the relevant pool instead (imported straight from src/content/lesson.ts,
+ * so the assertion can never silently drift from the production content it's
+ * checking).
+ *
+ * Issue #47 (ADR-0012): the contract is set-shaped, in its final form.
+ * `verdict` is gone from the wire entirely — the Judge returns a **Goal
+ * Report** keyed by Conversation Goal, and the client derives the Verdict from
+ * it (src/lib/goal-progress.ts's `deriveVerdict`, which an e2e run exercises
+ * for real). A scripted entry is therefore the report the Judge would return
+ * for that Turn:
+ *
+ *   - `{ greeting: "achieved" }` — the learner communicated the `greeting`
+ *     Goal: at least one `achieved` and no `failed`, so the client derives
+ *     `accepted`, `greeting` joins Goal Progress, and the Focus Goal moves on.
+ *   - `{}` — every open Goal untouched, so the client derives `needs_retry`
+ *     (what an off-topic Turn's report looks like: unrelated chatter is
+ *     `untouched`, never `failed`).
+ *   - a key outside the open Goals is dropped silently by the client, so a
+ *     spec only ever has to name the Goal it means.
+ *
+ * #47's conversations are one-Goal-per-Turn in canonical order, so a spec with
+ * one entry per Turn names `greeting`, then `checkin`, then `response`, then
+ * `closing`.
  */
 export type ScriptedTurnResponse = {
-  verdict: "accepted" | "needs_retry";
+  goalReport: GoalReport;
   /** Defaults to `false` when omitted — most scripted turns don't ask a question back. */
   learner_asked_back?: boolean;
 };
@@ -104,10 +125,10 @@ export type ScriptedTurnResponse = {
  *
  * A step up from this module's generic `mockApiRoute` above (which always
  * fulfills every matching request with the *same* fixed response): a
- * Practice conversation needs different verdicts at different points (a few
- * accepted turns, one needs_retry — including one for off-topic input, which
- * is judged needs_retry rather than a Verdict of its own, issue #15), so the
- * mock has to vary per call.
+ * Practice conversation needs a different outcome at different points (a few
+ * Turns that get their Goal right, one that gets nothing — including one for
+ * off-topic input, which touches no Goal and so is a `needs_retry` Verdict
+ * rather than one of its own, issue #15), so the mock has to vary per call.
  *
  * `delayMs` is optional and only needed by tests that assert on the
  * *transient* learner bubble mid-turn: without it, the mocked route
@@ -154,7 +175,7 @@ export async function installScriptedPracticeApi(
     }
     const finalEvent = {
       type: "final",
-      verdict: response.verdict,
+      goal_report: response.goalReport,
       learner_asked_back: response.learner_asked_back ?? false,
     };
     await route.fulfill({

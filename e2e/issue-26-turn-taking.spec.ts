@@ -12,7 +12,7 @@ test.describe("Practice turn-taking", () => {
   test("Practice mic waits for Emily while text input remains available", async ({ page }) => {
     await resetStorage(page);
     await mockSpeechApis(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }]);
     await page.goto(PRACTICE_URL);
 
     await startSpeaking(page);
@@ -39,7 +39,7 @@ test.describe("Practice turn-taking", () => {
   test("opening Ask-in-Chinese stops English audio and gives Chinese input the floor", async ({ page }) => {
     await resetStorage(page);
     await mockSpeechApis(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }]);
     await page.goto(PRACTICE_URL);
 
     await page.getByTestId("ask-in-chinese-button").click();
@@ -58,7 +58,7 @@ test.describe("Practice turn-taking", () => {
   test("Practice mic recovers after every audio playback tier fails", async ({ page }) => {
     await resetStorage(page);
     await mockSpeechApis(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }]);
     await page.goto(PRACTICE_URL);
 
     await startSpeaking(page);
@@ -86,7 +86,7 @@ test.describe("Practice turn-taking", () => {
     test.setTimeout(PLAYBACK_START_TIMEOUT_MS + 15_000);
     await resetStorage(page);
     await mockSpeechApis(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }]);
     await page.goto(PRACTICE_URL);
 
     await startSpeaking(page);

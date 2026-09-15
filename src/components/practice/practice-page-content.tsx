@@ -12,9 +12,9 @@ import { MessageBubblePair } from "@/components/practice/message-bubble-pair";
 import { PracticeInputForm } from "@/components/practice/practice-input-form";
 import { StageTag } from "@/components/stage-tag";
 import { GREETING_SOMEBODY_LESSON, pickRandomOpeningLine } from "@/content/lesson";
-import type { ActiveConversationState } from "@/lib/conversation-state-machine";
 import { containsChineseText } from "@/lib/detect-chinese-input";
 import { selectEmilyLineForTurn, selectSilenceNudge } from "@/lib/emily-reply-selector";
+import { applyGoalReport, deriveVerdict } from "@/lib/goal-progress";
 import { markStepComplete } from "@/lib/progress";
 import { usePractice } from "@/lib/practice-state";
 import { cancelSpeech, speakAssertively } from "@/lib/speech-synthesis";
@@ -26,9 +26,10 @@ import { matchesAcceptedResponse } from "@/lib/turn-record";
  * Chinese straight into the main reply box, rather than tapping "中文提问"
  * (which opens `AskInChineseSheet`'s real help mode — issue #19 — with its
  * own 4-part canned explanation and Chinese follow-up conversation for the
- * current step). Appended via `appendSupportMessage` — same as the silence
- * nudge — so it never transitions `conversationState` and never contributes
- * a turn record to the Learning Summary.
+ * Focus Goal). Appended via `appendSupportMessage` — same as the silence
+ * nudge — so it never moves Goal Progress and never contributes a Turn record
+ * to the Learning Summary (CONTEXT.md "Focus Goal": a `support_requested` Turn
+ * Outcome never changes it).
  *
  * Deliberately minimal: typing Chinese into the main reply box only nudges
  * the learner toward the help button rather than opening a full explanation
@@ -64,24 +65,26 @@ const SILENCE_TIMEOUT_MS = 18000;
 
 /**
  * Practice page body: a text-driven conversation with Emily that walks the
- * learner through the 4-state Conversation State Machine (ticket 08;
- * spec.md "Practice 页交互模型"). Split out from page.tsx (a Server
- * Component, so it can keep exporting `metadata`) for the same reason as
- * Explore's page/content split — everything here is client-only state
- * (the practice store, in-flight request status, avatar animation timing).
+ * learner through the Lesson's four Conversation Goals (ticket 08; spec.md
+ * "Practice 页交互模型"; issue #47 turned the old 4-state Conversation State
+ * Machine into Goal Progress — see src/lib/goal-progress.ts). Split out from
+ * page.tsx (a Server Component, so it can keep exporting `metadata`) for the
+ * same reason as Explore's page/content split — everything here is client-only
+ * state (the practice store, in-flight request status, avatar animation
+ * timing).
  *
  * Voice input (ticket 09, still landing in a sibling worktree against this
  * same file) is explicitly out of scope here — this page's text form must
  * work standalone. Support & recovery features (ticket 10 — bilingual
  * subtitle toggle, replay, Ask-in-Chinese sheet, silence-timeout nudge, full
  * transcript drawer) are wired in below; per spec.md's "Practice 页交互模型"
- * they must never advance `conversationState` or call the LLM proxy route
- * themselves.
+ * they must never move Goal Progress or call the LLM proxy route themselves.
  */
 export function PracticePageContent() {
   const router = useRouter();
   const {
-    conversationState,
+    goalProgress,
+    focusGoal,
     messages,
     isComplete,
     ensureOpeningMessage,
@@ -231,7 +234,11 @@ export function PracticePageContent() {
   }, [lastMessageId, isComplete, isSubmitting, isAskInChineseOpen, appendSupportMessage]);
 
   async function handleSubmit(text: string) {
-    if (isComplete || isSubmitting) return;
+    // `focusGoal` is null exactly when Practice is complete, so this is the
+    // same guard the input form's own `disabled` state expresses — and the
+    // null check is what lets TypeScript treat the Focus Goal as an
+    // `ActiveConversationState` for the rest of this function.
+    if (isComplete || isSubmitting || focusGoal === null) return;
 
     // Turn Outcome resolution (issue #18; docs/ai-configuration.md section 4;
     // CONTEXT.md's Turn Outcome glossary entry): Chinese input is detected
@@ -239,9 +246,9 @@ export function PracticePageContent() {
     // straight to `support_requested` and never becomes a Verdict. The
     // learner's input is still echoed (same as any other turn) and Emily
     // still responds, but purely through `appendSupportMessage`, which never
-    // advances `conversationState` and never records a `highlightKey` — a
-    // support_requested Turn contributes nothing to the Learning Summary and
-    // is never seen by the state machine.
+    // touches Goal Progress and never records a Turn — a support_requested
+    // Turn contributes nothing to the Learning Summary. The Focus Goal is
+    // deliberately untouched too.
     if (containsChineseText(text)) {
       setErrorMessage(null);
       appendLearnerMessage(text);
@@ -249,8 +256,6 @@ export function PracticePageContent() {
       setAvatarState("idle");
       return;
     }
-
-    const priorState = conversationState as ActiveConversationState;
 
     setErrorMessage(null);
     setIsSubmitting(true);
@@ -270,38 +275,45 @@ export function PracticePageContent() {
     // `error` event, the stream ending without `final`, or this request
     // being aborted) is handled explicitly below instead of via try/catch.
     const result = await submitPracticeTurn(
-      { priorState, message: text, history },
+      { goalProgress, message: text, history },
       { signal: controller.signal },
     );
 
     if (result.ok) {
-      // Issue #16: the model no longer says what Emily says next — only
-      // `verdict` and `learner_asked_back` came back. Emily's line is
-      // selected here, client-side, at random from the Lesson's fixed
-      // Conversation Script pools (never paraphrased or composed).
-      const selected = selectEmilyLineForTurn(
-        GREETING_SOMEBODY_LESSON,
-        priorState,
-        result.data.verdict,
-        result.data.learner_asked_back,
-      );
+      // Issue #47 (ADR-0012): the Judge returns a Goal Report, not a Verdict —
+      // the Verdict is derived here (all-or-nothing: at least one open Goal
+      // achieved, none failed) and Goal Progress is advanced by the same pure
+      // rule the store applies again when it persists the Turn. Emily's line is
+      // still selected client-side, at random from the Lesson's fixed
+      // Conversation Script pools, now keyed off the Focus Goal the Turn left
+      // behind rather than a Conversation State pointer.
+      const { goal_report: goalReport, learner_asked_back: learnerAskedBack } = result.data;
+      const verdict = deriveVerdict(goalProgress, goalReport);
+      const progressAfterTurn = applyGoalReport(goalProgress, goalReport, verdict);
+      const line = selectEmilyLineForTurn(GREETING_SOMEBODY_LESSON, {
+        verdict,
+        progressAfterTurn,
+        learnerAskedBack,
+      });
       // Issue #20 (#12's "Learning Summary inputs are derived, not
-      // reported"): whether the learner's text matched this state's
-      // Accepted Responses is computed here, client-side, rather than
-      // reported by the model — the same "compare against
-      // Lesson.script[state].acceptedResponses" the system prompt already
-      // hands the model as guidance, but as a real client-side check
-      // feeding the Learning Summary's per-state record.
+      // reported"): whether the learner's text matched this Goal's Accepted
+      // Responses is computed here, client-side, rather than reported by the
+      // model — the same "compare against
+      // Lesson.script[goal].acceptedResponses" the system prompt already
+      // hands the model as guidance, but as a real client-side check feeding
+      // the Learning Summary's per-Turn record. Exact whole-sentence match:
+      // a message that achieves several Goals matches none of them.
       recordTurnResult({
-        priorState,
-        verdict: result.data.verdict,
-        replyEn: selected.line.en,
-        replyZh: selected.line.zh,
+        focusGoal,
+        verdict,
+        goalReport,
+        replyEn: line.en,
+        replyZh: line.zh,
         matchedAcceptedResponse: matchesAcceptedResponse(
           text,
-          GREETING_SOMEBODY_LESSON.script[priorState].acceptedResponses,
+          GREETING_SOMEBODY_LESSON.script[focusGoal].acceptedResponses,
         ),
-        learnerAskedBack: result.data.learner_asked_back,
+        learnerAskedBack,
       });
       setIsSubmitting(false);
       return;
@@ -398,11 +410,11 @@ export function PracticePageContent() {
         />
       </div>
 
-      <ConversationProgressSteps current={conversationState} />
+      <ConversationProgressSteps goalProgress={goalProgress} />
 
-      {isAskInChineseOpen && !isComplete ? (
+      {isAskInChineseOpen && focusGoal ? (
         <AskInChineseSheet
-          conversationState={conversationState as ActiveConversationState}
+          focusGoal={focusGoal}
           onClose={() => setIsAskInChineseOpen(false)}
           onExitWithEnglishInput={(text) => {
             // Issue #19 acceptance criterion 6: speaking/typing English

@@ -8,7 +8,7 @@ import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
  * per-message bilingual subtitle toggle (default-collapsed on every new
  * message), the replay button, the Ask-in-Chinese sheet, the
  * silence-timeout nudge, and the full-transcript drawer. All five must
- * never advance `conversationState` or call the LLM proxy route on their
+ * never move Goal Progress or call the LLM proxy route on their
  * own — that's the core constraint this whole ticket exists to protect.
  *
  * Same seam as e2e/practice-conversation.spec.ts (ticket 08): a real browser
@@ -57,7 +57,7 @@ test.describe("Practice page — support & recovery", () => {
     page,
   }) => {
     await resetStorage(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }]);
     await page.goto(PRACTICE_URL);
 
     // AI Configuration: every new AI message starts in English-only mode.
@@ -77,7 +77,7 @@ test.describe("Practice page — support & recovery", () => {
 
   test("toggling one message's subtitle doesn't carry over to the next message", async ({ page }) => {
     await resetStorage(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }]);
     await page.goto(PRACTICE_URL);
 
     // Opening line starts collapsed — expand it, proving the toggle is a
@@ -212,7 +212,7 @@ test.describe("Practice page — support & recovery", () => {
 
     // A follow-up in real English still works normally afterward — this
     // Chinese Turn didn't leave the conversation in some broken state.
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }]);
     await submitReply(page, "Hi Emily!");
     await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "current");
     const replyText = await page.getByTestId("emily-message-bubble").innerText();
@@ -234,7 +234,7 @@ test.describe("Practice page — support & recovery", () => {
     // models the same per-element gesture gate that makes this fallback
     // necessary on iOS.
     await mockSpeechApis(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }]);
 
     await page.goto(PRACTICE_URL);
     await expect(page.getByTestId("emily-message-bubble")).toBeVisible();
@@ -402,7 +402,7 @@ test.describe("Practice page — support & recovery", () => {
         return originalPause.apply(this);
       };
     });
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }]);
 
     await page.goto(PRACTICE_URL);
     // submitReply drives the always-available text path, switching away
@@ -436,7 +436,7 @@ test.describe("Practice page — support & recovery", () => {
 
   test("the restart button clears the conversation and starts over from a fresh opening line", async ({ page }) => {
     await resetStorage(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }]);
     await page.goto(PRACTICE_URL);
 
     await submitReply(page, "Hi Emily!");
@@ -462,7 +462,7 @@ test.describe("Practice page — support & recovery", () => {
     page,
   }) => {
     await resetStorage(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }]);
     // Every scripted line now has a pre-generated file (issue #17), so force
     // that tier to fail — the pregenerated <audio> element's own "error"
     // event — to exercise the live-TTS fallback this test targets.
@@ -525,7 +525,11 @@ test.describe("Practice page — support & recovery", () => {
         return originalPause.apply(this);
       };
     });
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }, { verdict: "accepted" }], { delayMs: 300 });
+    await installScriptedPracticeApi(
+      page,
+      [{ goalReport: { greeting: "achieved" } }, { goalReport: { checkin: "achieved" } }],
+      { delayMs: 300 },
+    );
     await page.route("**/api/practice/speak**", async (route) => {
       await new Promise((resolve) => setTimeout(resolve, 500));
       await route.fulfill({ status: 200, contentType: "audio/mpeg", body: Buffer.from([0, 0, 0, 0]) });
@@ -592,7 +596,7 @@ test.describe("Practice page — support & recovery", () => {
         writable: true,
       });
     });
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }]);
     await page.route("**/api/practice/speak**", (route) =>
       route.fulfill({ status: 500, contentType: "application/json", body: "{}" }),
     );

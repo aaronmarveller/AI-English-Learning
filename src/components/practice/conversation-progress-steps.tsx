@@ -1,8 +1,10 @@
-import { ACTIVE_CONVERSATION_STATES, type ConversationState } from "@/lib/conversation-state-machine";
+import { ACTIVE_CONVERSATION_STATES } from "@/lib/conversation-state-machine";
+import { getFocusGoal, type GoalProgress } from "@/lib/goal-progress";
 import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
 
 type ConversationProgressStepsProps = {
-  current: ConversationState;
+  /** The set of Conversation Goals achieved so far (ADR-0012) — the steps are rendered from it, not from an index. */
+  goalProgress: GoalProgress;
 };
 
 /**
@@ -10,9 +12,9 @@ type ConversationProgressStepsProps = {
  * spec.md user story 64: "看到四步对话进度并高亮当前步"). Visually distinct
  * from — and in addition to — the outer 5-dot Learning Flow header already
  * rendered by src/app/(learning)/layout.tsx (Observe/Explore/Notice/
- * Practice/Review); this one tracks the 4 states *inside* Practice
- * (Greeting/Check-in/Response/Closing), reusing the same dot/pill idiom as
- * that outer header since it reads well at this size too.
+ * Practice/Review); this one tracks the 4 Conversation Goals *inside*
+ * Practice (Greeting/Check-in/Response/Closing), reusing the same dot/pill
+ * idiom as that outer header since it reads well at this size too.
  *
  * Numbered-circle-and-connector styling (2026-08-07 UI draft) replaces the
  * original bar-segment look: current step is a solid navy circle (matching
@@ -28,10 +30,20 @@ type ConversationProgressStepsProps = {
  * QA) — the current step's label stays neutral (it's still in progress, only
  * its circle is highlighted); only a step the learner has actually cleared
  * gets the "done" green treatment on its text too.
+ *
+ * Issue #47 (ADR-0012): a step is **completed iff its Goal is in Goal
+ * Progress** and **current iff it is the Focus Goal** — read off the set, not
+ * off how many steps are done, because Goal Progress can be non-contiguous (a
+ * learner who says "Bye!" first has `closing` completed while `greeting`
+ * stays current). The connector rule is unchanged and needs no special case
+ * for a gap: it fills when its left neighbour is completed or current, so a
+ * gap simply leaves the connector into the achieved Goal gray. `data-state`
+ * keeps its three existing values ("completed"/"current"/"upcoming") and every
+ * `data-testid` keeps its existing name, so the e2e assertions written against
+ * the index-based version still hold.
  */
-export function ConversationProgressSteps({ current }: ConversationProgressStepsProps) {
-  const currentIndex =
-    current === "complete" ? ACTIVE_CONVERSATION_STATES.length : ACTIVE_CONVERSATION_STATES.indexOf(current);
+export function ConversationProgressSteps({ goalProgress }: ConversationProgressStepsProps) {
+  const focusGoal = getFocusGoal(goalProgress);
 
   return (
     <ol
@@ -40,8 +52,16 @@ export function ConversationProgressSteps({ current }: ConversationProgressSteps
       className="flex items-start"
     >
       {ACTIVE_CONVERSATION_STATES.map((step, index) => {
-        const state = index < currentIndex ? "completed" : index === currentIndex ? "current" : "upcoming";
-        const lineFilled = index > 0 && index <= currentIndex;
+        const isCompleted = goalProgress.includes(step);
+        const isCurrent = !isCompleted && step === focusGoal;
+        const state = isCompleted ? "completed" : isCurrent ? "current" : "upcoming";
+        // "Filled when the left neighbour is completed or current" — the same
+        // rule the index-based version applied, and it needs no special case
+        // for a gap: the connector leading out of an achievable run stays gray,
+        // even where the Goal to its right is already completed.
+        const leftNeighbour = index > 0 ? ACTIVE_CONVERSATION_STATES[index - 1] : null;
+        const lineFilled =
+          leftNeighbour !== null && (goalProgress.includes(leftNeighbour) || leftNeighbour === focusGoal);
 
         return (
           <li

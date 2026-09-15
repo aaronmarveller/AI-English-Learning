@@ -26,6 +26,12 @@
  *
  * Requires ANTHROPIC_API_KEY, read from .env.local (see .env.example) or
  * the environment.
+ *
+ * Issue #47 (ADR-0012) migrated this script to the set-shaped wire: each case
+ * still says which Goal it is about and which Verdict it expects, but the
+ * Judge is now handed Goal Progress (the Goals canonically before that one)
+ * and answers with a Goal Report, from which this script derives the Verdict
+ * the same way the client does. No new case categories — those are #52's.
  */
 
 import {
@@ -33,7 +39,9 @@ import {
   type ActiveConversationState,
   type Verdict,
 } from "@/lib/conversation-state-machine";
+import { deriveVerdict, type GoalProgress } from "@/lib/goal-progress";
 import { MODEL_ID, judgeTurn } from "@/lib/practice-judge";
+import type { GoalReport } from "@/lib/practice-turn-protocol";
 import { loadEnvLocal } from "./env";
 
 // --- Eval table (spec.md: "每个 Conversation State 的白名单内表达、白名单外
@@ -47,15 +55,29 @@ type EvalCase = {
   message: string;
   expected: Verdict;
   /**
-   * Issue #16: with `reply_en`/`highlight_key` gone, `verdict` is very
-   * nearly the model's only remaining output — `learner_asked_back` is the
-   * other one, and this eval is its only guard against the real API too.
-   * Optional: only asserted when a case sets it.
+   * Issue #16: with `reply_en`/`highlight_key` gone, `learner_asked_back` is
+   * the model's only output besides its judgment on the learner's message —
+   * and this eval is its only guard against the real API too. Optional: only
+   * asserted when a case sets it.
    */
   expectedAskedBack?: boolean;
   /** Extra context surfaced in output for cases worth calling out explicitly. */
   note?: string;
 };
+
+/**
+ * Issue #47 (ADR-0012): the Judge is no longer told a single Conversation
+ * State — it is given Goal Progress and reports on the *open* Goals, and the
+ * Verdict is derived from that report on the client. `state` therefore no
+ * longer goes on the wire; it identifies which Goal a case is about, and the
+ * Goal Progress handed to `judgeTurn` is exactly the Goals canonically before
+ * it ("greeting" → nothing achieved yet, "closing" → the other three). That
+ * keeps every case's original meaning — a first attempt at this Goal, nothing
+ * achieved yet — without adding new case categories, which are #52's.
+ */
+function goalProgressBefore(state: ActiveConversationState): GoalProgress {
+  return ACTIVE_CONVERSATION_STATES.slice(0, ACTIVE_CONVERSATION_STATES.indexOf(state));
+}
 
 const EVAL_CASES: EvalCase[] = [
   // --- greeting ---
@@ -173,27 +195,34 @@ type EvalOutcome = EvalCase & {
   actual: Verdict | "ERROR";
   pass: boolean;
   learnerAskedBack?: boolean;
+  /** The Goal Report behind `actual` — the model's own words, surfaced for failed cases. */
+  goalReport?: GoalReport;
   errorMessage?: string;
 };
 
 async function runCase(apiKey: string, testCase: EvalCase): Promise<EvalOutcome> {
   try {
-    // Issue #16: judgeTurn's contract shrank to `{ verdict, learner_asked_back
-    // }` — no more `reply_en`/`highlight_key` to surface for failed cases.
+    // Issue #47: judgeTurn takes Goal Progress and returns a Goal Report over
+    // the open Goals — the Verdict is derived here, the same way the client
+    // derives it (src/lib/goal-progress.ts's `deriveVerdict`), so a case's
+    // expectation is still expressed as a Verdict exactly as before.
+    const goalProgress = goalProgressBefore(testCase.state);
     const result = await judgeTurn({
       apiKey,
-      state: testCase.state,
+      goalProgress,
       message: testCase.message,
       history: [],
     });
-    const verdictPassed = result.verdict === testCase.expected;
+    const verdict = deriveVerdict(goalProgress, result.goal_report);
+    const verdictPassed = verdict === testCase.expected;
     const askedBackPassed =
       testCase.expectedAskedBack === undefined || result.learner_asked_back === testCase.expectedAskedBack;
     return {
       ...testCase,
-      actual: result.verdict,
+      actual: verdict,
       pass: verdictPassed && askedBackPassed,
       learnerAskedBack: result.learner_asked_back,
+      goalReport: result.goal_report,
     };
   } catch (error) {
     return {
@@ -252,6 +281,9 @@ async function main(): Promise<void> {
     console.log(
       `    actual:   ${outcome.actual}${outcome.learnerAskedBack !== undefined ? ` (learner_asked_back=${outcome.learnerAskedBack})` : ""}`,
     );
+    if (outcome.goalReport) {
+      console.log(`    report:   ${JSON.stringify(outcome.goalReport)}`);
+    }
     if (outcome.note) console.log(`    note:     ${outcome.note}`);
     if (outcome.errorMessage) console.log(`    error:    ${outcome.errorMessage}`);
     console.log("");

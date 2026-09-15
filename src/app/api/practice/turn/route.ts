@@ -1,8 +1,5 @@
 import { NextResponse } from "next/server";
-import {
-  isActiveConversationState,
-  type ActiveConversationState,
-} from "@/lib/conversation-state-machine";
+import { isGoalProgress, unexpectedGoalReportKeys, type GoalProgress } from "@/lib/goal-progress";
 import { InvalidModelOutputError, judgeTurn } from "@/lib/practice-judge";
 import type { HistoryTurn, PracticeTurnStreamEvent } from "@/lib/practice-turn-protocol";
 
@@ -23,12 +20,14 @@ import type { HistoryTurn, PracticeTurnStreamEvent } from "@/lib/practice-turn-p
  * just the HTTP wrapper: parse the request, read the server-only API key,
  * map judgeTurn's outcome to a response.
  *
- * Request body: `{ state: ActiveConversationState, message: string, history?:
- * { role: "user" | "assistant"; content: string }[] }`. `history` is the
- * prior transcript (Emily's lines as "assistant", the learner's prior turns
- * as "user") — passed so the model has enough context to judge, e.g.,
- * `recovered-after-retry` or `stayed-on-topic-after-detour` when a retry or
- * a detour happened earlier in the same state.
+ * Request body (issue #47): `{ goalProgress: ActiveConversationState[],
+ * message: string, history?: { role: "user" | "assistant"; content: string
+ * }[] }` — the client sends the set of Conversation Goals achieved so far
+ * (ADR-0012) in place of the single Conversation State it used to send.
+ * `history` is the prior transcript (Emily's lines as "assistant", the
+ * learner's prior turns as "user") — passed so the model has enough context
+ * to judge, e.g. whether a Goal was attempted and failed before, or whether
+ * the learner has wandered off the topic and come back.
  *
  * Response (issue #5 — real streaming instead of one blocking
  * response after the whole model call completes): `text/event-stream`
@@ -36,14 +35,15 @@ import type { HistoryTurn, PracticeTurnStreamEvent } from "@/lib/practice-turn-p
  * promise resolves) and carries exactly one event, one JSON payload per
  * `data:` line:
  *
- *   - `{"type":"final","verdict":...,"learner_asked_back":...}` — exactly
- *     one, once the complete response has been validated. This is the only
- *     event the client commits to the Practice store. Issue #16 removed the
- *     `partial` event entirely — Emily's reply text is no longer
+ *   - `{"type":"final","goal_report":...,"learner_asked_back":...}` —
+ *     exactly one, once the complete response has been validated. This is
+ *     the only event the client commits to the Practice store. Issue #16
+ *     removed the `partial` event entirely — Emily's reply text is no longer
  *     model-generated (the client selects it from the current Lesson's
  *     Conversation Script pools; see src/lib/emily-reply-selector.ts), so
- *     there's no `reply_en` left to stream progress for. The stream stays as
- *     transport for `final`/`error` regardless.
+ *     there's no `reply_en` left to stream progress for. Issue #47 removed
+ *     `verdict` from it: the client derives the Verdict from `goal_report`.
+ *     The stream stays as transport for `final`/`error` regardless.
  *   - `{"type":"error","error":string}` — exactly one, in place of `final`,
  *     if `judgeTurn` rejects (`InvalidModelOutputError` or an upstream API
  *     error). HTTP status is always 200 by the time any of this is known,
@@ -61,7 +61,7 @@ import type { HistoryTurn, PracticeTurnStreamEvent } from "@/lib/practice-turn-p
 export const runtime = "nodejs";
 
 type TurnRequestBody = {
-  state: ActiveConversationState;
+  goalProgress: GoalProgress;
   message: string;
   history: HistoryTurn[];
 };
@@ -75,10 +75,10 @@ function isHistoryTurn(value: unknown): value is HistoryTurn {
 function parseRequestBody(body: unknown): TurnRequestBody | null {
   if (typeof body !== "object" || body === null) return null;
   const b = body as Record<string, unknown>;
-  if (!isActiveConversationState(b.state)) return null;
+  if (!isGoalProgress(b.goalProgress)) return null;
   if (typeof b.message !== "string" || b.message.trim().length === 0) return null;
   const history = Array.isArray(b.history) ? b.history.filter(isHistoryTurn) : [];
-  return { state: b.state, message: b.message, history };
+  return { goalProgress: b.goalProgress, message: b.message, history };
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -115,10 +115,21 @@ export async function POST(request: Request): Promise<Response> {
       try {
         const result = await judgeTurn({
           apiKey,
-          state: parsed.state,
+          goalProgress: parsed.goalProgress,
           message: parsed.message,
           history: parsed.history,
         });
+        // ADR-0012: a report key outside the open Goals — one already in Goal
+        // Progress, or no Goal at all — is dropped silently by the client
+        // (src/lib/goal-progress.ts), never treated as model misbehaviour.
+        // This is the "logged server-side" half: whoever runs the server can
+        // still see a prompt or schema whose reports are drifting.
+        const unexpectedKeys = unexpectedGoalReportKeys(parsed.goalProgress, result.goal_report);
+        if (unexpectedKeys.length > 0) {
+          console.warn(
+            `practice/turn: Goal Report named Goal(s) outside the open set: ${unexpectedKeys.join(", ")} — dropped`,
+          );
+        }
         sendEvent({ type: "final", ...result });
       } catch (error) {
         if (error instanceof InvalidModelOutputError) {

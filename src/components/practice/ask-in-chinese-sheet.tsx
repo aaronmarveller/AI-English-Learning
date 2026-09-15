@@ -30,7 +30,7 @@
  *
  * Like before, opening/closing this sheet and everything that happens
  * inside it is local UI state — it never touches the practice store
- * (`conversationState` / `messages` / `turnRecords`), so it can never
+ * (`goalProgress` / `messages` / `turnRecords`), so it can never
  * advance or reset the conversation (user story 57), and Chinese Turns
  * never feed the Learning Summary (issue #19 acceptance criterion 7).
  */
@@ -54,7 +54,15 @@ import {
 } from "@/lib/speech-synthesis";
 
 type AskInChineseSheetProps = {
-  conversationState: ActiveConversationState;
+  /**
+   * The Focus Goal: the first open Conversation Goal in canonical order, and
+   * the Goal the fixed four-part explanation and any follow-up question are
+   * about (CONTEXT.md "Focus Goal"; docs/ai-configuration.md section 6: "a
+   * fixed, four-part explanation for the Focus Goal"). Issue #47 renamed this
+   * prop from `conversationState` — it is the same value the old code passed,
+   * read off Goal Progress instead of a state pointer.
+   */
+  focusGoal: ActiveConversationState;
   onClose: () => void;
   /**
    * Called instead of just closing when the learner speaks/types English
@@ -75,8 +83,8 @@ type FollowUp = {
 
 let followUpIdCounter = 0;
 
-export function AskInChineseSheet({ conversationState, onClose, onExitWithEnglishInput }: AskInChineseSheetProps) {
-  const help = GREETING_SOMEBODY_LESSON.chineseHelp[conversationState];
+export function AskInChineseSheet({ focusGoal, onClose, onExitWithEnglishInput }: AskInChineseSheetProps) {
+  const help = GREETING_SOMEBODY_LESSON.chineseHelp[focusGoal];
 
   const [followUps, setFollowUps] = useState<FollowUp[]>([]);
   const [isAsking, setIsAsking] = useState(false);
@@ -127,7 +135,10 @@ export function AskInChineseSheet({ conversationState, onClose, onExitWithEnglis
     setIsAsking(true);
     const id = `chinese-followup-${(followUpIdCounter += 1)}`;
     try {
-      const answerZh = await askChineseQuestion({ state: conversationState, question: trimmed });
+      // The explanation seam's own field is still named `state`
+      // (src/lib/chinese-explanation-protocol.ts, not this ticket's to
+      // change): the Focus Goal is what it means here.
+      const answerZh = await askChineseQuestion({ state: focusGoal, question: trimmed });
       setFollowUps((prev) => [...prev, { id, questionZh: trimmed, answerZh, isFallback: false }]);
     } catch (error) {
       // Issue #19 acceptance criterion 5: a failed explanation call
