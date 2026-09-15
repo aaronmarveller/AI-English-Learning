@@ -1,5 +1,11 @@
 import type { ActiveConversationState, Verdict } from "@/lib/conversation-state-machine";
-import { applyGoalReport, getFocusGoal, getOpenGoals, type GoalProgress } from "@/lib/goal-progress";
+import {
+  applyGoalReport,
+  getFocusGoal,
+  getNewlyAchievedGoals,
+  getOpenGoals,
+  type GoalProgress,
+} from "@/lib/goal-progress";
 import type { GoalReport } from "@/lib/practice-turn-protocol";
 import type { Lesson, ScriptLine } from "@/content/lesson";
 
@@ -86,9 +92,10 @@ function pickOneExcluding<T extends { en: string }>(
  * reaction line is chosen for `checkin` having been achieved here, and the
  * same distinction is what #50's farewell-before-completion needs
  * (`closing` achieved earlier vs. now). Both are derived from these two
- * fields by the one rule that moves Goal Progress at all —
- * `applyGoalReport`, applied inside this module — rather than by a second
- * "newly achieved" computation at the call site.
+ * fields by the one rule that moves Goal Progress at all — `applyGoalReport`
+ * applied inside this module, then its diff against the Goals it was given
+ * (src/lib/goal-progress.ts's `getNewlyAchievedGoals`) — rather than by a
+ * second "newly achieved" computation at the call site.
  */
 export type SelectEmilyLinesInput = {
   verdict: Verdict;
@@ -173,10 +180,10 @@ export function selectEmilyLinesForTurn(
   }
 
   // All-or-nothing, so this is empty on a needs_retry Turn: read off the one
-  // rule that moves Goal Progress rather than re-deriving "what changed" here.
-  const achievedThisTurn = progressAfterTurn.filter(
-    (goal) => !input.progressBeforeTurn.includes(goal),
-  );
+  // rule that moves Goal Progress rather than re-deriving "what changed" here
+  // (src/lib/goal-progress.ts's `getNewlyAchievedGoals` — the same call the
+  // store makes for its per-Goal Turn records).
+  const achievedThisTurn = getNewlyAchievedGoals(input.progressBeforeTurn, progressAfterTurn);
 
   const lines: ScriptLine[] = [];
   const reacted = achievedThisTurn.includes("checkin");

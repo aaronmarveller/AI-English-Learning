@@ -14,10 +14,18 @@
  * State") — see src/lib/goal-progress.ts, which owns that derivation and is
  * what every caller of the deleted function now reads instead.
  *
- * The identifiers below keep their names so the #47 diff stays reviewable
- * (per that ticket's own instruction): the *values* and the *Verdict* are the
- * domain terms they always were — `ActiveConversationState`,
- * `ConversationState`, `Verdict` — and only the pointer between them moved.
+ * The identifiers below keep their names — `ActiveConversationState`,
+ * `ConversationState`, `Verdict`, `ACTIVE_CONVERSATION_STATES`. That was a
+ * deliberate, self-imposed choice rather than anyone's instruction: the values
+ * and the Verdict are the same domain terms they always were, and only the
+ * pointer between them moved, so keeping the names kept #47's wide refactor
+ * reviewable. What the names describe on this side is the vocabulary the Goal
+ * Progress derivation reads — a Conversation State is now *derived* from Goal
+ * Progress (CONTEXT.md "Conversation State"), not a position in a sequence, so
+ * `ActiveConversationState` names a Conversation Goal (the value set is
+ * unchanged and canonical) and `ConversationState` names that same value or the
+ * terminal `complete`, exactly what src/lib/goal-progress.ts's
+ * `deriveConversationState` returns.
  *
  * "Conversation Start" isn't modeled as a state here — it's just "before the
  * opening line renders" (see src/content/practice.ts's opening-line pool and
@@ -58,8 +66,4 @@ export function isActiveConversationState(value: unknown): value is ActiveConver
 
 export function isConversationState(value: unknown): value is ConversationState {
   return value === "complete" || isActiveConversationState(value);
-}
-
-export function isConversationComplete(state: ConversationState): state is "complete" {
-  return state === "complete";
 }

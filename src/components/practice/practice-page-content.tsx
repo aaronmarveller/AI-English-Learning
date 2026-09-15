@@ -229,7 +229,8 @@ export function PracticePageContent() {
   }, [messages, isAskInChineseOpen]);
 
   // Chinese help owns the floor from the moment it opens. This also clears
-  // any pending speakSequence gesture retry from the English conversation.
+  // any pending `speakLinesAssertively` gesture retry from the English
+  // conversation.
   useEffect(() => {
     if (isAskInChineseOpen) cancelSpeech();
   }, [isAskInChineseOpen]);

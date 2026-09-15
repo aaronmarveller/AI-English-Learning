@@ -10,24 +10,29 @@ import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
 import type { StateTurnRecord } from "@/lib/turn-record";
 
 /**
- * Issue #20 (#12's Further Notes: "In-flight practice sessions will reset")
- * and issue #47 (ADR-0012: "The practice store persists `goalProgress`
- * instead of `conversationState`; snapshots without it are discarded on
- * load"): the persisted practice store's `deserialize` must discard a shape
- * mismatch wholesale rather than crash or silently mix old and new data. Two
+ * Issue #20 (#12's Further Notes: "In-flight practice sessions will reset"),
+ * issue #47 (ADR-0012: "The practice store persists `goalProgress` instead of
+ * `conversationState`; snapshots without it are discarded on load"), and issue
+ * #52's follow-up on #51 (the store's per-Goal bookkeeping is `retryCounts`
+ * now, not `attemptCounts` — see the rename's coverage at the end of this
+ * describe): the persisted practice store's `deserialize` must discard a shape
+ * mismatch wholesale rather than crash or silently mix old and new data. Three
  * concrete cases are real: pre-issue-#20 builds persisted `highlightKeys` (a
  * flat `HighlightKey[]`) instead of the `turnRecords: StateTurnRecord[]` this
- * store now depends on, and pre-issue-#47 builds persisted a
- * `conversationState` pointer instead of `goalProgress`. Loading either must
- * produce a clean "no saved state" restart, not a thrown exception or a store
- * with `goalProgress: undefined` that later crashes goal-progress.ts.
+ * store now depends on, pre-issue-#47 builds persisted a `conversationState`
+ * pointer instead of `goalProgress`, and pre-issue-#52 builds persisted
+ * `attemptCounts` — a count of every submission, where `retryCounts` counts
+ * only `needs_retry` Turns. Loading any of them must produce a clean "no saved
+ * state" restart, not a thrown exception, not a store with `goalProgress:
+ * undefined` that later crashes goal-progress.ts, and — the case the rename
+ * exists for — not a set of submission counts silently re-read as retries.
  */
 describe("practice-state deserialize — discard-safely on shape mismatch", () => {
   const INITIAL_STATE_SHAPE = {
     goalProgress: [],
     messages: [],
     turnRecords: [],
-    attemptCounts: {},
+    retryCounts: {},
   };
 
   it("discards a pre-issue-#20 snapshot (highlightKeys, no turnRecords) instead of crashing", () => {
@@ -61,12 +66,36 @@ describe("practice-state deserialize — discard-safely on shape mismatch", () =
     expect(deserialize(preGoalProgressShape)).toEqual(INITIAL_STATE_SHAPE);
   });
 
+  it("discards a snapshot with the old attemptCounts shape (no retryCounts), never re-reading submissions as retries", () => {
+    // Post-#51, pre-#52: every field is present and well-shaped and the
+    // snapshot is otherwise exactly current — only `attemptCounts` counts
+    // submissions rather than `needs_retry` Turns. Every value in it would be a
+    // legal `retryCounts` value too (both are per-Goal numbers), so nothing
+    // distinguishes the two readings once the field has been renamed: the
+    // absence of `retryCounts` is the whole signal, and it discards the
+    // snapshot. Reinterpreting `{ greeting: 3 }` as "greeting was retried
+    // three times" would re-rank the Learning Summary of a learner who never
+    // retried anything (docs/ai-configuration.md section 5).
+    const oldCountingShape = JSON.stringify({
+      goalProgress: ["greeting"],
+      messages: [
+        { id: "seed-1", role: "emily", textEn: "How are you today?", textZh: "你今天怎么样？", state: "checkin" },
+      ],
+      turnRecords: [
+        { state: "greeting", passedFirstTry: true, matchedAcceptedResponse: true, learnerAskedBack: false },
+      ],
+      attemptCounts: { greeting: 3 },
+    });
+
+    expect(deserialize(oldCountingShape)).toEqual(INITIAL_STATE_SHAPE);
+  });
+
   it("discards a snapshot whose goalProgress is malformed", () => {
     const malformed = JSON.stringify({
       goalProgress: ["greeting", "goodbye"],
       messages: [],
       turnRecords: [],
-      attemptCounts: {},
+      retryCounts: {},
     });
 
     expect(deserialize(malformed)).toEqual(INITIAL_STATE_SHAPE);
@@ -77,7 +106,7 @@ describe("practice-state deserialize — discard-safely on shape mismatch", () =
       goalProgress: ["greeting"],
       messages: [],
       turnRecords: [{ state: "greeting", passedFirstTry: "yes" }], // wrong type, missing fields
-      attemptCounts: {},
+      retryCounts: {},
     });
 
     expect(deserialize(malformed)).toEqual(INITIAL_STATE_SHAPE);
@@ -102,7 +131,7 @@ describe("practice-state deserialize — discard-safely on shape mismatch", () =
     expect(deserialize(JSON.stringify(null))).toEqual(INITIAL_STATE_SHAPE);
   });
 
-  it("accepts a well-formed current-shape snapshot and preserves its Goal Progress and turnRecords", () => {
+  it("accepts a well-formed current-shape snapshot and preserves its Goal Progress, turnRecords and retryCounts", () => {
     const current = JSON.stringify({
       goalProgress: ["greeting", "checkin"],
       messages: [],
@@ -110,7 +139,7 @@ describe("practice-state deserialize — discard-safely on shape mismatch", () =
         { state: "greeting", passedFirstTry: true, matchedAcceptedResponse: true, learnerAskedBack: false },
         { state: "checkin", passedFirstTry: false, matchedAcceptedResponse: false, learnerAskedBack: true },
       ],
-      attemptCounts: { greeting: 1, checkin: 2 },
+      retryCounts: { checkin: 1 },
     });
 
     const result = deserialize(current);
@@ -122,7 +151,7 @@ describe("practice-state deserialize — discard-safely on shape mismatch", () =
       matchedAcceptedResponse: false,
       learnerAskedBack: true,
     });
-    expect(result.attemptCounts).toEqual({ greeting: 1, checkin: 2 });
+    expect(result.retryCounts).toEqual({ checkin: 1 });
   });
 
   it("keeps a non-contiguous Goal Progress set intact, exactly as persisted (ADR-0012)", () => {
@@ -132,23 +161,36 @@ describe("practice-state deserialize — discard-safely on shape mismatch", () =
       turnRecords: [
         { state: "closing", passedFirstTry: true, matchedAcceptedResponse: false, learnerAskedBack: false },
       ],
-      attemptCounts: { closing: 1 },
+      retryCounts: {},
     });
 
     expect(deserialize(nonContiguous).goalProgress).toEqual(["closing"]);
   });
 
-  it("sanitizes a malformed attemptCounts without discarding the whole snapshot", () => {
+  it("sanitizes a malformed entry inside retryCounts without discarding the whole snapshot", () => {
+    // The field being *present* is the shape signal; a corrupt value inside it
+    // is not evidence of a pre-change snapshot, so it degrades per-entry.
     const current = JSON.stringify({
       goalProgress: [],
       messages: [],
       turnRecords: [],
-      attemptCounts: { greeting: "two", checkin: 3, notARealState: 5 },
+      retryCounts: { greeting: "two", checkin: 3, notARealState: 5 },
     });
 
     const result = deserialize(current);
     expect(result.turnRecords).toEqual([]);
-    expect(result.attemptCounts).toEqual({ checkin: 3 });
+    expect(result.retryCounts).toEqual({ checkin: 3 });
+  });
+
+  it("discards a snapshot whose retryCounts isn't an object at all", () => {
+    const malformed = JSON.stringify({
+      goalProgress: ["greeting"],
+      messages: [],
+      turnRecords: [],
+      retryCounts: "not-an-object",
+    });
+
+    expect(deserialize(malformed)).toEqual(INITIAL_STATE_SHAPE);
   });
 
   it("keeps a message persisted before #48, which has no sequenceId (issue #48)", () => {
@@ -172,7 +214,7 @@ describe("practice-state deserialize — discard-safely on shape mismatch", () =
       turnRecords: [
         { state: "greeting", passedFirstTry: true, matchedAcceptedResponse: true, learnerAskedBack: false },
       ],
-      attemptCounts: { greeting: 1 },
+      retryCounts: {},
     });
 
     const result = deserialize(preSequenceShape);
@@ -199,7 +241,7 @@ describe("practice-state deserialize — discard-safely on shape mismatch", () =
         { id: "seed-2", role: "learner", textEn: "Hi!", textZh: "", state: "greeting", sequenceId: 7 },
       ],
       turnRecords: [],
-      attemptCounts: {},
+      retryCounts: {},
     });
 
     expect(deserialize(current).messages.map((message) => message.sequenceId)).toEqual([
@@ -334,6 +376,14 @@ describe("recordTurnResult — one Turn, several Goals, one sequence of lines", 
  * stays whole-sentence exact match, so a multi-Goal sentence matches none of
  * them"). One record is appended per Goal *achieved* in the Turn, in canonical
  * order — not one record per accepted Turn, attributed to the Focus Goal.
+ *
+ * Issue #52's follow-up on #51: "an attempt counts against the Focus Goal only"
+ * was implemented as a *submission* counter, which is wrong the moment Goals
+ * arrive out of order — a `needs_retry` Turn is what makes a Goal not-first-try,
+ * so only those are counted now (`retryCounts`). The four-Goal out-of-order
+ * accumulation below is the boundary: `closing` achieved while Check-in was the
+ * Focus Goal is first-try, Check-in's own record is not, and an all-`accepted`
+ * run with no retry anywhere is first-try throughout.
  *
  * These are the records the Learning Summary's Highlights and its Suggestion
  * pool are derived from, so the ticket example has to come out exactly as
@@ -486,6 +536,56 @@ describe("recordTurnResult — one record per Goal achieved, in canonical order"
       { state: "closing", passedFirstTry: true, matchedAcceptedResponse: false, learnerAskedBack: false },
       { state: "checkin", passedFirstTry: false, matchedAcceptedResponse: true, learnerAskedBack: false },
     ]);
+  });
+
+  it("credits an out-of-order run with no retry anywhere as every record first-try", () => {
+    // Issue #50's own scenario — "I'm fine, thanks!" → "Thanks" → "Hi!" — with
+    // every Turn `accepted`: each one achieves a *later* Goal while `greeting`
+    // stays open, so the Focus Goal is Greeting for all three Turns and the
+    // records accumulate in the order checkin, response, greeting.
+    //
+    // No learner ever retried anything, so every record must be first-try.
+    // Counting *submissions* against the Focus Goal instead of retries would
+    // book two attempts against Greeting before its own Turn (one per earlier
+    // accepted Turn) and report its achievement as retried, which re-ranks the
+    // Learning Summary and switches docs/ai-configuration.md section 5's
+    // suggestion to the needed-retry pool — for a learner who never retried
+    // (issue #52's follow-up on #51's acceptance criterion).
+    recordTurnResult({
+      focusGoal: "greeting",
+      verdict: "accepted",
+      goalReport: { checkin: "achieved" },
+      replyLines: GREETING_SOMEBODY_LESSON.script.greeting.needsRetryLines.slice(0, 1),
+      matchedAcceptedResponseGoals: [],
+      learnerAskedBack: false,
+    });
+    recordTurnResult({
+      focusGoal: "greeting",
+      verdict: "accepted",
+      goalReport: { response: "achieved" },
+      replyLines: GREETING_SOMEBODY_LESSON.script.greeting.needsRetryLines.slice(1, 2),
+      matchedAcceptedResponseGoals: [],
+      learnerAskedBack: false,
+    });
+    recordTurnResult({
+      focusGoal: "greeting",
+      verdict: "accepted",
+      goalReport: { greeting: "achieved" },
+      replyLines: GREETING_SOMEBODY_LESSON.checkinLines.slice(0, 1),
+      matchedAcceptedResponseGoals: ["greeting"],
+      learnerAskedBack: false,
+    });
+
+    expect(persistedTurnRecords()).toEqual([
+      { state: "checkin", passedFirstTry: true, matchedAcceptedResponse: false, learnerAskedBack: false },
+      { state: "response", passedFirstTry: true, matchedAcceptedResponse: false, learnerAskedBack: false },
+      { state: "greeting", passedFirstTry: true, matchedAcceptedResponse: true, learnerAskedBack: false },
+    ]);
+    // Nothing was booked as a retry at any point: the only thing that makes a
+    // Goal not-first-try is a `needs_retry` Turn on it.
+    expect(
+      deserialize(written[written.length - 1]).retryCounts,
+    ).toEqual({});
   });
 });
 

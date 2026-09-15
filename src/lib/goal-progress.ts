@@ -138,6 +138,32 @@ export function applyGoalReport(
 }
 
 /**
+ * The Conversation Goals a Turn *added* to Goal Progress: the Goals `after`
+ * holds and `before` did not, in `after`'s order (canonical, as
+ * `applyGoalReport` returns it).
+ *
+ * This is the one place "which Goals did this Turn achieve?" is answered. It
+ * is a set difference rather than a re-read of the Goal Report on purpose:
+ * `applyGoalReport` is the only rule that moves Goal Progress, so deriving the
+ * addition from *its* two readings cannot disagree with what was actually
+ * saved — a Goal the report marked `achieved` alongside a `failed` one never
+ * appears, because the `needs_retry` Turn saved nothing (all-or-nothing,
+ * ADR-0012). That is why two callers as different as Emily's line composition
+ * (src/lib/emily-reply-selector.ts — she reacts to a check-in achieved *in this
+ * Turn*) and the store's per-Goal Turn records (src/lib/practice-state.ts, one
+ * record per Goal this Turn added — issue #51) share this function instead of
+ * each diffing the two sets themselves.
+ *
+ * Empty for a `needs_retry` Turn and for a Turn that achieved nothing new.
+ */
+export function getNewlyAchievedGoals(
+  before: GoalProgress,
+  after: GoalProgress,
+): ActiveConversationState[] {
+  return after.filter((goal) => !before.includes(goal));
+}
+
+/**
  * The report's keys that aren't open Goals — a Goal that is already achieved,
  * or (if the model misbehaves) a key that names no Goal at all. ADR-0012:
  * "The Judge is only ever asked about open Goals, so a Goal Report never

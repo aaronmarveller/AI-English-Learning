@@ -3,7 +3,6 @@ import {
   ACTIVE_CONVERSATION_STATES,
   VERDICTS,
   isActiveConversationState,
-  isConversationComplete,
   isConversationState,
 } from "@/lib/conversation-state-machine";
 
@@ -50,14 +49,5 @@ describe("isConversationState", () => {
   it("rejects anything else", () => {
     expect(isConversationState("done")).toBe(false);
     expect(isConversationState(null)).toBe(false);
-  });
-});
-
-describe("isConversationComplete", () => {
-  it("is true only for the terminal complete state", () => {
-    expect(isConversationComplete("complete")).toBe(true);
-    for (const state of ACTIVE_CONVERSATION_STATES) {
-      expect(isConversationComplete(state)).toBe(false);
-    }
   });
 });

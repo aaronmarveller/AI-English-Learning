@@ -6,6 +6,7 @@ import {
   deriveConversationState,
   deriveVerdict,
   getFocusGoal,
+  getNewlyAchievedGoals,
   getOpenGoals,
   isGoalProgress,
   isGoalProgressComplete,
@@ -27,6 +28,10 @@ import {
  *   - an `accepted` Turn adds every `achieved` Goal at once, and a
  *     `needs_retry` Turn saves nothing from its report even the parts that
  *     were right (all-or-nothing);
+ *   - which Goals a Turn *added* is one set difference over Goal Progress
+ *     (`getNewlyAchievedGoals`) — not a second reading of the Goal Report —
+ *     so Emily's line composition and the store's per-Goal records cannot
+ *     disagree about it;
  *   - a Goal Report's keys outside the open set are ignored, never an error.
  *
  * Issue #49 (docs/ai-configuration.md section 4's "Verdict derivation —
@@ -232,6 +237,39 @@ describe("unexpectedGoalReportKeys", () => {
       "greeting",
     ]);
     expect(unexpectedGoalReportKeys([], STRAY_KEY_REPORT)).toEqual(["pizza"]);
+  });
+});
+
+describe("getNewlyAchievedGoals", () => {
+  it("is every Goal the Turn added, in canonical order", () => {
+    expect(getNewlyAchievedGoals([], ["greeting", "response"])).toEqual(["greeting", "response"]);
+    expect(getNewlyAchievedGoals(["greeting"], ["greeting", "checkin"])).toEqual(["checkin"]);
+  });
+
+  it("is empty for a needs_retry Turn and for a Turn that added nothing", () => {
+    // All-or-nothing: a `needs_retry` Turn's `applyGoalReport` returns Goal
+    // Progress unchanged, so the diff is empty by construction — the callers
+    // need no verdict branch of their own.
+    expect(getNewlyAchievedGoals(["greeting"], ["greeting"])).toEqual([]);
+  });
+
+  it("is exactly the difference applyGoalReport produced, for either verdict", () => {
+    const before: GoalProgress = ["greeting"];
+    const cases: { report: GoalReport; newlyAchieved: GoalProgress }[] = [
+      { report: {}, newlyAchieved: [] },
+      { report: { checkin: "untouched" }, newlyAchieved: [] },
+      { report: { checkin: "failed" }, newlyAchieved: [] },
+      // All-or-nothing: `checkin` was marked `achieved` here, but the report
+      // failed `closing`, so the Turn saved neither and added nothing.
+      { report: { checkin: "achieved", closing: "failed" }, newlyAchieved: [] },
+      { report: { checkin: "achieved" }, newlyAchieved: ["checkin"] },
+      { report: { closing: "achieved" }, newlyAchieved: ["closing"] },
+    ];
+    for (const { report, newlyAchieved } of cases) {
+      const verdict = deriveVerdict(before, report);
+      const after = applyGoalReport(before, report, verdict);
+      expect(getNewlyAchievedGoals(before, after)).toEqual(newlyAchieved);
+    }
   });
 });
 

@@ -254,7 +254,10 @@ test.describe("Practice page — conversation core", () => {
     //
     // Issue #47: the seeded shape persists `goalProgress` (the set of Goals
     // achieved) where it used to persist a `conversationState` pointer; the
-    // Conversation State on screen is derived from it.
+    // Conversation State on screen is derived from it. Issue #52's follow-up on
+    // #51 renamed the per-Goal bookkeeping to `retryCounts` — a snapshot must
+    // carry it (even empty) or `deserialize` discards it as a pre-change shape,
+    // so the seeded greeting reads as first-try exactly as its record says.
     await page.goto("/");
     await page.evaluate(() => {
       window.localStorage.clear();
@@ -277,7 +280,7 @@ test.describe("Practice page — conversation core", () => {
           turnRecords: [
             { state: "greeting", passedFirstTry: true, matchedAcceptedResponse: true, learnerAskedBack: false },
           ],
-          attemptCounts: { greeting: 1 },
+          retryCounts: {},
         }),
       );
     });

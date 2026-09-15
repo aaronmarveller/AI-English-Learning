@@ -1,14 +1,16 @@
 import { expect, test, type Page } from "@playwright/test";
 import {
+  audioPathsFor,
   installScriptedPracticeApi,
   mockSpeechApis,
+  persistedPracticeSnapshot,
+  playedSources,
   PRACTICE_URL,
   resetStorage,
   startSpeaking,
   submitReply,
 } from "./fixtures";
-import { GREETING_SOMEBODY_LESSON, type ScriptLine } from "@/content/lesson";
-import { AUDIO_MANIFEST } from "@/lib/audio-manifest";
+import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
 
 /**
  * Issue #49's headline scenario, end to end (ADR-0012; docs/ai-configuration.md
@@ -23,10 +25,11 @@ import { AUDIO_MANIFEST } from "@/lib/audio-manifest";
  * `failed` Goal in canonical order — never the Check-in pool written for the
  * Focus Goal whose Goal the learner just got right.
  *
- * The attempt still counts against the Focus Goal (src/lib/practice-state.ts
- * keys `attemptCounts` by the Goal a Turn was judged against), which is what
+ * The retry still counts against the Focus Goal (src/lib/practice-state.ts
+ * keys `retryCounts` by the Goal a Turn was judged against), which is what
  * makes the following Turn's Check-in credit *not* first try — and what keeps
- * the failed Closing attempt out of the Learning Summary entirely.
+ * the failed Closing attempt out of the Learning Summary entirely. Turn 1's
+ * clean greeting books nothing: only a `needs_retry` Turn is a retry.
  *
  * The Judge is stubbed (`installScriptedPracticeApi`, whose
  * `ScriptedTurnResponse` is exactly the report a real Judge returns);
@@ -49,49 +52,30 @@ const RESPONSE_TEXTS = [
 
 /**
  * Each Closing `needs_retry` line's pre-generated file, from the same manifest
- * src/lib/speech-synthesis.ts resolves against at runtime — looked up rather
- * than hard-coded, so the playback test fails loudly if a pool line ever loses
- * its audio.
+ * src/lib/speech-synthesis.ts resolves against at runtime (e2e/fixtures.ts's
+ * `audioPathsFor`) — looked up rather than hard-coded, so the playback test
+ * fails loudly if a pool line ever loses its audio.
  */
-const AUDIO_PATH_BY_TEXT = new Map(AUDIO_MANIFEST.map(({ id, text }) => [text, `/audio/${id}.mp3`]));
-
-function audioPathsFor(lines: readonly ScriptLine[]): string[] {
-  return lines.map((line) => {
-    const path = AUDIO_PATH_BY_TEXT.get(line.en);
-    if (!path) throw new Error(`no pre-generated audio in the manifest for "${line.en}"`);
-    return path;
-  });
-}
-
 const CLOSING_RETRY_AUDIO_PATHS = audioPathsFor(GREETING_SOMEBODY_LESSON.script.closing.needsRetryLines);
 
-/** The persisted Practice snapshot — the store's own account of what the Turn saved (src/lib/practice-state.ts). */
+/**
+ * The three fields this spec asserts on, projected off the shared persisted
+ * snapshot (e2e/fixtures.ts's `persistedPracticeSnapshot`).
+ */
 async function persistedState(page: Page): Promise<{
   goalProgress: string[];
-  attemptCounts: Record<string, number>;
+  retryCounts: Record<string, number>;
   turnRecords: { state: string; passedFirstTry: boolean }[];
 }> {
-  return page.evaluate(() => {
-    const raw = window.localStorage.getItem("greeting-somebody:practice");
-    if (raw === null) throw new Error("no persisted Practice snapshot");
-    const snapshot = JSON.parse(raw) as {
-      goalProgress: string[];
-      attemptCounts: Record<string, number>;
-      turnRecords: { state: string; passedFirstTry: boolean }[];
-    };
-    return {
-      goalProgress: snapshot.goalProgress,
-      attemptCounts: snapshot.attemptCounts,
-      turnRecords: snapshot.turnRecords.map((record) => ({
-        state: record.state,
-        passedFirstTry: record.passedFirstTry,
-      })),
-    };
-  });
-}
-
-async function playedSources(page: Page): Promise<string[]> {
-  return page.evaluate(() => window.__mockAudio?.getPlayedSources() ?? []);
+  const snapshot = await persistedPracticeSnapshot(page);
+  return {
+    goalProgress: snapshot.goalProgress ?? [],
+    retryCounts: snapshot.retryCounts ?? {},
+    turnRecords: (snapshot.turnRecords ?? []).map((record) => ({
+      state: record.state,
+      passedFirstTry: record.passedFirstTry,
+    })),
+  };
 }
 
 test.describe("Practice page — a Turn with one Goal right and another wrong is needs_retry", () => {
@@ -130,13 +114,15 @@ test.describe("Practice page — a Turn with one Goal right and another wrong is
     expect(CLOSING_RETRY_TEXTS).toContain(retryText);
     expect(CHECKIN_RETRY_TEXTS).not.toContain(retryText);
 
-    // Nothing from the Turn reached Goal Progress, and the attempt was booked
+    // Nothing from the Turn reached Goal Progress, and the retry was booked
     // against the Focus Goal — Check-in — while the failed Closing attempt is
     // nowhere in the store at all. That is what keeps the Learning Summary
     // able to say "Check-in wasn't first try" without ever mentioning Closing.
+    // Turn 1's accepted greeting is not in `retryCounts`: an accepted Turn is
+    // not a retry, so it books nothing.
     const afterMixedFailure = await persistedState(page);
     expect(afterMixedFailure.goalProgress).toEqual(["greeting"]);
-    expect(afterMixedFailure.attemptCounts).toEqual({ greeting: 1, checkin: 1 });
+    expect(afterMixedFailure.retryCounts).toEqual({ checkin: 1 });
     expect(afterMixedFailure.turnRecords).toEqual([{ state: "greeting", passedFirstTry: true }]);
 
     // The next Turn credits Check-in for real — as a second attempt, never a
@@ -152,7 +138,9 @@ test.describe("Practice page — a Turn with one Goal right and another wrong is
 
     const afterRecovery = await persistedState(page);
     expect(afterRecovery.goalProgress).toEqual(["greeting", "checkin"]);
-    expect(afterRecovery.attemptCounts).toEqual({ greeting: 1, checkin: 2 });
+    // Still one retry on Check-in — the accepted Turn that followed is not
+    // counted, only read.
+    expect(afterRecovery.retryCounts).toEqual({ checkin: 1 });
     expect(afterRecovery.turnRecords).toEqual([
       { state: "greeting", passedFirstTry: true },
       { state: "checkin", passedFirstTry: false },

@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import {
   installScriptedPracticeApi,
+  persistedMessages,
   PRACTICE_URL,
   resetStorage,
   submitReply,
@@ -49,23 +50,10 @@ const CHECKIN_TEXTS = GREETING_SOMEBODY_LESSON.checkinLines.map((line) => line.e
 const CLOSING_TEXTS = GREETING_SOMEBODY_LESSON.closingLines.map((line) => line.en);
 const COMPLETION_TEXTS = [...GREETING_SOMEBODY_LESSON.completionMessages];
 
-/** The persisted transcript's messages, in order — one message per Conversation Script line, so a Turn's sequence is its last N Emily messages. */
-async function persistedMessages(
-  page: Page,
-): Promise<{ role: string; textEn: string }[]> {
-  return page.evaluate(() => {
-    const raw = window.localStorage.getItem("greeting-somebody:practice");
-    if (raw === null) throw new Error("no persisted Practice snapshot");
-    const snapshot = JSON.parse(raw) as {
-      messages?: { role: string; textEn: string }[];
-    };
-    return (snapshot.messages ?? []).map((message) => ({
-      role: message.role,
-      textEn: message.textEn,
-    }));
-  });
-}
-
+/**
+ * Emily's spoken lines, in order — one message per Conversation Script line
+ * (e2e/fixtures.ts's `persistedMessages`), so a Turn's sequence is its last N.
+ */
 async function emilyLines(page: Page): Promise<string[]> {
   const messages = await persistedMessages(page);
   return messages.filter((message) => message.role === "emily").map((message) => message.textEn);

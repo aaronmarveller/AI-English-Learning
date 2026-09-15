@@ -1,5 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
-import { installScriptedPracticeApi, PRACTICE_URL, resetStorage, submitReply } from "./fixtures";
+import {
+  installScriptedPracticeApi,
+  persistedPracticeSnapshot,
+  PRACTICE_URL,
+  resetStorage,
+  submitReply,
+  type PersistedTurnRecord,
+} from "./fixtures";
 import {
   GENERIC_GROWTH_SUGGESTION_TEMPLATES,
   HIGHLIGHT_TEMPLATES,
@@ -31,24 +38,12 @@ import {
  * injected random source.
  */
 
-const STORAGE_KEY = "greeting-somebody:practice";
-
-/** One persisted `StateTurnRecord` (src/lib/turn-record.ts) — the Learning Summary's own input. */
-type PersistedTurnRecord = {
-  state: string;
-  passedFirstTry: boolean;
-  matchedAcceptedResponse: boolean;
-  learnerAskedBack: boolean;
-};
-
-/** The practice store's turn records, in the order they accumulated. */
+/**
+ * The practice store's Turn records, in the order they accumulated — the
+ * Learning Summary's own input (e2e/fixtures.ts's `persistedPracticeSnapshot`).
+ */
 async function persistedTurnRecords(page: Page): Promise<PersistedTurnRecord[]> {
-  return page.evaluate((storageKey) => {
-    const raw = window.localStorage.getItem(storageKey);
-    if (raw === null) return [];
-    const snapshot = JSON.parse(raw) as { turnRecords?: PersistedTurnRecord[] };
-    return snapshot.turnRecords ?? [];
-  }, STORAGE_KEY);
+  return (await persistedPracticeSnapshot(page)).turnRecords ?? [];
 }
 
 /**

@@ -1,5 +1,7 @@
 import type { Page, Route } from "@playwright/test";
 import type { GoalReport } from "@/lib/practice-turn-protocol";
+import { AUDIO_MANIFEST } from "@/lib/audio-manifest";
+import type { ScriptLine } from "@/content/lesson";
 
 /**
  * Shared E2E helpers (ticket 03).
@@ -249,6 +251,98 @@ export async function submitReply(page: Page, text: string): Promise<void> {
 /** Starts a learner speech Turn through either Practice microphone. */
 export async function startSpeaking(page: Page, microphoneTestId = "practice-mic-button"): Promise<void> {
   await page.getByTestId(microphoneTestId).click();
+}
+
+// --- Persisted Practice snapshot readers (issues #47-#52) ----------------
+//
+// The practice store hands the page a hook, not a snapshot reader
+// (src/lib/practice-state.ts is `"use client"`), so every spec that asserts on
+// what a Turn actually *saved* reads the store's own localStorage key and
+// parses it. Consolidated here for the same reason issue #10 consolidated the
+// scripted-API stub: the specs covering #48-#52 had each grown their own copy
+// of the same localStorage read.
+
+/** The practice store's storage key (src/lib/practice-state.ts's `STORAGE_KEY`). */
+export const PRACTICE_STORAGE_KEY = "greeting-somebody:practice";
+
+/** One persisted `StateTurnRecord` (src/lib/turn-record.ts) — the Learning Summary's own input, one per Goal achieved. */
+export type PersistedTurnRecord = {
+  state: string;
+  passedFirstTry: boolean;
+  matchedAcceptedResponse: boolean;
+  learnerAskedBack: boolean;
+};
+
+/** One persisted `PracticeMessage` (src/lib/practice-state.ts) — one per Conversation Script line of a Turn. */
+export type PersistedPracticeMessage = {
+  role: string;
+  textEn: string;
+  textZh: string;
+};
+
+/**
+ * The parsed persisted Practice snapshot (src/lib/practice-state.ts's
+ * `PracticeStoreState`) — the store's own account of what the Turns so far
+ * did. Every field is optional because this is raw persisted data read as
+ * data: whether an absent field is a failure is the assertion's business, not
+ * this reader's.
+ *
+ * Throws when nothing is persisted at all, since every call site reads after a
+ * Turn has been recorded — a missing snapshot means the write under test never
+ * happened, and a clear error beats a confusing assertion diff.
+ */
+export type PersistedPracticeSnapshot = {
+  goalProgress?: string[];
+  retryCounts?: Record<string, number>;
+  turnRecords?: PersistedTurnRecord[];
+  messages?: PersistedPracticeMessage[];
+};
+
+export async function persistedPracticeSnapshot(page: Page): Promise<PersistedPracticeSnapshot> {
+  return page.evaluate((storageKey) => {
+    const raw = window.localStorage.getItem(storageKey);
+    if (raw === null) throw new Error("no persisted Practice snapshot");
+    return JSON.parse(raw) as PersistedPracticeSnapshot;
+  }, PRACTICE_STORAGE_KEY);
+}
+
+/** The persisted transcript, in order. */
+export async function persistedMessages(page: Page): Promise<PersistedPracticeMessage[]> {
+  return (await persistedPracticeSnapshot(page)).messages ?? [];
+}
+
+// --- Audio-path helpers (issues #48-#50) ---------------------------------
+
+/**
+ * The pre-generated file each Conversation Script line plays, from the same
+ * manifest src/lib/speech-synthesis.ts resolves against at runtime. Built by
+ * looking each line up rather than hard-coding ids, so a spec fails loudly if
+ * a pool line ever loses its audio — issue #48's "no new audio files are
+ * needed" criterion is that this map never misses.
+ */
+const AUDIO_PATH_BY_TEXT = new Map(AUDIO_MANIFEST.map(({ id, text }) => [text, `/audio/${id}.mp3`]));
+
+export function audioPathsFor(lines: readonly ScriptLine[]): string[] {
+  return lines.map((line) => {
+    const path = AUDIO_PATH_BY_TEXT.get(line.en);
+    if (!path) throw new Error(`no pre-generated audio in the manifest for "${line.en}"`);
+    return path;
+  });
+}
+
+/**
+ * The same paths as a real browser reports them: assigning a relative path to
+ * `HTMLMediaElement.src` resolves it against the document, and the `<audio>`
+ * stub records the resolved value, so every comparison has to be made on
+ * absolute URLs.
+ */
+export function absoluteAudioUrls(paths: readonly string[], pageUrl: string): string[] {
+  return paths.map((path) => new URL(path, pageUrl).toString());
+}
+
+/** Every audio source a successful `play()` has entered playback with, in order (see `mockSpeechApis`). */
+export async function playedSources(page: Page): Promise<string[]> {
+  return page.evaluate(() => window.__mockAudio?.getPlayedSources() ?? []);
 }
 
 // --- Web Speech API stub (for ticket 08/09+) ----------------------------

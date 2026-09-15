@@ -1,14 +1,17 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import {
+  absoluteAudioUrls,
+  audioPathsFor,
   installScriptedPracticeApi,
   mockSpeechApis,
+  persistedMessages,
+  playedSources,
   PRACTICE_URL,
   resetStorage,
   startSpeaking,
   submitReply,
 } from "./fixtures";
-import { GREETING_SOMEBODY_LESSON, type ScriptLine } from "@/content/lesson";
-import { AUDIO_MANIFEST } from "@/lib/audio-manifest";
+import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
 
 /**
  * Issue #48's headline scenario, end to end (ADR-0012;
@@ -38,55 +41,15 @@ const COMPLETION_TEXTS = [...GREETING_SOMEBODY_LESSON.completionMessages];
 
 /**
  * The pre-generated file each Conversation Script line plays, from the same
- * manifest src/lib/speech-synthesis.ts resolves against at runtime. Built by
- * looking each line up rather than hard-coding ids, so this spec fails loudly
- * if a pool line ever loses its audio — issue #48's "no new audio files are
- * needed" criterion is that this map never misses.
+ * manifest src/lib/speech-synthesis.ts resolves against at runtime
+ * (e2e/fixtures.ts's `audioPathsFor`, which also has `absoluteAudioUrls` for
+ * the resolved-form comparison the assertions below need). Looked up rather
+ * than hard-coded, so this spec fails loudly if a pool line ever loses its
+ * audio — issue #48's "no new audio files are needed" criterion is that this
+ * never misses.
  */
-const AUDIO_PATH_BY_TEXT = new Map(AUDIO_MANIFEST.map(({ id, text }) => [text, `/audio/${id}.mp3`]));
-
-function audioPathsFor(lines: readonly ScriptLine[]): string[] {
-  return lines.map((line) => {
-    const path = AUDIO_PATH_BY_TEXT.get(line.en);
-    if (!path) throw new Error(`no pre-generated audio in the manifest for "${line.en}"`);
-    return path;
-  });
-}
-
 const REACTION_AUDIO_PATHS = audioPathsFor(GREETING_SOMEBODY_LESSON.responseLines.askedBack);
 const STEER_AUDIO_PATHS = audioPathsFor(GREETING_SOMEBODY_LESSON.closingLines);
-
-/**
- * The same paths as a real browser reports them: assigning a relative path to
- * `HTMLMediaElement.src` resolves it against the document, and the `<audio>`
- * stub records the resolved value, so every comparison here has to be made on
- * absolute URLs.
- */
-function absoluteAudioUrls(paths: readonly string[], pageUrl: string): string[] {
-  return paths.map((path) => new URL(path, pageUrl).toString());
-}
-
-/** The persisted transcript's messages, in order — the faithful record of what was said, one message per Script line. */
-async function persistedMessages(
-  page: Page,
-): Promise<{ role: string; textEn: string; textZh: string }[]> {
-  return page.evaluate(() => {
-    const raw = window.localStorage.getItem("greeting-somebody:practice");
-    if (raw === null) return [];
-    const snapshot = JSON.parse(raw) as {
-      messages?: { role: string; textEn: string; textZh: string }[];
-    };
-    return (snapshot.messages ?? []).map((message) => ({
-      role: message.role,
-      textEn: message.textEn,
-      textZh: message.textZh,
-    }));
-  });
-}
-
-async function playedSources(page: Page): Promise<string[]> {
-  return page.evaluate(() => window.__mockAudio?.getPlayedSources() ?? []);
-}
 
 test.describe("Practice page — one Turn, several Goals, a sequence of Script lines", () => {
   test("the ticket example: one message achieves three Goals, Emily reacts then steers to Closing, and a goodbye completes Practice", async ({

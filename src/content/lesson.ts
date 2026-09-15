@@ -368,16 +368,16 @@ export type AskInChineseHelp = {
 };
 
 /**
- * Fixed, per-state 4-part help content (spec.md user story 55: "中文帮助解释
+ * Fixed, per-Goal 4-part help content (spec.md user story 55: "中文帮助解释
  * 含义、说明什么时候用、给一个例子、再鼓励我用英语继续"; user story 56: "中文
  * 帮助不替我回答"). Grounded in this same file's `PRACTICE_SCRIPT` — each
- * entry explains the *current* Learning Goal, not generic filler — but never
+ * entry explains the *Focus Goal* (CONTEXT.md), not generic filler — but never
  * quotes an Accepted Response as a literal fill-in-the-blank answer (see
  * `AskInChineseHelp.example`'s doc comment above — e2e/practice-ask-in-chinese-content.spec.ts
  * fails the build if this invariant is ever violated again).
  *
  * No model call: read directly by src/components/practice/ask-in-chinese-sheet.tsx,
- * keyed by the live `conversationState` — zero latency, zero cost, fully
+ * keyed by the live Focus Goal — zero latency, zero cost, fully
  * predictable content.
  */
 const ASK_IN_CHINESE_HELP: Record<ActiveConversationState, AskInChineseHelp> = {
@@ -426,7 +426,7 @@ export type SupportNudge = ScriptLine;
 /**
  * Fixed bilingual 3-line pool Emily picks from when the learner has gone
  * quiet for a while — appended via practice-state.ts's
- * `appendSupportMessage`, which never touches `conversationState`. Issue #16
+ * `appendSupportMessage`, which never touches Goal Progress. Issue #16
  * (docs/ai-configuration.md section 3) expanded this from a single fixed
  * line to a 3-line pool so a long pause doesn't produce the same sentence
  * over and over (user story 18) — selection (src/lib/emily-reply-selector.ts's
