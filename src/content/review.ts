@@ -47,12 +47,12 @@ export const HIGHLIGHT_TEMPLATES: Record<"greeting" | "checkin" | "conversation"
   conversation: [
     '你用 "How about you?" 主动把问题问回给了 Emily。',
     '你会用 "And you?" 自然地把话题接给对方。',
-    '你用 "See you." 给对话画上了友好的句号。',
+    '你用 "See you!" 给对话画上了友好的句号。',
   ],
   overall: [
-    '你从 "Hello." 到 "See you." 完整走完了整段对话。',
+    '你从 "Hello." 到 "See you!" 完整走完了整段对话。',
     '你能用 "Hi." 开场，也能用 "Goodbye." 收尾。',
-    '你完成了从 "Good morning." 到 "Have a nice day." 的每一步。',
+    '你完成了从 "Good morning." 到 "Have a nice day!" 的每一步。',
   ],
 };
 

@@ -69,7 +69,7 @@ Emily never ends a Turn silent: the composition above always yields at least one
 | Opening greeting | 1 | v2 ticket 2's fixed self-introduction — "Hi! I'm Emily. It's nice to meet you." (ADR-0013) |
 | Check-in | 3 | authored below |
 | Response — learner did not ask back | 6 | authored below |
-| Response — learner asked back | 3 | authored below |
+| Response — learner asked back | 4 | authored below |
 | Closing | 4 | authored below |
 | Completion | 3 | existing completion pool, unchanged |
 | `needs_retry` | 4 Goals × 3 = 12 | authored below |
@@ -81,7 +81,7 @@ Emily never ends a Turn silent: the composition above always yields at least one
 2. "Hi! How are you today?"
 3. "How's it going?"
 
-### Response (9 total, split into two sub-pools)
+### Response (10 total, split into two sub-pools)
 
 The Response step's pool is split because a plain acknowledgement and a reply that answers a returned question are not interchangeable: picking randomly across both produces Emily answering a question the learner never asked, or ignoring one they did. `learner_asked_back` (a boolean from the Judge — Section 4) selects which sub-pool Emily draws from, on every Turn a reaction line is spoken.
 
@@ -93,10 +93,11 @@ The Response step's pool is split because a plain acknowledgement and a reply th
 5. "Nice!"
 6. "Glad you're doing okay."
 
-**Learner asked back (3)** — Emily's answer to the question the learner put to her (the first half of v2 ticket 4's Ask-back table; the second half is a Closing-pool line she speaks next, per ADR-0013 decision 2):
+**Learner asked back (4)** — Emily's answer to the question the learner put to her: the distinct first halves of v2 ticket 4's Ask-back table, in that table's order (the second half of each is a Closing-pool line she speaks next, per ADR-0013 decision 2):
 1. "I'm good too, thanks!"
 2. "I'm good, thank you!"
-3. "I'm doing well, thanks!"
+3. "I'm good, thanks!"
+4. "I'm doing well, thanks!"
 
 ### Closing (4)
 

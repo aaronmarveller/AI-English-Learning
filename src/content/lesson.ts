@@ -112,7 +112,7 @@ const CHECKIN_LINES: ScriptLine[] = [
 ];
 
 /**
- * Response (9 total, split into two sub-pools) — the one reaction-type pool
+ * Response (10 total, split into two sub-pools) — the one reaction-type pool
  * (docs/ai-configuration.md section 3's "Line composition"), spoken on every
  * Turn where a reaction is due: the learner asked a question back, or `checkin`
  * was achieved in that same Turn. Which sub-pool Emily draws from is decided by
@@ -128,9 +128,11 @@ const CHECKIN_LINES: ScriptLine[] = [
  *   de-duplicated).
  * - `askedBack` — Emily's ANSWER to a question the learner asked her, chosen
  *   whenever `learner_asked_back` is true. That is NOT only when the check-in
- *   landed in the same Turn (ADR-0013 decision 2: the learner may answer on
+ *   landed in the same Turn (ADR-0013 decision 4: the learner may answer on
  *   one Turn and ask "How about you?" on the next, and Emily must still
  *   answer), so these lines answer a question rather than acknowledge one.
+ *   The four entries are the distinct first halves of v2 ticket 4's Ask-back
+ *   table, in that table's order.
  *
  * Ticket 4/6's Emily lines fold her answer and the closing steer into a single
  * utterance ("I'm good too, thanks! Have a nice day!"). ADR-0012 already
@@ -154,6 +156,7 @@ const RESPONSE_LINES: { didNotAskBack: ScriptLine[]; askedBack: ScriptLine[] } =
   askedBack: [
     { en: "I'm good too, thanks!", zh: "我也挺好的，谢谢！" },
     { en: "I'm good, thank you!", zh: "我很好，谢谢你！" },
+    { en: "I'm good, thanks!", zh: "我很好，谢谢！" },
     { en: "I'm doing well, thanks!", zh: "我过得很好，谢谢！" },
   ],
 };
@@ -207,20 +210,26 @@ export type PracticeStateScript = {
 
 /**
  * The conversation's natural shape, beat by beat (spec.md "Practice 页交互模型"
- * + this ticket's explicit guidance): Emily opens with a greeting (the fixed
- * pool above) → learner greets back (`greeting`) → Emily asks how the
- * learner is doing → learner acknowledges and/or asks the check-in question
- * back (`checkin`) → Emily answers and reciprocates the question → learner
- * continues the conversation politely — a short reply or the fuller 3-part
- * combo both work (`response`) → Emily signals wrapping up → learner says
- * goodbye (`closing`) → Emily gives a brief closing
- * encouragement and invites the learner to view their summary.
+ * + this ticket's explicit guidance): Emily opens with her self-introduction
+ * (the fixed pool above) → learner greets back (`greeting`) → Emily asks how
+ * the learner is doing → learner answers (`checkin`) → Emily acknowledges and
+ * waits; the learner asks her how she is (`response`) → Emily answers and
+ * signals the conversation is wrapping up → learner says goodbye (`closing`) →
+ * Emily gives a brief closing encouragement and invites the learner to view
+ * their summary.
+ *
+ * Note the beat that has no steer line: after the check-in Emily waits rather
+ * than prompting for `response`, because a question back is the learner's move
+ * to make (v2 ticket 3's "Emily waits for the learner after the
+ * acknowledgement"; ADR-0013 decision 4). Every other beat is an ordinary
+ * steer toward the Goal named in brackets.
  *
  * That is the shape, not a gate: since #48 a single learner Turn may achieve
  * several of these Goals and a later one may land before an earlier one, so
  * the pools below are keyed to what a Goal *needs* — a steer toward it, or a
- * reaction to `checkin` being achieved — rather than to a position in this
- * sequence (see src/lib/emily-reply-selector.ts's `selectEmilyLinesForTurn`).
+ * reaction to `checkin` being achieved or to a question the learner asked —
+ * rather than to a position in this sequence (see
+ * src/lib/emily-reply-selector.ts's `selectEmilyLinesForTurn`).
  */
 const PRACTICE_SCRIPT: Record<ActiveConversationState, PracticeStateScript> = {
   greeting: {

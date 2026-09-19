@@ -456,7 +456,7 @@ const EVAL_CASES: EvalCase[] = [
       closing: "untouched",
     },
     expectedAskedBack: false,
-    note: "the case that pins decision 1 (v2 ticket 3's first Check-in row): 'I'm good, thanks.' is a Check-in answer with a politeness marker — the thank-you neither achieves nor fails `response`, so Emily's next line is the Check-in acknowledgement with no steer, and she waits for the learner to continue. `greeting` stays untouched because the learner volunteered the check-in without greeting her (ADR-0012).",
+    note: "the case that pins ADR-0013 decision 1 (v2 ticket 3's first Check-in row): 'I'm good, thanks.' is a Check-in answer with a politeness marker — the thank-you neither achieves nor fails `response`, so no steer toward `response` follows and Emily waits for the learner to continue. `greeting` stays untouched because the learner volunteered the check-in without greeting her (ADR-0012), so with `greeting` still open this case's Goal Progress does put a `greeting` steer after the acknowledgement; the shape ADR-0013 describes as one line is the ordinary one where `greeting` is already achieved (#52's 'Yeah, doing alright' case one Goal later).",
   },
   {
     category: "out-of-order",
@@ -469,7 +469,7 @@ const EVAL_CASES: EvalCase[] = [
       closing: "untouched",
     },
     expectedAskedBack: true,
-    note: "v2 ticket 4's ask-back alone, and #54's opening rule: asking Emily a question back achieves `response` and says nothing about how *they* are, so `checkin` stays `untouched` — as does `greeting`, never credited in passing (ADR-0012). Emily answers from the asked-back pool and steers to Closing.",
+    note: "v2 ticket 4's ask-back alone (ADR-0013 decision 1): asking Emily a question back achieves `response` and says nothing about how *they* are, so `checkin` stays `untouched` — as does `greeting`, never credited in passing (ADR-0012). Emily answers from the asked-back pool; with both earlier Goals still open here she then steers back to `greeting`, the first open Goal in canonical order (ADR-0012/#50).",
   },
   {
     category: "multi-goal",
@@ -508,7 +508,7 @@ const EVAL_CASES: EvalCase[] = [
       closing: "untouched",
     },
     expectedAskedBack: true,
-    note: "v2 ticket 2's Example 1 and #54's opening rule: the learner greets and asks Emily how she is in one breath, which achieves `response` and says nothing about how *they* are, so `checkin` stays `untouched`. After answering, Emily steers to the check-in.",
+    note: "v2 ticket 2's Example 1, and ADR-0013 decision 1 in the first exchange of a conversation: the learner greets and asks Emily how she is in one breath, which achieves `response` and says nothing about how *they* are, so `checkin` stays `untouched`. Emily answers, then steers to the check-in — the Focus Goal.",
   },
 ];
 

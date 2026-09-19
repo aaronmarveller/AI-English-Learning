@@ -418,6 +418,26 @@ describe("selectEmilyLinesForTurn", () => {
       expect(GREETING_SOMEBODY_LESSON.responseLines.askedBack).not.toContainEqual(lines[0]);
       expect(GREETING_SOMEBODY_LESSON.checkinLines).not.toContainEqual(lines[0]);
     });
+
+    it("resolves a self-contradictory report by `learner_asked_back`, not by `response` achieved", () => {
+      // ADR-0013 makes `learner_asked_back` the channel the reaction rule
+      // reads, because it is the field whose meaning *is* "Emily owes the
+      // learner an answer" and it is also what picks the sub-pool — so the two
+      // halves of the rule cannot disagree. Both fields come from one model
+      // call and the Judge is asked to keep them consistent (`response` is
+      // achieved by asking a question back and by nothing else), but a report
+      // that credited `response` while reporting no question back is still
+      // answerable, and this pins which way it falls: no question back, no
+      // answer. Reading `response: "achieved"` instead would speak a
+      // didNotAskBack *acknowledgement* at a check-in this Turn never carried —
+      // the one thing the sub-pool split exists to prevent.
+      const lines = selectLines(["greeting", "checkin"], { response: "achieved" }, false);
+
+      expect(lines).toHaveLength(1);
+      expect(GREETING_SOMEBODY_LESSON.closingLines).toContainEqual(lines[0]);
+      expect(GREETING_SOMEBODY_LESSON.responseLines.askedBack).not.toContainEqual(lines[0]);
+      expect(GREETING_SOMEBODY_LESSON.responseLines.didNotAskBack).not.toContainEqual(lines[0]);
+    });
   });
 
   it("walks a whole one-Goal-at-a-time conversation through the same pools as before", () => {
@@ -626,16 +646,16 @@ describe("selectEmilyLinesForTurn — every line it can produce already has audi
     expect(sequences).toBe(cases.length * 2 * SPANNING_RANDOMS.length);
     expect([...missing]).toEqual([]);
     // Every line in every pool the selector may speak from: Check-in (3), the
-    // did-not-ask-back Response sub-pool (6 — v2 ticket 4 grew it from 3), the
-    // asked-back Response sub-pool (3), Closing (4), Completion (3), and the
-    // four `needs_retry` pools (4 × 3, which serve both retry Turns and the
-    // `greeting`/`response` steers) = 31. Pinned as the literal total so a
-    // pool quietly losing a line is never invisible, and cross-checked against
-    // the live pools so the sweep can never pass by producing too few lines to
-    // have checked anything; the per-pool sizes are asserted in their own
-    // `describe` below.
-    expect(pools.reduce((total, pool) => total + pool.length, 0)).toBe(31);
-    expect(spoken.size).toBe(31);
+    // did-not-ask-back Response sub-pool (6 — v2 ticket 3's table), the
+    // asked-back Response sub-pool (4 — the distinct first halves of v2 ticket
+    // 4's table), Closing (4), Completion (3), and the four `needs_retry` pools
+    // (4 × 3, which serve both retry Turns and the `greeting`/`response`
+    // steers) = 32. Pinned as the literal total so a pool quietly losing a line
+    // is never invisible, and cross-checked against the live pools so the sweep
+    // can never pass by producing too few lines to have checked anything; the
+    // per-pool sizes are asserted in their own `describe` below.
+    expect(pools.reduce((total, pool) => total + pool.length, 0)).toBe(32);
+    expect(spoken.size).toBe(32);
   });
 });
 
@@ -651,7 +671,7 @@ describe("the Lesson's pool sizes — the composition's whole input space (issue
     const lesson = GREETING_SOMEBODY_LESSON;
     expect(lesson.checkinLines).toHaveLength(3);
     expect(lesson.responseLines.didNotAskBack).toHaveLength(6);
-    expect(lesson.responseLines.askedBack).toHaveLength(3);
+    expect(lesson.responseLines.askedBack).toHaveLength(4);
     expect(lesson.closingLines).toHaveLength(4);
     expect(lesson.completionMessages).toHaveLength(3);
     for (const goal of ACTIVE_CONVERSATION_STATES) {

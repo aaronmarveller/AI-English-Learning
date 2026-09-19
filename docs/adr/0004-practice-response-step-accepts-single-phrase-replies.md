@@ -1,6 +1,5 @@
 ---
-status: superseded
-superseded-by: 0013-response-goal-means-asking-emily-back.md
+status: superseded by docs/adr/0013-response-goal-means-asking-emily-back.md
 ---
 
 # Practice's "response" step accepts a single short phrase, not just the full 3-part combo

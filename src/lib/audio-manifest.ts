@@ -64,15 +64,22 @@ export const AUDIO_MANIFEST: AudioManifestEntry[] = [
   // is verbatim-identical to Explore's checkin-hows-it-going expression, so
   // it's filtered out here and reuses that entry's recording instead of
   // getting a second one for the same text. The two surviving entries are
-  // renumbered by position, so their ids are stable only as long as the pool
-  // order is.
+  // renumbered by position.
+  //
+  // A line whose TEXT is re-authored under an id that already has a file
+  // (ADR-0013 did that to five pools at once) must have that file deleted
+  // first: src/lib/speech-synthesis.ts resolves a recording by exact text
+  // match, while scripts/generate-audio.ts skips any file that already exists
+  // — so without the delete the old recording survives under the same id and
+  // nothing fails. audio-manifest.test.ts only checks that the ids line up,
+  // never that a file's audio matches its text.
   ...GREETING_SOMEBODY_LESSON.checkinLines
     .filter(
       (line) => !CHECKIN_EXPRESSIONS.some((expression) => expression.expression === line.en),
     )
     .map((line, index) => ({ id: `checkin-script-${index + 1}`, text: line.en })),
 
-  // Response Conversation Script's two sub-pools (6 + 3, issue #16/#17;
+  // Response Conversation Script's two sub-pools (6 + 4, issue #16/#17;
   // re-authored by ADR-0013) — selected by `learner_asked_back`, see
   // src/content/lesson.ts's RESPONSE_LINES doc comment.
   ...GREETING_SOMEBODY_LESSON.responseLines.didNotAskBack.map((line, index) => ({

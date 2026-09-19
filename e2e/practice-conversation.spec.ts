@@ -194,7 +194,7 @@ test.describe("Practice page — conversation core", () => {
   });
 
   /**
-   * Issue #54 (ADR-0013 decision 2, v2 tickets 3 and 4) — the two halves of
+   * Issue #54 (ADR-0013 decision 4, v2 tickets 3 and 4) — the two halves of
    * the reaction rule:
    *
    * - **the wait** (ticket 3): a check-in acknowledged *without* an ask-back
