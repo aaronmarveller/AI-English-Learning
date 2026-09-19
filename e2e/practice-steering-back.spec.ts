@@ -27,7 +27,9 @@ import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
  *   Practice has `closing` already in Goal Progress rather than achieved by it.
  *   Emily says a Closing line before the Completion line ("See you! Great job!
  *   Let's check your learning summary.") instead of skipping straight to the
- *   summary — the learner hears goodbye.
+ *   summary — the learner hears goodbye. That Turn is the ask-back one
+ *   (ADR-0013: `response` is asking Emily back, never thanking her), so it
+ *   opens with her answer to the question put to her and then says goodbye.
  *
  * The Judge is stubbed (e2e/fixtures.ts's `installScriptedPracticeApi`, whose
  * `ScriptedTurnResponse` is exactly the report a real Judge would return);
@@ -40,6 +42,9 @@ const RESPONSE_TEXTS = [
   ...GREETING_SOMEBODY_LESSON.responseLines.didNotAskBack,
   ...GREETING_SOMEBODY_LESSON.responseLines.askedBack,
 ].map((line) => line.en);
+const RESPONSE_ASKED_BACK_TEXTS = GREETING_SOMEBODY_LESSON.responseLines.askedBack.map(
+  (line) => line.en,
+);
 const GREETING_RETRY_TEXTS = GREETING_SOMEBODY_LESSON.script.greeting.needsRetryLines.map(
   (line) => line.en,
 );
@@ -120,11 +125,13 @@ test.describe("Practice page — Emily says goodbye when Closing was achieved in
     await resetStorage(page);
     // Turn 1 clears two Goals at once and leaves `closing` in Goal Progress for
     // good; Turn 2 answers the check-in (a reaction, which is also the steer
-    // toward `response`); Turn 3 thanks her and completes Practice.
+    // toward `response`); Turn 3 asks Emily how she is — the ask-back ADR-0013
+    // makes the `response` Goal (a thank-you no longer is one) — and completes
+    // Practice.
     await installScriptedPracticeApi(page, [
       { goalReport: { greeting: "achieved", closing: "achieved" } },
       { goalReport: { checkin: "achieved" } },
-      { goalReport: { response: "achieved" } },
+      { goalReport: { response: "achieved" }, learner_asked_back: true },
     ]);
     await page.goto(PRACTICE_URL);
 
@@ -145,7 +152,7 @@ test.describe("Practice page — Emily says goodbye when Closing was achieved in
     await expect(page.getByTestId("view-summary-button")).toBeDisabled();
     expect(RESPONSE_TEXTS).toContain(await page.getByTestId("emily-message-bubble").innerText());
 
-    await submitReply(page, "Thanks");
+    await submitReply(page, "How about you?");
 
     // All four Goals are in Goal Progress — completed in three Turns, with a
     // gap where Closing was cleared before the Goals before it.
@@ -153,15 +160,21 @@ test.describe("Practice page — Emily says goodbye when Closing was achieved in
     await expect(page.getByTestId("practice-step-closing")).toHaveAttribute("data-state", "completed");
     await expect(page.getByTestId("view-summary-button")).toBeEnabled();
 
-    // The Farewell line precedes the Completion line, so the bubble reads
-    // "See you! Great job! Let's check your learning summary." — and the
-    // transcript keeps them as two messages, in that order.
-    const closingText = await page.getByTestId("emily-message-bubble").innerText();
-    expect(CLOSING_TEXTS.some((line) => closingText.startsWith(line))).toBe(true);
-    expect(COMPLETION_TEXTS.some((line) => closingText.endsWith(line))).toBe(true);
-
-    const [farewellLine, completionLine] = (await emilyLines(page)).slice(-2);
+    // Three lines this Turn, in order: Emily's answer to the question the
+    // learner put to her (ADR-0013 — the reaction is due because they asked,
+    // not because `checkin` landed here), then the Farewell line, then the
+    // Completion line. The transcript keeps them as three messages.
+    const [answerLine, farewellLine, completionLine] = (await emilyLines(page)).slice(-3);
+    expect(RESPONSE_ASKED_BACK_TEXTS).toContain(answerLine);
     expect(CLOSING_TEXTS).toContain(farewellLine);
     expect(COMPLETION_TEXTS).toContain(completionLine);
+
+    // The bubble opens with her answer and closes with the Completion line —
+    // "I'm good too, thanks! See you! Great job! Let's check your learning
+    // summary." — with the goodbye in its middle, never skipped.
+    const closingText = await page.getByTestId("emily-message-bubble").innerText();
+    expect(RESPONSE_ASKED_BACK_TEXTS.some((line) => closingText.startsWith(line))).toBe(true);
+    expect(CLOSING_TEXTS.some((line) => closingText.includes(line))).toBe(true);
+    expect(COMPLETION_TEXTS.some((line) => closingText.endsWith(line))).toBe(true);
   });
 });

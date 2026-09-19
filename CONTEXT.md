@@ -26,7 +26,7 @@ One self-contained scenario the learner practices end to end, owning its Convers
 
 ## Conversation Goal
 
-One of the four things a learner must communicate to complete a Lesson's Practice: `greeting`, `checkin`, `response`, `closing`. Goals have a canonical order but are not gates — a single Turn may achieve several, and a later Goal may be achieved before an earlier one.
+One of the four things a learner must communicate to complete a Lesson's Practice: `greeting`, `checkin`, `response`, `closing`. Goals have a canonical order but are not gates — a single Turn may achieve several, and a later Goal may be achieved before an earlier one. Each Goal is defined by the intent it asks the learner to communicate, not by particular wording: `response` means asking Emily a question back about herself, so a bare thank-you leaves `response` untouched — thanking Emily is politeness riding on the `checkin` answer, not a Goal of its own.
 _Avoid_: step, Conversation Step — a step implies one-at-a-time in sequence, which Goals are not
 
 ## Goal Report

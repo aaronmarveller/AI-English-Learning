@@ -159,7 +159,11 @@ test.describe("Learning Summary on flexible Goal Progress (issue #51)", () => {
       // which is what makes that Turn its second attempt.
       { goalReport: {} },
       { goalReport: { checkin: "achieved" } },
-      { goalReport: { response: "achieved" } },
+      // ADR-0013: `response` is achieved by asking Emily back, never by
+      // thanking her, so the Turn that clears it asks her how she is — and the
+      // Judge's `learner_asked_back` is what makes that Turn's Response record
+      // carry the flag below.
+      { goalReport: { response: "achieved" }, learner_asked_back: true },
       { goalReport: { closing: "achieved" } },
     ]);
     await page.goto(PRACTICE_URL);
@@ -167,7 +171,7 @@ test.describe("Learning Summary on flexible Goal Progress (issue #51)", () => {
     await submitReply(page, "Hi there!");
     await submitReply(page, "I really like pizza.");
     await submitReply(page, "I'm good, thanks!");
-    await submitReply(page, "Thanks!");
+    await submitReply(page, "How about you?");
     await submitReply(page, "See you!");
 
     await openReview(page);
@@ -182,6 +186,8 @@ test.describe("Learning Summary on flexible Goal Progress (issue #51)", () => {
       "closing",
     ]);
     expect(records[1]).toMatchObject({ state: "checkin", passedFirstTry: false });
+    // The ask-back is what the `response` record remembers (ADR-0013).
+    expect(records[2]).toMatchObject({ state: "response", learnerAskedBack: true });
 
     const lines = await revealedFeedbackLines(page);
     const suggestion = lines.find((line) => line.kind === "suggestion");

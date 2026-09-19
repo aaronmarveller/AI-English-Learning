@@ -75,7 +75,15 @@ export function isGoalReport(value: unknown): value is GoalReport {
  */
 export type TurnResult = {
   goal_report: GoalReport;
-  /** Whether the learner's message asked Emily a question back (e.g. "How about you?"). */
+  /**
+   * Whether the learner's message asked Emily a question back (e.g. "How about
+   * you?"). Issue #54 (ADR-0013) gives this field its full weight: asking a
+   * question back is what achieves the `response` Goal, and this is the signal
+   * the client's line selection answers the learner's question on
+   * (src/lib/emily-reply-selector.ts) — Emily answers whenever the learner
+   * asked her back, not only on the Turn right after they answered how they
+   * are, which is what this comment used to imply.
+   */
   learner_asked_back: boolean;
 };
 

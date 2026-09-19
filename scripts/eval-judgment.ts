@@ -53,6 +53,22 @@
  *     all-or-nothing case, `needs_retry` with nothing saved.
  *   - `untouched-boundary` — progress with no failure: what the message never
  *     attempted is `untouched`, never `failed` (#49).
+ *
+ * Issue #54 (ADR-0013) adds v2 tickets 2/3/4/6's cases for the boundary it
+ * moved: `response` means asking Emily back, and never thanking her, so a bare
+ * thank-you leaves the Goal `untouched`. The new "I'm good, thanks." case pins
+ * that (Check-in answer with a politeness marker, which neither achieves nor
+ * fails `response`), #52's own `out-of-order` "I'm fine, thanks!" flips its
+ * `response` entry from `achieved` to `untouched` with it, and the
+ * `mixed-failure` case whose achieved half was a bare thank-you was re-pointed
+ * at a real ask-back so the all-or-nothing shape is still exercised one Goal
+ * later. The other side of the same decision is asserted too: an ask-back
+ * stands on its own ("How about you?" alone — `response` achieved, `checkin`
+ * untouched) and combines with the earlier Goals ("Hi! I'm good." for
+ * greeting + check-in with Emily waiting afterwards, "Hi! I'm good, thanks.
+ * How are you?" for three at once, and ticket 2's "Hi! How are you today?" for
+ * greeting + ask-back with the check-in still open). No new category: these
+ * cases use the four #52 added.
  */
 
 import {
@@ -335,11 +351,11 @@ const EVAL_CASES: EvalCase[] = [
     expectedReport: {
       greeting: "untouched",
       checkin: "achieved",
-      response: "achieved",
+      response: "untouched",
       closing: "untouched",
     },
     expectedAskedBack: false,
-    note: "issue #52's case: answering the check-in first leaves `greeting` untouched — never credited in passing (ADR-0012). The `response` half is the issue's unpinned side, and #52's first live run settled it the other way from this table's first guess: docs/ai-configuration.md section 2 lists \"Thanks.\" as a Response Accepted Response and section 1 credits a Goal in the learner's own words, prompted or not, so a volunteered courtesy is `achieved`, not `untouched` — see this ticket's report.",
+    note: "issue #52's case: answering the check-in first leaves `greeting` untouched — never credited in passing (ADR-0012). Its `response` half is the boundary issue #54 (ADR-0013) settled the other way from #52's first live run: a bare thank-you is politeness, not an ask-back, so it leaves `response` `untouched` — exactly as a message that attempted no Goal does, and never `failed`, because a thank-you is not a garbled question back. \"Thanks.\" is no longer one of `response`'s Accepted Responses for the same reason.",
   },
   {
     category: "out-of-order",
@@ -380,10 +396,10 @@ const EVAL_CASES: EvalCase[] = [
   {
     category: "mixed-failure",
     goalProgress: goalsBefore("response"),
-    message: "Thank you! See you later alligator crocodile",
+    message: "How about you? See you later alligator crocodile",
     expectedReport: { response: "achieved", closing: "failed" },
-    expectedAskedBack: false,
-    note: "the same all-or-nothing shape one Goal later: a whitelisted acknowledgment achieved and a garbled goodbye failed",
+    expectedAskedBack: true,
+    note: "the same all-or-nothing shape one Goal later, on the ask-back that issue #54 (ADR-0013) makes what achieves `response`: a real question back achieved alongside a garbled goodbye `failed`, so the Turn is `needs_retry` and the correct half is not saved either. (This case used \"Thank you! ...\" until #54, when a bare thank-you stopped counting as a `response` — the ask-back is what keeps the shape exercised.)",
   },
 
   // --- untouched boundary (#52): progress without failure ----------------
@@ -425,6 +441,74 @@ const EVAL_CASES: EvalCase[] = [
     },
     recordOnly: true,
     note: "issue #52 records this one rather than asserting it, as a documented judgment call: a garbled question-back after a greeting could defensibly be `achieved` `response` (the intent came through), `failed` `response` (a recognisable attempt that did not), or `untouched`. The greeting half ('Hi!') is not in doubt, and the report this run produced is printed below.",
+  },
+
+  // --- issue #54 (ADR-0013; v2 tickets 2/3/4/6): `response` means asking
+  // Emily back ------------------------------------------------------------
+  {
+    category: "untouched-boundary",
+    goalProgress: [],
+    message: "I'm good, thanks.",
+    expectedReport: {
+      greeting: "untouched",
+      checkin: "achieved",
+      response: "untouched",
+      closing: "untouched",
+    },
+    expectedAskedBack: false,
+    note: "the case that pins decision 1 (v2 ticket 3's first Check-in row): 'I'm good, thanks.' is a Check-in answer with a politeness marker — the thank-you neither achieves nor fails `response`, so Emily's next line is the Check-in acknowledgement with no steer, and she waits for the learner to continue. `greeting` stays untouched because the learner volunteered the check-in without greeting her (ADR-0012).",
+  },
+  {
+    category: "out-of-order",
+    goalProgress: [],
+    message: "How about you?",
+    expectedReport: {
+      greeting: "untouched",
+      checkin: "untouched",
+      response: "achieved",
+      closing: "untouched",
+    },
+    expectedAskedBack: true,
+    note: "v2 ticket 4's ask-back alone, and #54's opening rule: asking Emily a question back achieves `response` and says nothing about how *they* are, so `checkin` stays `untouched` — as does `greeting`, never credited in passing (ADR-0012). Emily answers from the asked-back pool and steers to Closing.",
+  },
+  {
+    category: "multi-goal",
+    goalProgress: [],
+    message: "Hi! I'm good.",
+    expectedReport: {
+      greeting: "achieved",
+      checkin: "achieved",
+      response: "untouched",
+      closing: "untouched",
+    },
+    expectedAskedBack: false,
+    note: "v2 ticket 6's Example 1 (ticket 3's attachment row 'Hi! I'm good.'): greeting and check-in in one Turn with no ask-back, so Emily acknowledges and then waits rather than steering toward `response` — the wait ticket 3 asks for.",
+  },
+  {
+    category: "multi-goal",
+    goalProgress: [],
+    message: "Hi! I'm good, thanks. How are you?",
+    expectedReport: {
+      greeting: "achieved",
+      checkin: "achieved",
+      response: "achieved",
+      closing: "untouched",
+    },
+    expectedAskedBack: true,
+    note: "v2 ticket 6's Example 2, three Goals at once: the ask-back is what achieves `response` (#54), so Emily answers it from the asked-back pool and steers to Closing — she never gives a Check-in-only acknowledgement first and waits for a second ask-back (ticket 4's \"Important\").",
+  },
+  {
+    category: "natural-paraphrase",
+    goalProgress: [],
+    message: "Hi! How are you today?",
+    expectedReport: {
+      greeting: "achieved",
+      checkin: "untouched",
+      response: "achieved",
+      closing: "untouched",
+    },
+    expectedAskedBack: true,
+    note: "v2 ticket 2's Example 1 and #54's opening rule: the learner greets and asks Emily how she is in one breath, which achieves `response` and says nothing about how *they* are, so `checkin` stays `untouched`. After answering, Emily steers to the check-in.",
   },
 ];
 

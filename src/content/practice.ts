@@ -95,6 +95,20 @@ import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
  * the old blanket "a learner who wanders off-topic leaves every Goal
  * untouched" made the model withhold the greeting too.
  *
+ * Issue #54 (ADR-0013) settles what achieves the `response` Goal: asking Emily
+ * a question back, and nothing else. #52's attempt list credited a bare
+ * thank-you with `response`, which contradicted the Goal's own `learningGoal`
+ * ("A bare thank-you is politeness, not this Goal") — so the thank-you left
+ * "Global Conversation Rules" here and the mirrored `submit_turn_result` tool
+ * description (src/lib/practice-judge.ts), and a sentence saying outright that
+ * thanking Emily is not an attempt at `response` and leaves it "untouched"
+ * (never "failed" — a thank-you is not a garbled question back) took its place.
+ * The `learner_asked_back` bullet lost the other half of the same assumption:
+ * a question back is *what* achieves `response`, and `learner_asked_back` is
+ * what makes Emily answer it whenever it happens, rather than a boolean that
+ * only matters right after a check-in. See
+ * docs/adr/0013-response-goal-means-asking-emily-back.md.
+ *
  * Combined with the Goal-set section (see
  * `buildGoalSetSystemPromptSection` below) by
  * src/app/api/practice/turn/route.ts to form the full system prompt sent
@@ -112,13 +126,13 @@ Judge the learner's message by communicative intent, not literal wording or gram
 
 Every open Goal gets exactly one of three reports, and the difference between the last two is the whole point — a Goal the learner never attempted is not a Goal they got wrong:
 - "achieved": the learner's message communicated this Goal's intent — in their own words or not, prompted or not, and whether or not another part of the message said something else.
-- "failed": the message recognisably attempted this Goal's intent but did not communicate it. Every Goal's attempt looks like its own intent and no other: a greeting attempt for "greeting", an attempt to say how they are for "checkin", a thank-you or a question back for "response", a goodbye attempt for "closing". This is the narrow case: an attempt has to be recognisable as *that* Goal's intent, and it is never the report for a message that simply did not try. An attempt at a *different* Goal never makes this one "failed": a learner who asks Emily how she is has communicated "response", and "checkin" — which asks how *they* are — is "untouched" alongside it.
+- "failed": the message recognisably attempted this Goal's intent but did not communicate it. Every Goal's attempt looks like its own intent and no other: a greeting attempt for "greeting", an attempt to say how they are for "checkin", a question back for "response", a goodbye attempt for "closing". This is the narrow case: an attempt has to be recognisable as *that* Goal's intent, and it is never the report for a message that simply did not try. Thanking Emily is not an attempt at "response" at all: a thank-you asks her nothing, so a message whose only move is a thank-you leaves "response" "untouched", exactly as a message that attempted no Goal does — politeness is never "failed", because a thank-you is not a garbled question back. An attempt at a *different* Goal never makes this one "failed": a learner who asks Emily how she is has communicated "response", and "checkin" — which asks how *they* are — is "untouched" alongside it.
 - "untouched": the message did not attempt this Goal at all. Unrelated chatter, off-topic remarks, filler, and a bare "Yes." are all "untouched", never "failed" — and never "achieved" either: a bare "Yes." on its own says nothing a Goal can be credited with. So is an answer that only serves a different Goal: a message that achieves "greeting" and says nothing about how the learner is doing leaves "checkin" "untouched" — progress was still made, and the rest is silence, not failure.
 
 ## Your Job
 You do not write Emily's reply — every line she speaks comes from a fixed, pre-written Conversation Script the client selects from. Your only job on every turn is to submit exactly two fields via the \`submit_turn_result\` tool:
 - \`goal_report\`: one entry for each open Conversation Goal listed below, each of them "achieved", "failed", or "untouched" — see "Conversation Goals" below for what each value means and which Goals are open. Never mention a Goal that is already in Goal Progress, and never report on a Goal you were not asked about.
-- \`learner_asked_back\`: whether the learner's message asked a question back to Emily (e.g. "How about you?", "And you?"). Report this accurately on every turn, even though it only changes Emily's next line when the learner asked back right after a check-in.
+- \`learner_asked_back\`: whether the learner's message asked a question back to Emily (e.g. "How about you?", "And you?"). A question back is what achieves the "response" Goal, and this field is what makes Emily answer it — she answers whenever the learner asks, not only on the turn the learner answered how they are. Report it accurately on every turn.
 
 ## Global Constraints
 - Judge strictly within this lesson's neighbor-greeting topic: content about anything else attempts no Goal and is never read as one. That is per Goal and per part of the message, never applied to the message as a whole — a learner who greets Emily and then talks about something else has still achieved "greeting" (a greeting is achieved by its own words, whatever follows them), and only the part that attempted no Goal is "untouched".

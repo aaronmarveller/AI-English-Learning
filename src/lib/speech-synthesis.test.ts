@@ -125,7 +125,10 @@ describe("speech playback", () => {
     const { HANDOFF_GAP_MS, getTurnTakingSnapshot, speakLinesAssertively } = await import(
       "@/lib/speech-synthesis"
     );
-    const cleanUp = speakLinesAssertively(["Hi!", "Hello!"]);
+    // Two lines that both have a pre-generated file: Explore's two short
+    // greeting expressions (the opening pool is a single self-introduction
+    // since ADR-0013, so it can no longer supply a pair).
+    const cleanUp = speakLinesAssertively(["Hi!", "Hello."]);
     expect(getTurnTakingSnapshot()).toBe("speaking");
 
     await vi.advanceTimersByTimeAsync(0);
@@ -135,7 +138,10 @@ describe("speech playback", () => {
     // the second line has not started.
     expect(getTurnTakingSnapshot()).toBe("speaking");
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(FakeAudio.instance.playedSources).toEqual(["/audio/opening-1.mp3", "/audio/opening-2.mp3"]);
+    expect(FakeAudio.instance.playedSources).toEqual([
+      "/audio/greeting-hi.mp3",
+      "/audio/greeting-hello.mp3",
+    ]);
 
     FakeAudio.instance.dispatchEvent(new Event("ended"));
     await vi.advanceTimersByTimeAsync(0);
@@ -178,14 +184,14 @@ describe("speech playback", () => {
     vi.resetModules();
 
     const { speakLines } = await import("@/lib/speech-synthesis");
-    const playback = speakLines(["I'm good too — thanks for asking!", "See you!"]);
+    const playback = speakLines(["I'm good too, thanks!", "See you!"]);
     await vi.advanceTimersByTimeAsync(0);
-    expect(FakeAudio.instance.playedSources).toEqual(["/audio/response-script-askback-2.mp3"]);
+    expect(FakeAudio.instance.playedSources).toEqual(["/audio/response-script-askback-1.mp3"]);
 
     FakeAudio.instance.dispatchEvent(new Event("ended"));
     await vi.advanceTimersByTimeAsync(1_000);
     expect(FakeAudio.instance.playedSources).toEqual([
-      "/audio/response-script-askback-2.mp3",
+      "/audio/response-script-askback-1.mp3",
       // "See you!" is verbatim-identical to Explore's closing expression, so
       // it reuses that recording rather than getting one of its own.
       "/audio/closing-see-you.mp3",
@@ -223,7 +229,7 @@ describe("speech playback", () => {
 
     FakeAudio.instance.dispatchEvent(new Event("ended"));
     await expect(playback).resolves.toBe(true);
-    expect(FakeAudio.instance.playedSources).toEqual(["/audio/opening-1.mp3"]);
+    expect(FakeAudio.instance.playedSources).toEqual(["/audio/greeting-hi.mp3"]);
   });
 
   it("speaks nothing, and never takes the floor, for an empty sequence", async () => {
@@ -292,7 +298,10 @@ describe("speech playback", () => {
 
     await expect(playback).resolves.toBe(true);
     expect(FakeAudio.instances).toHaveLength(1);
-    expect(FakeAudio.instances[0].plays.at(-1)).toEqual({ muted: false, src: "/audio/opening-1.mp3" });
+    expect(FakeAudio.instances[0].plays.at(-1)).toEqual({
+      muted: false,
+      src: "/audio/greeting-hi.mp3",
+    });
   });
 
   it("lets a microphone gesture unlock audio without replaying the blocked line", async () => {

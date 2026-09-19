@@ -41,6 +41,14 @@ import { ACTIVE_CONVERSATION_STATES } from "@/lib/conversation-state-machine";
  * off-topic constraint is per Goal and per part of the message instead of
  * blanketing the whole message, so "Hi! I like pizza." still achieves
  * `greeting`.
+ *
+ * Issue #54 (ADR-0013): `response` means asking Emily a question back, so the
+ * prompt's per-Goal attempt list drops the thank-you it inherited from #52 (a
+ * bare thank-you leaves the Goal `untouched`, never `failed` — it is
+ * politeness, not a garbled ask-back), and `learner_asked_back` is stated as
+ * the signal that `response` was achieved and what makes Emily answer the
+ * question whenever it comes, rather than a boolean that only matters right
+ * after a check-in.
  */
 describe("Practice system prompt", () => {
   it("describes the two-field submit_turn_result contract, not reply generation or a verdict", () => {
@@ -175,20 +183,51 @@ describe("Practice system prompt", () => {
     expect(prompt).toContain('a bare "Yes." are "untouched", never "failed"');
   });
 
-  it("names each Goal's own attempt, so one Goal's attempt is not another's failure (issue #52)", () => {
+  it("names each Goal's own attempt, so one Goal's attempt is not another's failure (issue #52; #54 for `response`)", () => {
     // #52's first live run: with the attempts listed as one shared pool
     // ("a greeting, an answer about how they are, a thank-you or a question
     // back, a goodbye") the model reported "How are you?" as a *failed*
     // `checkin`, because a question back read as an attempt at the Goal it was
     // reporting on. Each attempt now belongs to its own Goal, which is what
-    // puts a reciprocal question on `response`.
+    // puts a reciprocal question on `response`. Issue #54 (ADR-0013) shrank
+    // `response`'s entry to the question back alone: the thank-you was never an
+    // attempt at that Goal (see the decision-1 test below).
     expect(GLOBAL_SYSTEM_RULES).toContain('a greeting attempt for "greeting"');
-    expect(GLOBAL_SYSTEM_RULES).toContain('a thank-you or a question back for "response"');
+    expect(GLOBAL_SYSTEM_RULES).toContain('a question back for "response"');
     expect(GLOBAL_SYSTEM_RULES).toContain('a goodbye attempt for "closing"');
+    expect(GLOBAL_SYSTEM_RULES).not.toContain("a thank-you or a question back");
     expect(GLOBAL_SYSTEM_RULES).toContain(
       'An attempt at a *different* Goal never makes this one "failed"',
     );
     expect(GLOBAL_SYSTEM_RULES).toContain('which asks how *they* are');
+  });
+
+  it("says a bare thank-you leaves `response` untouched (issue #54, decision 1)", () => {
+    // ADR-0013: `response` means asking Emily back, so a thank-you neither
+    // achieves the Goal nor counts as a failed attempt at it — it leaves the
+    // Goal exactly as a message that attempted no Goal does. The Goal's own
+    // `learningGoal` carries that where the model reports on it, and the Global
+    // Conversation Rules must not contradict it (they used to: `response`'s
+    // attempt was "a thank-you or a question back" — the test above).
+    const prompt = buildGoalSetSystemPromptSection([]);
+    const { learningGoal } = GREETING_SOMEBODY_LESSON.script.response;
+    expect(prompt).toContain(learningGoal);
+    expect(learningGoal).toContain("A bare thank-you is politeness, not this Goal");
+    expect(learningGoal).toContain("leaves this Goal untouched");
+
+    expect(GLOBAL_SYSTEM_RULES).toContain("Thanking Emily is not an attempt at \"response\" at all");
+    expect(GLOBAL_SYSTEM_RULES).toContain('leaves "response" "untouched"');
+    expect(GLOBAL_SYSTEM_RULES).toContain("politeness is never \"failed\"");
+  });
+
+  it("makes `learner_asked_back` the signal that `response` was achieved (issue #54, decision 1)", () => {
+    // ADR-0013's other half: a question back is what achieves `response`, and
+    // `learner_asked_back` is what makes Emily answer it whenever it happens —
+    // not a boolean that only matters right after a check-in (the framing #16
+    // and #48 gave it).
+    expect(GLOBAL_SYSTEM_RULES).toContain("A question back is what achieves the \"response\" Goal");
+    expect(GLOBAL_SYSTEM_RULES).toContain("she answers whenever the learner asks");
+    expect(GLOBAL_SYSTEM_RULES).not.toContain("only changes Emily's next line when the learner asked back right after a check-in");
   });
 
   it("says a garbled attempt is failed, not generously achieved (issue #52)", () => {

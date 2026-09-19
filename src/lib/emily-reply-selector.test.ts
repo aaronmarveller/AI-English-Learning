@@ -8,7 +8,7 @@ import {
 import { applyGoalReport, deriveVerdict, type GoalProgress } from "@/lib/goal-progress";
 import { GOAL_REPORT_VALUES, type GoalReport } from "@/lib/practice-turn-protocol";
 import { AUDIO_MANIFEST } from "@/lib/audio-manifest";
-import type { ScriptLine } from "@/content/lesson";
+import type { Lesson, ScriptLine } from "@/content/lesson";
 
 /** Deterministic RNG returning a fixed value every call — picks the pool's first entry via `pickOne`'s floor(). */
 function fixedRandom(value: number) {
@@ -23,15 +23,24 @@ function fixedRandom(value: number) {
  * report itself, and read the sequence back.
  *
  * Issue #48 (docs/ai-configuration.md section 3's "Line composition"): that
- * sequence is ordered and can hold more than one line — a reaction to
- * `checkin` being achieved in this Turn, then a steer toward the new Focus
- * Goal. The single-Goal cases must stay exactly one line, identical to what
- * #47 selected.
+ * sequence is ordered and can hold more than one line — a reaction to the
+ * learner's Turn, then a steer toward the new Focus Goal. The single-Goal
+ * cases must stay exactly one line, identical to what #47 selected.
  *
  * Issue #49 (section 3's `needs_retry` pool rule): a `needs_retry` Turn's one
  * line comes from the first Goal in canonical order its report marked `failed`
  * — the Focus Goal's only when nothing was `failed`. The `failed` cases are
  * grouped in their own `describe` below.
+ *
+ * Issue #54 (ADR-0013's behaviour change; v2 ticket 4): the reaction is due
+ * whenever the learner asked a question back *or*
+ * `checkin` was achieved *in this Turn* — so ticket 4's own Turn 3, where the
+ * check-in landed a Turn earlier, gets an answer to "How about you?" instead
+ * of being steered straight to Closing. The ticket's Turn 3 cases live in
+ * their own `describe` below; the `focusGoal === "response"` short-circuit
+ * that keeps a reaction from being repeated as the steer now fires whenever a
+ * reaction was spoken at all, which the exhaustive invariant at the bottom of
+ * this file checks for both `learnerAskedBack` values.
  *
  * Issue #50 (section 3's steps 2 and 3, and its "Emily never ends a Turn
  * silent" guarantee): the steer toward an open `greeting`/`response` Goal, and
@@ -98,11 +107,52 @@ function everyPriorProgressAndReport(): { progressBeforeTurn: GoalProgress; goal
 }
 
 /**
- * RNGs spanning index 0..3 of every pool a sequence can draw from (the largest
- * is 4 lines), so the audio-manifest sweep below reaches every entry the
- * selector is able to speak — not just the pool's first line.
+ * Every pool a `selectEmilyLinesForTurn` sequence can draw from, in the Lesson
+ * whose sizes decide how far the sweep below has to reach. Typed by `length`
+ * alone because the Completion pool holds bare strings while every other pool
+ * holds `ScriptLine`s.
  */
-const SPANNING_RANDOMS = [0, 0.25, 0.5, 0.75].map((value) => () => value);
+function sequencePools(lesson: Lesson): readonly { readonly length: number }[] {
+  return [
+    lesson.checkinLines,
+    lesson.responseLines.didNotAskBack,
+    lesson.responseLines.askedBack,
+    lesson.closingLines,
+    lesson.completionMessages,
+    ...ACTIVE_CONVERSATION_STATES.map((goal) => lesson.script[goal].needsRetryLines),
+  ];
+}
+
+/**
+ * RNGs spanning index 0..largest-pool-length-1 of every pool a sequence can
+ * draw from, so the audio-manifest sweep below reaches every entry the
+ * selector is able to speak — not just the pool's first line.
+ *
+ * Generated from the *current* lesson's pools rather than a hard-coded list
+ * (issue #54: the old `[0, 0.25, 0.5, 0.75]` was documented as spanning
+ * "index 0..3 of every pool a sequence can draw from (the largest is 4
+ * lines)", and the did-not-ask-back Response sub-pool growing from 3 to 6
+ * lines would have left half of it silently unreached — the sweep would still
+ * have passed, having checked less).
+ *
+ * `(index + 0.5) / largestPoolSize` rather than `index / largestPoolSize`,
+ * because `pickOne` grounds with `Math.floor(random() * pool.length)`: the
+ * half-step lands strictly inside the index-`index` slot of a pool that *is*
+ * the largest, where a bare `index / largestPoolSize` can come out a hair
+ * under `index` in floating point. For a smaller pool of length L, consecutive
+ * random values are L/largestPoolSize <= 1 slot apart and the first one is
+ * below 1 while the last is at or above L - 1, so the sweep still visits every
+ * index 0..L-1.
+ */
+const SPANNING_RANDOMS: (() => number)[] = (() => {
+  const largestPoolSize = Math.max(
+    ...sequencePools(GREETING_SOMEBODY_LESSON).map((pool) => pool.length),
+  );
+  return Array.from({ length: largestPoolSize }, (_, index) => {
+    const value = (index + 0.5) / largestPoolSize;
+    return () => value;
+  });
+})();
 
 describe("selectEmilyLinesForTurn", () => {
   it("needs_retry with nothing failed picks one line from the Focus Goal's own needsRetryLines pool, leaving Goal Progress alone", () => {
@@ -254,8 +304,8 @@ describe("selectEmilyLinesForTurn", () => {
       expect(lines).toHaveLength(2);
       expect(GREETING_SOMEBODY_LESSON.responseLines.askedBack).toContainEqual(lines[0]);
       expect(GREETING_SOMEBODY_LESSON.closingLines).toContainEqual(lines[1]);
-      // Never the Check-in pool: Emily must not ask "How are you doing today?"
-      // of a learner who just told her.
+      // Never the Check-in pool: Emily must not ask the learner how they are
+      // right after they told her.
       expect(GREETING_SOMEBODY_LESSON.checkinLines).not.toContainEqual(lines[0]);
       expect(GREETING_SOMEBODY_LESSON.checkinLines).not.toContainEqual(lines[1]);
     });
@@ -310,6 +360,63 @@ describe("selectEmilyLinesForTurn", () => {
       expect(lines).toHaveLength(2);
       expect(GREETING_SOMEBODY_LESSON.responseLines.didNotAskBack).toContainEqual(lines[0]);
       expect(GREETING_SOMEBODY_LESSON.script.greeting.needsRetryLines).toContainEqual(lines[1]);
+    });
+  });
+
+  describe("the ask-back reaction: ticket 4's Turn 3 (issue #54, ADR-0013)", () => {
+    // The Turn the rule change is about:
+    //   Turn 1  Emily: "How are you today?"  Learner: "I'm good."      → checkin
+    //   Turn 2  Emily: "That's good!"        Learner: "How about you?" → this
+    // `checkin` is already in Goal Progress, so nothing *this* Turn moved it —
+    // but the learner put a question to Emily, and she owes them an answer
+    // before she steers on. The old rule keyed the reaction to "`checkin`
+    // achieved in this Turn" and left her silently steering to Closing, never
+    // answering the question.
+
+    it("answers the question back even though `checkin` landed in an earlier Turn", () => {
+      const lines = selectLines(["greeting", "checkin"], { response: "achieved" }, true);
+
+      expect(lines).toHaveLength(2);
+      expect(GREETING_SOMEBODY_LESSON.responseLines.askedBack).toContainEqual(lines[0]);
+      expect(GREETING_SOMEBODY_LESSON.closingLines).toContainEqual(lines[1]);
+      // The reaction is the *asked back* sub-pool — she is answering, not
+      // acknowledging a check-in this Turn never carried.
+      expect(GREETING_SOMEBODY_LESSON.responseLines.didNotAskBack).not.toContainEqual(lines[0]);
+    });
+
+    it("steers with a greeting needs_retry line when `greeting` is still the open Goal", () => {
+      const lines = selectLines([], { response: "achieved" }, true);
+
+      expect(lines).toHaveLength(2);
+      expect(GREETING_SOMEBODY_LESSON.responseLines.askedBack).toContainEqual(lines[0]);
+      expect(GREETING_SOMEBODY_LESSON.script.greeting.needsRetryLines).toContainEqual(lines[1]);
+    });
+
+    it("reacts from askedBack and steers from checkinLines while `checkin` is still open", () => {
+      // `greeting` achieved (so `checkin` is the Focus Goal), the learner asked
+      // back, and `response` is what this Turn achieved. The question back is
+      // answered from the askedBack sub-pool, then Emily steers toward the
+      // Check-in Goal still open — the Check-in pool supplies *only* the steer:
+      // it is not an answer to "How about you?".
+      const lines = selectLines(["greeting"], { response: "achieved" }, true);
+
+      expect(lines).toHaveLength(2);
+      expect(GREETING_SOMEBODY_LESSON.responseLines.askedBack).toContainEqual(lines[0]);
+      expect(GREETING_SOMEBODY_LESSON.checkinLines).toContainEqual(lines[1]);
+      expect(GREETING_SOMEBODY_LESSON.checkinLines).not.toContainEqual(lines[0]);
+      expect(GREETING_SOMEBODY_LESSON.responseLines.askedBack).not.toContainEqual(lines[1]);
+    });
+
+    it("still waits after a plain check-in answer: exactly one line, no steer (unchanged)", () => {
+      // The complementary half (ADR-0013, v2 ticket 3): a check-in acknowledged
+      // without an ask-back gets one line and no steer toward `response`,
+      // because `response` is a question the learner has to decide to ask.
+      const lines = selectLines(["greeting"], { checkin: "achieved" }, false);
+
+      expect(lines).toHaveLength(1);
+      expect(GREETING_SOMEBODY_LESSON.responseLines.didNotAskBack).toContainEqual(lines[0]);
+      expect(GREETING_SOMEBODY_LESSON.responseLines.askedBack).not.toContainEqual(lines[0]);
+      expect(GREETING_SOMEBODY_LESSON.checkinLines).not.toContainEqual(lines[0]);
     });
   });
 
@@ -440,18 +547,27 @@ describe("selectEmilyLinesForTurn — Emily never ends a Turn silent (issue #50)
 
   it("never speaks an empty line, and never repeats a line within one Turn", () => {
     for (const { progressBeforeTurn, goalReport } of everyPriorProgressAndReport()) {
-      const lines = selectLines(progressBeforeTurn, goalReport);
-      const label = JSON.stringify({ progressBeforeTurn, goalReport });
-      for (const line of lines) {
-        expect(line.en.length, `empty English line: ${label}`).toBeGreaterThan(0);
+      // Both `learner_asked_back` values, because the flag changes the sequence
+      // shape, not just the sub-pool (issue #54): an ask-back adds a reaction
+      // line to Turns where the check-in landed earlier, so the shapes a repeat
+      // could hide in are now reachable on this branch too.
+      for (const learnerAskedBack of [false, true]) {
+        const lines = selectLines(progressBeforeTurn, goalReport, learnerAskedBack);
+        const label = JSON.stringify({ progressBeforeTurn, goalReport, learnerAskedBack });
+        for (const line of lines) {
+          expect(line.en.length, `empty English line: ${label}`).toBeGreaterThan(0);
+        }
+        // Two Goals can only ever produce two *different* pool lines, and the
+        // one case where the same text could plausibly be picked twice — a
+        // reaction followed by a steer toward the `response` Goal the reaction
+        // itself achieved — is short-circuited precisely so the reaction is
+        // not repeated as its own steer. That short-circuit now fires whenever
+        // a reaction was spoken at all (issue #54), not only when `checkin`
+        // landed in this Turn.
+        expect(new Set(lines.map((line) => line.en)).size, `a line was repeated: ${label}`).toBe(
+          lines.length,
+        );
       }
-      // Two Goals can only ever produce two *different* pool lines, and the
-      // one case where the same text could plausibly be picked twice —
-      // `response` being the new Focus Goal right after a reaction — is
-      // short-circuited precisely so the reaction is not repeated.
-      expect(new Set(lines.map((line) => line.en)).size, `a line was repeated: ${label}`).toBe(
-        lines.length,
-      );
     }
   });
 });
@@ -467,12 +583,14 @@ describe("selectEmilyLinesForTurn — Emily never ends a Turn silent (issue #50)
  */
 describe("selectEmilyLinesForTurn — every line it can produce already has audio (issue #50)", () => {
   it("covers every sequence over the whole prior-Progress × Report space", () => {
+    const cases = everyPriorProgressAndReport();
+    const pools = sequencePools(GREETING_SOMEBODY_LESSON);
     const manifestTexts = new Set(AUDIO_MANIFEST.map((entry) => entry.text));
     const spoken = new Set<string>();
     const missing = new Set<string>();
     let sequences = 0;
 
-    for (const { progressBeforeTurn, goalReport } of everyPriorProgressAndReport()) {
+    for (const { progressBeforeTurn, goalReport } of cases) {
       for (const learnerAskedBack of [false, true]) {
         for (const random of SPANNING_RANDOMS) {
           const lines = selectEmilyLinesForTurn(
@@ -494,17 +612,56 @@ describe("selectEmilyLinesForTurn — every line it can produce already has audi
       }
     }
 
-    // 255 pairs x asked-back/not x 4 RNG positions: every call produces a
-    // sequence, and the RNG sweep reaches index 0..3 of every pool a sequence
-    // draws from (the largest is 4 lines).
-    expect(sequences).toBe(2040);
+    // 255 prior-Progress × Report pairs, each swept for both
+    // `learner_asked_back` values and once per index of the largest pool a
+    // sequence can draw from (3060 sequences today: 255 × 2 × 6, the 6 being
+    // the did-not-ask-back Response sub-pool's 6 lines). Read off what the
+    // loops above actually iterate (issue #54 replaced the fixed
+    // `[0, 0.25, 0.5, 0.75]` sweep with a lesson-derived one, so the count is
+    // no longer a 4 any more than it is a 2040) rather than restating a
+    // literal: a future edit that drops a position or an asked-back value has
+    // to shrink this count with it, and the widths it multiplies are pinned
+    // where they belong: the 255 pairs by the exhaustive invariant above, the
+    // sweep's 6 by the pool sizes below.
+    expect(sequences).toBe(cases.length * 2 * SPANNING_RANDOMS.length);
     expect([...missing]).toEqual([]);
     // Every line in every pool the selector may speak from: Check-in (3), the
-    // two Response sub-pools (3 + 3), Closing (4), Completion (3), and the four
-    // `needs_retry` pools (4 x 3, which serve both retry Turns and the
-    // `greeting`/`response` steers). Pinned so this sweep can never pass by
-    // producing too few lines to have checked anything.
-    expect(spoken.size).toBe(28);
+    // did-not-ask-back Response sub-pool (6 — v2 ticket 4 grew it from 3), the
+    // asked-back Response sub-pool (3), Closing (4), Completion (3), and the
+    // four `needs_retry` pools (4 × 3, which serve both retry Turns and the
+    // `greeting`/`response` steers) = 31. Pinned as the literal total so a
+    // pool quietly losing a line is never invisible, and cross-checked against
+    // the live pools so the sweep can never pass by producing too few lines to
+    // have checked anything; the per-pool sizes are asserted in their own
+    // `describe` below.
+    expect(pools.reduce((total, pool) => total + pool.length, 0)).toBe(31);
+    expect(spoken.size).toBe(31);
+  });
+});
+
+/**
+ * The pool sizes every other count in this file is computed from (issue #54):
+ * ADR-0013 re-authors five of these pools for v2 tickets 2/3/4/6, and the
+ * audio pre-generation covers exactly these entries, so an unintended size
+ * change should be visible here — as a named failure — rather than as a
+ * smaller `spoken` sweep or a shorter `SPANNING_RANDOMS`.
+ */
+describe("the Lesson's pool sizes — the composition's whole input space (issue #54)", () => {
+  it("has the sizes this file's assertions are computed from", () => {
+    const lesson = GREETING_SOMEBODY_LESSON;
+    expect(lesson.checkinLines).toHaveLength(3);
+    expect(lesson.responseLines.didNotAskBack).toHaveLength(6);
+    expect(lesson.responseLines.askedBack).toHaveLength(3);
+    expect(lesson.closingLines).toHaveLength(4);
+    expect(lesson.completionMessages).toHaveLength(3);
+    for (const goal of ACTIVE_CONVERSATION_STATES) {
+      expect(lesson.script[goal].needsRetryLines, `${goal}'s needs_retry pool`).toHaveLength(3);
+    }
+    // The sweep's width follows the largest pool, so the audio sweep above
+    // visits 6 indices rather than the 4 a literal `[0, 0.25, 0.5, 0.75]` list
+    // covered — pinned here so a shrink of that sweep is visible as a number,
+    // not as a test that passes having reached fewer entries.
+    expect(SPANNING_RANDOMS).toHaveLength(6);
   });
 });
 

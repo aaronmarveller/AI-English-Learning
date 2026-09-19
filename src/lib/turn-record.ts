@@ -24,7 +24,9 @@ export type StateTurnRecord = {
   state: ActiveConversationState;
   /** Whether this Goal was achieved on the learner's very first attempt against it. Attempts are counted against the Focus Goal only (ADR-0012), so a Goal achieved while it was *not* the Focus Goal is always `true`, and the Focus Goal's own record reflects its prior `needs_retry` Turns. */
   passedFirstTry: boolean;
-  /** Whether the learner's accepted message matched (case/punctuation-insensitively) one of this Goal's `acceptedResponses` verbatim, rather than a natural paraphrase outside that list. Whole-sentence: a message that achieved several Goals matched none of them. */
+  /**
+   * Whether the learner's accepted message matched (case/punctuation-insensitively) one of this Goal's `acceptedResponses` verbatim, rather than a natural paraphrase outside that list. Whole-sentence: a message that achieved several Goals matched none of them. Issue #54 (ADR-0013): the `response` Goal's whitelist is ask-back expressions now ("Thank you."/"Thanks." left it), so a bare thank-you no longer matches `response` — it achieves nothing, so no record is written for it at all.
+   */
   matchedAcceptedResponse: boolean;
   /** Whether the learner's message asked Emily a question back (the Judge's `learner_asked_back`). Only recorded on the `response` Goal's record — that is the Goal the question-back rule belongs to (issue #51). */
   learnerAskedBack: boolean;

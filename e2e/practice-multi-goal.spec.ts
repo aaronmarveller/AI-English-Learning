@@ -21,9 +21,9 @@ import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
  * three Conversation Goals at once, so the Judge's Goal Report names all three
  * (the shape #47's protocol already allows, and this ticket is the first to
  * exercise). Emily's reply is then a *sequence* of existing Conversation
- * Script lines: the Response pool's reaction (her answer to "How are you?"),
- * then the Closing pool's steer toward the new Focus Goal — never the Check-in
- * pool's "How are you doing today?".
+ * Script lines: the Response pool's asked-back reaction (her answer to "How
+ * are you?"), then the Closing pool's steer toward the new Focus Goal — never
+ * the Check-in pool's "How are you today?".
  *
  * The Judge is stubbed (e2e/fixtures.ts's `installScriptedPracticeApi`, whose
  * `ScriptedTurnResponse` is exactly the report a real Judge would return);

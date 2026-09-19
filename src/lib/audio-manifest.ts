@@ -40,7 +40,9 @@ export type AudioManifestEntry = {
 };
 
 export const AUDIO_MANIFEST: AudioManifestEntry[] = [
-  // Emily's opening line pool (5) — spoken before any learner turn exists.
+  // Emily's opening line pool (deliberately 1 line — a self-introduction, see
+  // src/content/lesson.ts's OPENING_LINES and ADR-0013) — spoken before any
+  // learner turn exists.
   ...GREETING_SOMEBODY_LESSON.openingLines.map((line) => ({ id: line.id, text: line.en })),
 
   // The fixed post-Closing encouragement that unlocks Learning Summary.
@@ -61,17 +63,18 @@ export const AUDIO_MANIFEST: AudioManifestEntry[] = [
   // Check-in Conversation Script pool (3, issue #16/#17). "How's it going?"
   // is verbatim-identical to Explore's checkin-hows-it-going expression, so
   // it's filtered out here and reuses that entry's recording instead of
-  // getting a second one for the same text (same reasoning as openingLines'
-  // filter above).
+  // getting a second one for the same text. The two surviving entries are
+  // renumbered by position, so their ids are stable only as long as the pool
+  // order is.
   ...GREETING_SOMEBODY_LESSON.checkinLines
     .filter(
       (line) => !CHECKIN_EXPRESSIONS.some((expression) => expression.expression === line.en),
     )
     .map((line, index) => ({ id: `checkin-script-${index + 1}`, text: line.en })),
 
-  // Response Conversation Script's two sub-pools (3 + 3, issue #16/#17) —
-  // selected by `learner_asked_back`, see src/content/lesson.ts's
-  // RESPONSE_LINES doc comment.
+  // Response Conversation Script's two sub-pools (6 + 3, issue #16/#17;
+  // re-authored by ADR-0013) — selected by `learner_asked_back`, see
+  // src/content/lesson.ts's RESPONSE_LINES doc comment.
   ...GREETING_SOMEBODY_LESSON.responseLines.didNotAskBack.map((line, index) => ({
     id: `response-script-no-askback-${index + 1}`,
     text: line.en,

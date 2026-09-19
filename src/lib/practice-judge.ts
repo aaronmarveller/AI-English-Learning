@@ -48,6 +48,16 @@ import {
  * longer readable as a failed `checkin`), and "did not communicate it" spelled
  * out as garbled or trailing into words that mean nothing here (`failed`
  * rather than `achieved`, which #49's all-or-nothing rule depends on).
+ *
+ * Issue #54 (ADR-0013) corrects one half of that wording: `response` is
+ * achieved by asking Emily a question back and by nothing else, so the
+ * per-Goal attempt list in the `goal_report` description loses its thank-you
+ * path (a bare thank-you leaves the Goal `untouched`, never `failed` — it is
+ * not a garbled ask-back), exactly as src/content/practice.ts's "Global
+ * Conversation Rules" now says. The `learner_asked_back` description loses the
+ * same assumption from the other side: the field is the signal that `response`
+ * was achieved and it is what makes Emily answer the learner's question
+ * whenever it comes, not a boolean that only matters right after a check-in.
  */
 
 /** spec.md "三个适配层": Anthropic `claude-haiku-4-5-20251001` for this ticket's LLM adapter. */
@@ -102,7 +112,7 @@ function buildSubmitTurnResultTool(openGoals: ActiveConversationState[]): Anthro
         goal_report: {
           type: "object",
           description:
-            'One entry per open Conversation Goal listed here. "achieved": the learner\'s message communicated this Goal\'s intent — in their own words or not, prompted by Emily or not, and whether or not another part of the message said something else. "failed": the message recognisably attempted this Goal\'s intent (a greeting attempt for "greeting", an attempt to say how they are for "checkin", a thank-you or a question back for "response", a goodbye attempt for "closing") but did not communicate it, because it was garbled or trailed off into words that mean nothing here. Grammar alone never makes an attempt "failed", an attempt at a *different* Goal never makes this one "failed", and a message that simply did not try for this Goal is not "failed". "untouched": the message did not attempt this Goal — unrelated chatter, filler, and a bare "Yes." are all "untouched", never "failed" and never "achieved".',
+            'One entry per open Conversation Goal listed here. "achieved": the learner\'s message communicated this Goal\'s intent — in their own words or not, prompted by Emily or not, and whether or not another part of the message said something else. "failed": the message recognisably attempted this Goal\'s intent (a greeting attempt for "greeting", an attempt to say how they are for "checkin", a question back for "response", a goodbye attempt for "closing") but did not communicate it, because it was garbled or trailed off into words that mean nothing here. Grammar alone never makes an attempt "failed", an attempt at a *different* Goal never makes this one "failed", and a message that simply did not try for this Goal is not "failed". Thanking Emily is not an attempt at "response" at all: a thank-you asks her nothing, so a message whose only move is a thank-you leaves "response" "untouched", exactly as a message that attempted no Goal does — politeness is never "failed", because a thank-you is not a garbled question back. "untouched": the message did not attempt this Goal — unrelated chatter, filler, and a bare "Yes." are all "untouched", never "failed" and never "achieved".',
           properties: Object.fromEntries(
             openGoals.map((goal) => [
               goal,
@@ -119,7 +129,7 @@ function buildSubmitTurnResultTool(openGoals: ActiveConversationState[]): Anthro
         learner_asked_back: {
           type: "boolean",
           description:
-            'Whether the learner\'s message asked a question back to Emily (e.g. "How about you?", "And you?"). This only meaningfully changes Emily\'s next line right after the learner answers how they are, but must accurately reflect the learner\'s actual message on every turn.',
+            'Whether the learner\'s message asked a question back to Emily (e.g. "How about you?", "And you?"). A question back is what achieves the "response" Goal, and this field is what makes Emily answer it — she answers whenever the learner asks, not only right after the learner answers how they are. Must accurately reflect the learner\'s actual message on every turn.',
         },
       },
       required: ["goal_report", "learner_asked_back"],

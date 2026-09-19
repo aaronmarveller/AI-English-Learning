@@ -57,42 +57,27 @@ export type OpeningLine = {
 };
 
 /**
- * Fixed pool of 5 hand-written opening-greeting variants, one picked at
- * random client-side on page mount (see practice-state.ts's
- * `ensureOpeningMessage`). There is no learner input yet on page load to
- * send to the model, so this line is never LLM-generated — every other
- * Emily line (the reply after each learner turn) legitimately comes from
- * the LLM call instead.
+ * Fixed pool of opening lines, one picked at random client-side on page mount
+ * (see practice-state.ts's `ensureOpeningMessage`). There is no learner input
+ * yet on page load to send to the model, so this line is never LLM-generated —
+ * every other Emily line (the reply after each learner turn) legitimately comes
+ * from the LLM call instead.
  *
- * spec.md's "语音合成" section documents Emily's opening line as one of a
- * fixed pool of 5 (for ticket 13's audio-pregeneration work, not this
- * ticket's concern) — this pool is that same fixed set, authored here.
+ * Deliberately a SINGLE self-introduction line (v2 ticket 2; see
+ * docs/adr/0013-response-goal-means-asking-emily-back.md, "The opening line
+ * collapses to the ticket's single line"). spec.md's "语音合成" section and
+ * ticket 13's audio-pregeneration work once described a fixed pool of 5
+ * greeting variants — that pool existed to vary a bare "Hi!"/"Hello!", and a
+ * self-introduction has nothing to vary without inventing four more of them
+ * (#46 declared the choice out of scope for its PR; ADR-0013 takes the single
+ * line). The array shape is kept on purpose, and `pickRandomOpeningLine`
+ * below still picks from it, so a future Lesson can widen the pool again.
  */
 const OPENING_LINES: OpeningLine[] = [
   {
     id: "opening-1",
-    en: "Hi!",
-    zh: "嗨！",
-  },
-  {
-    id: "opening-2",
-    en: "Hello!",
-    zh: "你好！",
-  },
-  {
-    id: "opening-3",
-    en: "Good morning!",
-    zh: "早上好！",
-  },
-  {
-    id: "opening-4",
-    en: "Good afternoon!",
-    zh: "下午好！",
-  },
-  {
-    id: "opening-5",
-    en: "Good evening!",
-    zh: "晚上好！",
+    en: "Hi! I'm Emily. It's nice to meet you.",
+    zh: "嗨！我是 Emily，很高兴认识你。",
   },
 ];
 
@@ -121,34 +106,55 @@ const COMPLETION_MESSAGES = [
 
 /** Check-in (3) — the steer line toward the `checkin` Goal, spoken whenever `checkin` is the Focus Goal. */
 const CHECKIN_LINES: ScriptLine[] = [
-  { en: "How are you doing today?", zh: "你今天过得怎么样？" },
+  { en: "How are you today?", zh: "你今天过得怎么样？" },
+  { en: "Hi! How are you today?", zh: "嗨！你今天过得怎么样？" },
   { en: "How's it going?", zh: "最近怎么样？" },
-  { en: "How have you been?", zh: "你最近过得如何？" },
 ];
 
 /**
- * Response (6 total, split into two sub-pools) — the one reaction-type pool
- * (docs/ai-configuration.md section 3's "Line composition"), spoken when the
- * `checkin` Goal was achieved in this Turn. Which sub-pool Emily draws from
- * is decided by `learner_asked_back` (the Judge's boolean for that same
- * Turn) — never a random pick across both, since a plain acknowledgement and
- * a reply that answers a returned question aren't interchangeable (issue #16
- * acceptance criteria: a learner who didn't ask back must never hear "thanks
- * for asking"; a learner who did must always hear an answer). Because
- * `checkin` and `response` are achieved together in the ticket's headline
- * Turn, this line also *is* the steer toward `response` — which is why it is
- * not repeated as a second line when that is the new Focus Goal.
+ * Response (9 total, split into two sub-pools) — the one reaction-type pool
+ * (docs/ai-configuration.md section 3's "Line composition"), spoken on every
+ * Turn where a reaction is due: the learner asked a question back, or `checkin`
+ * was achieved in that same Turn. Which sub-pool Emily draws from is decided by
+ * `learner_asked_back` (the Judge's boolean for that same Turn) — never a
+ * random pick across both, since a plain acknowledgement and an answer to a
+ * question put to her aren't interchangeable. It doubles as the steer toward
+ * `response`, so it is never spoken twice in one Turn.
+ *
+ * Per docs/adr/0013-response-goal-means-asking-emily-back.md decision 2, the
+ * two sub-pools are:
+ * - `didNotAskBack` — the brief acknowledgement for a check-in with no
+ *   ask-back (v2 ticket 3's "Check-in Pre-generated Responses" table,
+ *   de-duplicated).
+ * - `askedBack` — Emily's ANSWER to a question the learner asked her, chosen
+ *   whenever `learner_asked_back` is true. That is NOT only when the check-in
+ *   landed in the same Turn (ADR-0013 decision 2: the learner may answer on
+ *   one Turn and ask "How about you?" on the next, and Emily must still
+ *   answer), so these lines answer a question rather than acknowledge one.
+ *
+ * Ticket 4/6's Emily lines fold her answer and the closing steer into a single
+ * utterance ("I'm good too, thanks! Have a nice day!"). ADR-0012 already
+ * rejected composed lines for multi-Goal Turns and every composed line would
+ * need its own recording, so the combined sentences are deliberately NOT
+ * authored as single lines: the first half is the pool line here, and Emily
+ * follows it with a line from the Closing pool — the same reaction-then-steer
+ * sequence she already speaks. The old pool's "thanks for asking"
+ * acknowledgements are gone with it (there is no check-in to acknowledge when
+ * the learner asked back in an earlier Turn).
  */
 const RESPONSE_LINES: { didNotAskBack: ScriptLine[]; askedBack: ScriptLine[] } = {
   didNotAskBack: [
+    { en: "That's good!", zh: "那真好！" },
     { en: "Glad to hear that!", zh: "很高兴听你这么说！" },
-    { en: "That's great to hear.", zh: "太好了，真为你高兴。" },
-    { en: "Nice, thanks for sharing!", zh: "真好，谢谢你告诉我！" },
+    { en: "Good to hear!", zh: "真为你高兴！" },
+    { en: "That's great!", zh: "太好了！" },
+    { en: "Nice!", zh: "不错呀！" },
+    { en: "Glad you're doing okay.", zh: "你还好就好。" },
   ],
   askedBack: [
-    { en: "I'm doing well too, thanks for asking!", zh: "我也过得不错，谢谢你问起！" },
-    { en: "I'm good too — thanks for asking!", zh: "我也挺好的——谢谢关心！" },
-    { en: "Pretty good, thank you!", zh: "我也很好，谢谢！" },
+    { en: "I'm good too, thanks!", zh: "我也挺好的，谢谢！" },
+    { en: "I'm good, thank you!", zh: "我很好，谢谢你！" },
+    { en: "I'm doing well, thanks!", zh: "我过得很好，谢谢！" },
   ],
 };
 
@@ -252,19 +258,32 @@ const PRACTICE_SCRIPT: Record<ActiveConversationState, PracticeStateScript> = {
     labelEn: CONVERSATION_STAGE_LABELS.checkin.labelEn,
     learningGoal:
       "The learner says how they are doing. Emily usually asks how the learner is before they answer, but a learner who volunteers it (\"I'm good, thanks\") before being asked has achieved this Goal too — it is credited whenever the learner communicated how they are, prompted or not. Asking Emily how she is as well is a nice bonus, not a requirement.",
-    // These are answers to "how are you?", not the question itself — fixed
-    // 2026-08 after cross-referencing the team's "AI Configuration" doc's
-    // Step 2 Accepted Responses. The prior whitelist here was
-    // CHECKIN_EXPRESSIONS (Explore's "how do you ask how someone's doing"
-    // category), which is what THIS state's Emily line already said, not
-    // what the learner is being judged on this turn.
+    // These are answers to "how are you?", not the question itself — re-authored
+    // 2026-09 from the v2 tickets, de-duplicated: ticket 3's learner-response
+    // column, and ticket 6's multi-goal table (which adds no new phrasings).
+    // Kept as examples, not an exhaustive match list — a natural equivalent
+    // outside this list is still "accepted" (spec.md's 判定以沟通意图为准).
+    // The prior whitelist here was CHECKIN_EXPRESSIONS (Explore's "how do you
+    // ask how someone's doing" category), which is what THIS state's Emily line
+    // already says, not what the learner is being judged on this turn.
     acceptedResponses: [
       "I'm good.",
+      "Good.",
+      "I'm good, thanks.",
+      "I'm good, thank you.",
+      "Good, thanks.",
+      "Good, thank you.",
       "I'm fine.",
-      "I'm okay.",
+      "Fine.",
+      "I'm fine, thanks.",
+      "I'm doing well.",
+      "I'm well.",
       "Pretty good.",
       "Not bad.",
-      "I'm doing well.",
+      "I'm okay.",
+      "Okay.",
+      "I'm great.",
+      "Great!",
     ],
     needsRetryLines: [
       {
@@ -286,32 +305,39 @@ const PRACTICE_SCRIPT: Record<ActiveConversationState, PracticeStateScript> = {
     labelZh: CONVERSATION_STAGE_LABELS.response.labelZh,
     labelEn: CONVERSATION_STAGE_LABELS.response.labelEn,
     learningGoal:
-      "The learner keeps the conversation going politely after Emily has said something to them — a short acknowledgment (\"Thanks.\") or a question back to Emily (\"How about you?\"). One short phrase is enough. Asking Emily how she is also communicates this Goal, and so does thanking her after she answered.",
-    // Reversed 2026-08 (was: required all 3 parts — ack + question back +
-    // detail — combined in a single turn). The team's "AI Configuration"
-    // doc's Step 3 Accepted Responses are short standalone continuations
-    // ("Thanks.", "How about you?"), which conflicted with that stricter
-    // rule. See docs/adr/0004-practice-response-step-accepts-single-phrase-replies.md.
-    // Fuller replies remain accepted as natural equivalents under the
+      "The learner asks Emily how she is — a question back to her (\"How about you?\", \"How about yourself?\"). A bare thank-you is politeness, not this Goal: thanking Emily asks her nothing, so a message whose only move is a thank-you leaves this Goal untouched.",
+    // Per docs/adr/0013-response-goal-means-asking-emily-back.md, `response`
+    // means asking Emily back. The whitelist is the ask-back expressions from
+    // v2 tickets 4 and 6. A bare thank-you deliberately does NOT achieve this
+    // Goal — it leaves the Goal `untouched` rather than `failed`, exactly as
+    // any other message that attempted no Goal does — which is why
+    // "Thank you."/"Thanks." are gone and why `matchedAcceptedResponse`
+    // (src/lib/turn-record.ts) and Review's Conversation highlight follow.
+    // This refines ADR-0004's "one short phrase is enough" rule: one question
+    // back is enough, with no acknowledgement or added detail required.
+    // Natural equivalents outside this list are still accepted under the
     // Global Conversation Rules; they do not need separate whitelist rows.
     acceptedResponses: [
-      "Thank you.",
-      "Thanks.",
       "How about you?",
       "And you?",
+      "You?",
+      "What about you?",
+      "How are you?",
+      "How are you doing?",
+      "How about yourself?",
     ],
     needsRetryLines: [
       {
-        en: "Let's keep the conversation going — how would you respond to that?",
-        zh: "我们继续聊下去吧——你会怎么回应呢？",
+        en: "Let's keep the conversation going — what could you ask me?",
+        zh: "我们继续聊下去吧——你可以问我点什么呢？",
       },
       {
-        en: "Almost there — try a short, friendly reply to what I said.",
-        zh: "就快到了——试着简单友好地回应我一下吧。",
+        en: "Almost there — try a short, friendly question back to me.",
+        zh: "就快到了——试着简单友好地反问我一句。",
       },
       {
-        en: "This is the spot to acknowledge me, or ask me something back.",
-        zh: "这里正是回应我一下，或者反问我一句的好时机。",
+        en: "This is the spot to ask how I'm doing.",
+        zh: "这里正是问问我过得怎么样的好时机。",
       },
     ],
   },
@@ -400,12 +426,12 @@ const ASK_IN_CHINESE_HELP: Record<ActiveConversationState, AskInChineseHelp> = {
   },
   response: {
     meaning:
-      "Emily 已经回应了你的问候。这一步只需要礼貌地把对话继续下去，可以简单道谢，也可以反问 Emily。",
+      "Emily 已经回应了你的问候。这一步要做的是把问题问回给她，主动关心一下她过得怎么样。",
     whenToUse:
-      "对方回应你的近况后，用一句简短的话表示感谢或继续提问，就能自然地接住对话。",
+      "聊天时对方回应了你的近况之后，用一句简短的问句问问对方「你呢？」，对话才不会在你这边停下来——英语里的寒暄正是靠这样互相反问延续下去的，只道谢的话话题就断了。",
     example:
-      "比如你可以说：\"That's kind of you.\"，用一句简短的英语礼貌回应。",
-    encouragement: "试着用英语礼貌地接一句吧——短短一句就可以！",
+      "比如你可以说：\"How's your day going?\"，把问题问回给 Emily。",
+    encouragement: "试着用英语反问 Emily 一句吧——问问她最近怎么样，短短一句就够了！",
   },
   closing: {
     meaning:
@@ -445,7 +471,7 @@ const SILENCE_NUDGE_LINES: ScriptLine[] = [
 export type Lesson = {
   /** Editorial hero headline (UI draft, 2026-08-06 review). */
   headline: { en: string; zh: string };
-  /** Fixed pool of opening-greeting variants (see `OPENING_LINES` above). */
+  /** Fixed pool of opening lines (see `OPENING_LINES` above — one line since ADR-0013). */
   openingLines: OpeningLine[];
   /** Fixed post-Closing completion-message library (see `COMPLETION_MESSAGES` above). */
   completionMessages: readonly string[];

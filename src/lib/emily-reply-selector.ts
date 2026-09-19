@@ -50,6 +50,16 @@ import type { Lesson, ScriptLine } from "@/content/lesson";
  * `closing` was achieved in an earlier Turn. Both are inside
  * `selectEmilyLinesForTurn`, so the caller's shape (#48 chose it) is
  * unchanged.
+ *
+ * Issue #54 (ADR-0013, v2 ticket 4) changes *when* the reaction is due: the
+ * learner asking a question back is reason enough on its own, so ticket 4's
+ * Turn 3 — the check-in answered a Turn earlier, then "How about you?" — gets
+ * an answer instead of a silent steer to Closing. `checkin` achieved in this
+ * Turn still earns the reaction by itself, and `learner_asked_back` still
+ * chooses the sub-pool whenever the reaction is spoken; the
+ * `focusGoal === "response"` short-circuit now fires whenever a reaction line
+ * was actually spoken rather than only when the check-in was. See step 1 of
+ * `selectEmilyLinesForTurn`.
  */
 
 /** Injectable RNG, defaulting to `Math.random` — see this file's top doc comment. */
@@ -89,13 +99,14 @@ function pickOneExcluding<T extends { en: string }>(
  * The report is carried rather than the Goal Progress it produced (the older
  * shape's `progressAfterTurn`) because composition #48 needs to know which
  * Goals *this Turn* achieved, not only where Goal Progress ended up: the
- * reaction line is chosen for `checkin` having been achieved here, and the
- * same distinction is what #50's farewell-before-completion needs
- * (`closing` achieved earlier vs. now). Both are derived from these two
- * fields by the one rule that moves Goal Progress at all — `applyGoalReport`
- * applied inside this module, then its diff against the Goals it was given
- * (src/lib/goal-progress.ts's `getNewlyAchievedGoals`) — rather than by a
- * second "newly achieved" computation at the call site.
+ * reaction line is chosen for `checkin` having been achieved here — and, since
+ * ADR-0013, for the learner having asked a question back at all, whatever
+ * earlier Turns did with the check-in — and the same distinction is what #50's
+ * farewell-before-completion needs (`closing` achieved earlier vs. now). Both
+ * are derived from these two fields by the one rule that moves Goal Progress at
+ * all — `applyGoalReport` applied inside this module, then its diff against the
+ * Goals it was given (src/lib/goal-progress.ts's `getNewlyAchievedGoals`) —
+ * rather than by a second "newly achieved" computation at the call site.
  */
 export type SelectEmilyLinesInput = {
   verdict: Verdict;
@@ -114,22 +125,29 @@ export type SelectEmilyLinesInput = {
  * Emily never composes a line, so a Turn that achieves several Goals is
  * answered by several existing pool lines, in this order:
  *
- * 1. **Reaction** — if `checkin` was achieved *in this Turn*, one line from the
- *    Response pool, the sub-pool chosen by `learner_asked_back`. The Response
- *    pool is the only reaction-type pool: it is the one place a floor line
- *    answers the learner rather than asking them for something, which is
- *    exactly what an achieved check-in calls for on both counts (they told her
- *    how they are, and — if they asked — she owes them her own answer; issue
- *    #16 acceptance criteria: never thank a learner for a question they didn't
- *    ask; always answer one they did).
+ * 1. **Reaction** — when the learner asked a question back *or* `checkin` was
+ *    achieved *in this Turn*: one line from the Response pool, the sub-pool
+ *    chosen by `learner_asked_back` (`askedBack` when they asked, the plain
+ *    `didNotAskBack` acknowledgement otherwise). The Response pool is the only
+ *    reaction-type pool: it is the one place a floor line answers the learner
+ *    rather than asking them for something, and both halves of the condition
+ *    are Emily owing them something — an answer to the question they put to
+ *    her (issue #16 acceptance criteria: always answer one they asked; never
+ *    thank a learner for one they didn't), or a reaction to the check-in they
+ *    just gave. ADR-0013 makes the first half stand on its own, so ticket 4's
+ *    own Turn 3 — the check-in answered a Turn earlier, then "How about you?"
+ *    — hears the ticket's own answer from the askedBack pool ("I'm good too,
+ *    thanks!") and only then a steer, instead of a silent steer to Closing that
+ *    never answers the question.
  * 2. **Steer** — one line toward the *new* Focus Goal: Check-in pool for
  *    `checkin`, Closing pool for `closing`, the Completion pool once all four
  *    Goals are achieved. When that Focus Goal is `response` and step 1 just
- *    spoke, the reaction *is* the steer and nothing more is added; `response`
- *    and `greeting` have no steer pool of their own, so a Focus Goal that
- *    step 1 did not already address borrows one of its `needs_retry` lines
- *    (those lines already read as "here's what to say next" — see
- *    `selectSteerLineForFocusGoal`, which #50 ratifies against section 3).
+ *    spoke — whatever the reaction was due to — the reaction *is* the steer and
+ *    nothing more is added; `response` and `greeting` have no steer pool of
+ *    their own, so a Focus Goal that step 1 did not already address borrows one
+ *    of its `needs_retry` lines (those lines already read as "here's what to
+ *    say next" — see `selectSteerLineForFocusGoal`, which #50 ratifies against
+ *    section 3).
  * 3. **Farewell before completion** (issue #50) — if this Turn completes
  *    Practice but `closing` was achieved in an *earlier* one, a Closing-pool
  *    line is spoken before the Completion line, so Emily always says goodbye:
@@ -186,7 +204,15 @@ export function selectEmilyLinesForTurn(
   const achievedThisTurn = getNewlyAchievedGoals(input.progressBeforeTurn, progressAfterTurn);
 
   const lines: ScriptLine[] = [];
-  const reacted = achievedThisTurn.includes("checkin");
+  // A reaction is due when the learner asked a question back — Emily owes them
+  // an answer, whenever the check-in was answered — or when `checkin` landed
+  // in this Turn, which she owes them a reaction to (ADR-0013: "the reaction is
+  // due whenever the learner asked back, not only when the check-in landed in
+  // the same Turn"). Which of the two it is does not change the pool: the
+  // sub-pool is `learner_asked_back`'s to choose either way, because a plain
+  // acknowledgement and a reply to a returned question are not
+  // interchangeable.
+  const reacted = input.learnerAskedBack || achievedThisTurn.includes("checkin");
   if (reacted) {
     lines.push(
       pickOne(
@@ -216,6 +242,11 @@ export function selectEmilyLinesForTurn(
     return lines;
   }
 
+  // `response`'s steer *is* its reaction, so whenever a reaction line was
+  // actually spoken it is never repeated here as a second line. Keyed to the
+  // reaction itself rather than to `checkin` having landed in this Turn
+  // (ADR-0013): a Turn whose reaction was due to an ask-back alone has just as
+  // little left to say toward `response`.
   if (focusGoal === "response" && reacted) return lines;
 
   lines.push(selectSteerLineForFocusGoal(lesson, focusGoal, random));
@@ -262,9 +293,11 @@ function selectRetryPoolGoal(
  * from that Goal's `needs_retry` pool serves as the steer — those lines
  * already read as 'here's what to say next'"), and settles the one place #47's
  * mapping disagreed: that mapping sent a `response` Focus Goal to the Response
- * pool, which *reacts* to a check-in the learner gave — and a Turn that leaves
- * `response` open without having just achieved `checkin` has no check-in to
- * react to. The two coincide for every one-Goal-per-Turn conversation (where
+ * pool, which *reacts* to something the learner gave — and a Turn that leaves
+ * `response` open without having just achieved `checkin` and without an
+ * ask-back has nothing to react to (ADR-0013 widened the reaction's trigger,
+ * not its meaning: a reaction answers the learner, so it can never be spent on
+ * asking). The two coincide for every one-Goal-per-Turn conversation (where
  * the reaction is always what steers toward `response`), so this only shows up
  * in the non-contiguous Goal Progress #48 made reachable. Giving either Goal a
  * steer pool of its own stays out of scope: it would need new lines and so new
@@ -274,9 +307,13 @@ function selectRetryPoolGoal(
  * The "and step 1 did not already address it" half of that rule is the caller's
  * `focusGoal === "response" && reacted` short-circuit, not a second condition
  * here: only `response` has a reaction that doubles as its steer. A reaction
- * (a Response-pool line answering the learner's check-in) says nothing about
- * greeting, so an open `greeting` always gets its line — which is what keeps
- * the composition's "never silent" guarantee true rather than mostly true.
+ * (a Response-pool line answering the learner's check-in, or their question
+ * back) says nothing about greeting, so an open `greeting` always gets its line
+ * — which is what keeps the composition's "never silent" guarantee true rather
+ * than mostly true. Issue #54 keys that short-circuit to the reaction having
+ * actually been spoken rather than to `checkin` having landed in this Turn, so
+ * an ask-back alone cannot leave `response` saying a needs_retry line *after*
+ * Emily has just answered the question.
  */
 function selectSteerLineForFocusGoal(
   lesson: Lesson,

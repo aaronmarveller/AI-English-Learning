@@ -1,5 +1,11 @@
 import { test, expect } from "@playwright/test";
-import { installScriptedPracticeApi, PRACTICE_URL, resetStorage, submitReply } from "./fixtures";
+import {
+  installScriptedPracticeApi,
+  persistedMessages,
+  PRACTICE_URL,
+  resetStorage,
+  submitReply,
+} from "./fixtures";
 import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
 
 /**
@@ -149,7 +155,7 @@ test.describe("Practice page — conversation core", () => {
     await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "upcoming");
   });
 
-  test("a learner who does not ask back during check-in never hears a 'thanks for asking' line", async ({
+  test("a learner who does not ask back during check-in is never answered — Emily acknowledges and waits", async ({
     page,
   }) => {
     await resetStorage(page);
@@ -185,6 +191,109 @@ test.describe("Practice page — conversation core", () => {
     const replyText = await page.getByTestId("emily-message-bubble").innerText();
     expect(RESPONSE_ASKED_BACK_TEXTS).toContain(replyText);
     expect(RESPONSE_DID_NOT_ASK_BACK_TEXTS).not.toContain(replyText);
+  });
+
+  /**
+   * Issue #54 (ADR-0013 decision 2, v2 tickets 3 and 4) — the two halves of
+   * the reaction rule:
+   *
+   * - **the wait** (ticket 3): a check-in acknowledged *without* an ask-back
+   *   gets exactly one line and no steer toward `response`, because `response`
+   *   is a question the learner has to decide to ask.
+   * - **the answer** (ticket 4's own four-Turn example): the check-in answered
+   *   on one Turn and "How about you?" on the next still gets Emily's answer
+   *   (her reaction is due whenever they asked), and only then a steer.
+   */
+  test("the wait: a check-in answered without an ask-back gets exactly one line, with no steer toward response", async ({
+    page,
+  }) => {
+    await resetStorage(page);
+    await installScriptedPracticeApi(page, [
+      { goalReport: { greeting: "achieved" } },
+      { goalReport: { checkin: "achieved" }, learner_asked_back: false },
+    ]);
+    await page.goto(PRACTICE_URL);
+
+    await submitReply(page, "Hi there!");
+    await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "current");
+
+    const emilyMessagesBefore = (await persistedMessages(page)).filter(
+      (message) => message.role === "emily",
+    ).length;
+    await submitReply(page, "I'm good, thanks.");
+
+    // `response` is the Focus Goal now — the check-in cleared it — but nothing
+    // steers toward it: Emily acknowledges and waits for the learner to decide.
+    await expect(page.getByTestId("practice-step-response")).toHaveAttribute("data-state", "current");
+
+    // Exactly one line, and it is the did-not-ask-back acknowledgement: the
+    // count is what rules a steer line out, and the pool membership is what
+    // rules out her answering a question nobody asked.
+    const turnLines = (await persistedMessages(page))
+      .filter((message) => message.role === "emily")
+      .slice(emilyMessagesBefore);
+    expect(turnLines).toHaveLength(1);
+    expect(RESPONSE_DID_NOT_ASK_BACK_TEXTS).toContain(turnLines[0].textEn);
+    expect(RESPONSE_ASKED_BACK_TEXTS).not.toContain(turnLines[0].textEn);
+    // Never a Check-in-pool line: the learner just said how they were doing.
+    expect(CHECKIN_TEXTS).not.toContain(turnLines[0].textEn);
+    expect(turnLines[0].textZh.length).toBeGreaterThan(0);
+
+    // The learner-facing bubble is that one line, nothing appended to it.
+    await expect(page.getByTestId("emily-message-bubble")).toHaveText(turnLines[0].textEn);
+  });
+
+  test("ticket 4's four Turns: the later ask-back is answered first, then steered to Closing", async ({
+    page,
+  }) => {
+    await resetStorage(page);
+    // Ticket 4's own example, one Goal per Turn: "Hi!" (greeting), "I'm good."
+    // (check-in, no ask-back — Emily acknowledges and waits), "How about you?"
+    // (the ask-back that achieves `response`), "See you!" (closing, completing
+    // Practice).
+    await installScriptedPracticeApi(page, [
+      { goalReport: { greeting: "achieved" } },
+      { goalReport: { checkin: "achieved" }, learner_asked_back: false },
+      { goalReport: { response: "achieved" }, learner_asked_back: true },
+      { goalReport: { closing: "achieved" } },
+    ]);
+    await page.goto(PRACTICE_URL);
+
+    await submitReply(page, "Hi!");
+    await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "current");
+    await submitReply(page, "I'm good.");
+    await expect(page.getByTestId("practice-step-response")).toHaveAttribute("data-state", "current");
+
+    const emilyMessagesBefore = (await persistedMessages(page)).filter(
+      (message) => message.role === "emily",
+    ).length;
+    await submitReply(page, "How about you?");
+    await expect(page.getByTestId("practice-step-closing")).toHaveAttribute("data-state", "current");
+
+    // Two lines, in that order: her answer to the question put to her, then
+    // the Closing steer. The check-in landed a Turn earlier, so a reaction
+    // keyed to "checkin achieved in this Turn" would have left the question
+    // unanswered and steered on silently — the behaviour ADR-0013 changes.
+    const [answerLine, steerLine] = (await persistedMessages(page))
+      .filter((message) => message.role === "emily")
+      .slice(emilyMessagesBefore);
+    expect(RESPONSE_ASKED_BACK_TEXTS).toContain(answerLine.textEn);
+    expect(CLOSING_TEXTS).toContain(steerLine.textEn);
+    // Never a Check-in-only acknowledgement, in either slot: she is answering
+    // a question, not acknowledging a check-in this Turn never carried.
+    expect(RESPONSE_DID_NOT_ASK_BACK_TEXTS).not.toContain(answerLine.textEn);
+    expect(CHECKIN_TEXTS).not.toContain(answerLine.textEn);
+    expect(CHECKIN_TEXTS).not.toContain(steerLine.textEn);
+
+    const replyText = await page.getByTestId("emily-message-bubble").innerText();
+    expect(RESPONSE_ASKED_BACK_TEXTS.some((line) => replyText.startsWith(line))).toBe(true);
+    expect(CLOSING_TEXTS.some((line) => replyText.endsWith(line))).toBe(true);
+
+    // The conversation still ends the ordinary way.
+    await submitReply(page, "See you!");
+    await expect(page.getByTestId("practice-step-closing")).toHaveAttribute("data-state", "completed");
+    await expect(page.getByTestId("view-summary-button")).toBeEnabled();
+    expect(COMPLETION_TEXTS).toContain(await page.getByTestId("emily-message-bubble").innerText());
   });
 
   test("driving all 4 Goals to achieved unlocks View Summary, and clicking it marks practice complete and navigates to /review", async ({

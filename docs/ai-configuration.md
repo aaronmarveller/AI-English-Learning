@@ -19,7 +19,7 @@ These rules are Emily's personality and hold across every Lesson; they do not va
 
 **Global Conversation Rules.** The Judge evaluates a Turn by communicative intent, not literal wording or grammar. A natural phrase outside a Goal's Accepted Responses that correctly communicates the intent MUST be reported `achieved`. Minor grammar, word-order, or spelling mistakes never make an attempt `failed` on their own — only whether the meaning came through matters, and the meaning does have to come through: an attempt that is garbled, or that trails off into words that mean nothing here, recognisably tried the Goal but did not communicate it, which is `failed` and never `achieved`. A Goal may be achieved before Emily has prompted for it (a learner who volunteers "I'm good, thanks" before being asked has achieved `checkin`); the Judge judges only what the learner communicated, never whether it was their "turn" to say it.
 
-**Per Goal, per part.** One message is judged Goal by Goal and part by part, never as a whole: the part that communicated a Goal achieves it, and only the part that attempted no Goal is `untouched`. A learner who greets Emily and then talks about something else has still achieved `greeting`, and the off-topic part withholds nothing — it simply leaves its own Goals `untouched`. Each Goal's *attempt* is its own too, and no other: a greeting attempt for `greeting`, an attempt to say how they are for `checkin`, a thank-you or a question back for `response`, a goodbye attempt for `closing`. An attempt at a *different* Goal never makes this one `failed` — a learner who asks "How are you?" has communicated `response`, and leaves `checkin` (which asks how *they* are) `untouched`. A bare "Yes." is on the other side of the same line: it acknowledges nothing, so it is never `achieved` either.
+**Per Goal, per part.** One message is judged Goal by Goal and part by part, never as a whole: the part that communicated a Goal achieves it, and only the part that attempted no Goal is `untouched`. A learner who greets Emily and then talks about something else has still achieved `greeting`, and the off-topic part withholds nothing — it simply leaves its own Goals `untouched`. Each Goal's *attempt* is its own too, and no other: a greeting attempt for `greeting`, an attempt to say how they are for `checkin`, a question back for `response`, a goodbye attempt for `closing`. A bare thank-you is not an attempt at `response` — it asks Emily nothing — so a message whose only move is a thank-you attempted no Goal and leaves `response` `untouched`, never `failed` (ADR-0013). An attempt at a *different* Goal never makes this one `failed` — a learner who asks "How are you?" has communicated `response`, and leaves `checkin` (which asks how *they* are) `untouched`. A bare "Yes." is on the other side of the same line: it acknowledges nothing, so it is never `achieved` either.
 
 **Global Feedback Rules.**
 - Encourage first, improve second.
@@ -46,9 +46,11 @@ Accepted Responses below are example correct answers, not an exhaustive match li
 | Conversation Goal | Accepted Responses (examples) |
 | --- | --- |
 | `greeting` | "Hi.", "Hello.", "Good morning.", "Good afternoon.", "Good evening.", "Nice to meet you." |
-| `checkin` | "I'm good.", "I'm fine.", "I'm okay.", "Pretty good.", "Not bad.", "I'm doing well." |
-| `response` | "Thank you.", "Thanks.", "How about you?", "And you?" (a single short phrase completes this step; the fuller acknowledgment + question-back + detail combination remains equally acceptable but is not required) |
-| `closing` | "See you.", "Have a nice day.", "Bye.", "Goodbye.", "You too." |
+| `checkin` | "I'm good.", "Good.", "I'm good, thanks.", "I'm good, thank you.", "Good, thanks.", "Good, thank you.", "I'm fine.", "Fine.", "I'm fine, thanks.", "I'm doing well.", "I'm well.", "Pretty good.", "Not bad.", "I'm okay.", "Okay.", "I'm great.", "Great!" |
+| `response` | "How about you?", "And you?", "You?", "What about you?", "How are you?", "How are you doing?", "How about yourself?" (one question back is enough — no acknowledgment or added detail is required; a bare "Thank you."/"Thanks." asks Emily nothing and does not achieve this Goal) |
+| `closing` | "See you!", "Have a nice day!", "Take care!", "Bye.", "Goodbye.", "You too." |
+
+**Superseded language:** ADR-0004's rule that "a single short phrase completes this step", with `"Thank you."`, `"Thanks."`, `"How about you?"`, `"And you?"` as the `response` Goal's Accepted Responses, is superseded by ADR-0013: `response` means asking Emily a question back, and a thank-you leaves it `untouched`. What survives of ADR-0004 is its single most load-bearing half — one question back is enough on its own; the fuller acknowledgment + question-back + detail combination remains equally acceptable but is not required.
 
 ## 3. Conversation Script
 
@@ -56,17 +58,17 @@ Emily's lines are a **verbatim Conversation Script**: a per-Conversation-Goal po
 
 **Line composition (ADR-0012).** Because one Turn can achieve several Goals, Emily's reply to an `accepted` Turn is a *sequence* of pool lines, each spoken in full, in this order:
 
-1. **Reaction** — if `checkin` was achieved in this Turn, one line from the Response pool (the "asked back" sub-pool if the learner asked a question back, otherwise the "did not ask back" one). This is the only reaction-type pool; every other pool steers.
-2. **Steer** — a line steering toward the new Focus Goal: Check-in pool when it is `checkin`, Closing pool when it is `closing`, Completion pool when all four Goals are achieved. When the Focus Goal is `greeting` or `response` (which have no steer pool of their own) and step 1 did not already address it, one line from that Goal's `needs_retry` pool serves as the steer — those lines already read as "here's what to say next".
+1. **Reaction** — a reaction line is due when **the learner asked a question back** (Emily owes them an answer to it, whenever the Check-in was answered) **or** when `checkin` was achieved in this Turn (she owes them a reaction to it). Either way it is one line from the Response pool, and `learner_asked_back` — the same boolean that is the signal `response` was achieved — chooses the sub-pool: the "asked back" one in the first case, the "did not ask back" one in the second. This is the only reaction-type pool; every other pool steers. ADR-0013 widened the trigger: the reaction used to be due only when the Check-in landed in the same Turn, which left a learner who answered the Check-in on one Turn and asked "How about you?" on the next steered silently to Closing without ever hearing an answer.
+2. **Steer** — a line steering toward the new Focus Goal: Check-in pool when it is `checkin`, Closing pool when it is `closing`, Completion pool when all four Goals are achieved. When the Focus Goal is `greeting` or `response` (which have no steer pool of their own) and step 1 did not already address it, one line from that Goal's `needs_retry` pool serves as the steer — those lines already read as "here's what to say next". A `response` steer almost never fires: `response` is a question the learner has to decide to ask, so after a Check-in acknowledgement Emily says her one line and waits rather than steering toward it (v2 ticket 3). It survives as the line for Goal Progress that skipped `response` — a learner who says goodbye while `response` is still open hears a `response` `needs_retry` line.
 3. **Farewell before completion** — if the Turn completes Practice but `closing` was achieved in an *earlier* Turn, a Closing-pool line is spoken before the Completion line, so Emily always says goodbye.
 
 Emily never ends a Turn silent: the composition above always yields at least one line.
 
 | Pool | Size | Source |
 | --- | --- | --- |
-| Opening greeting | 5 | existing opening-line pool, unchanged |
+| Opening greeting | 1 | v2 ticket 2's fixed self-introduction — "Hi! I'm Emily. It's nice to meet you." (ADR-0013) |
 | Check-in | 3 | authored below |
-| Response — learner did not ask back | 3 | authored below |
+| Response — learner did not ask back | 6 | authored below |
 | Response — learner asked back | 3 | authored below |
 | Closing | 4 | authored below |
 | Completion | 3 | existing completion pool, unchanged |
@@ -75,23 +77,26 @@ Emily never ends a Turn silent: the composition above always yields at least one
 
 ### Check-in (3)
 
-1. "How are you doing today?"
-2. "How's it going?"
-3. "How have you been?"
+1. "How are you today?"
+2. "Hi! How are you today?"
+3. "How's it going?"
 
-### Response (6 total, split into two sub-pools)
+### Response (9 total, split into two sub-pools)
 
-The Response step's pool is split because a plain acknowledgement and a reply that answers a returned question are not interchangeable: picking randomly across both produces Emily thanking the learner for a question they never asked, or ignoring one they did. `learner_asked_back` (a boolean from the Judge — Section 4) selects which sub-pool Emily draws from.
+The Response step's pool is split because a plain acknowledgement and a reply that answers a returned question are not interchangeable: picking randomly across both produces Emily answering a question the learner never asked, or ignoring one they did. `learner_asked_back` (a boolean from the Judge — Section 4) selects which sub-pool Emily draws from, on every Turn a reaction line is spoken.
 
-**Learner did not ask back (3):**
-1. "Glad to hear that!"
-2. "That's great to hear."
-3. "Nice, thanks for sharing!"
+**Learner did not ask back (6)** — the brief acknowledgement of a Check-in, v2 ticket 3's Check-in table de-duplicated:
+1. "That's good!"
+2. "Glad to hear that!"
+3. "Good to hear!"
+4. "That's great!"
+5. "Nice!"
+6. "Glad you're doing okay."
 
-**Learner asked back (3):**
-1. "I'm doing well too, thanks for asking!"
-2. "I'm good too — thanks for asking!"
-3. "Pretty good, thank you!"
+**Learner asked back (3)** — Emily's answer to the question the learner put to her (the first half of v2 ticket 4's Ask-back table; the second half is a Closing-pool line she speaks next, per ADR-0013 decision 2):
+1. "I'm good too, thanks!"
+2. "I'm good, thank you!"
+3. "I'm doing well, thanks!"
 
 ### Closing (4)
 
@@ -115,9 +120,9 @@ Each line nudges the learner toward what a Goal is asking for, without ever nami
 3. "That's not quite an answer to my question yet — how's your day going?"
 
 **`response` (3):**
-1. "Let's keep the conversation going — how would you respond to that?"
-2. "Almost there — try a short, friendly reply to what I said."
-3. "This is the spot to acknowledge me, or ask me something back."
+1. "Let's keep the conversation going — what could you ask me?"
+2. "Almost there — try a short, friendly question back to me."
+3. "This is the spot to ask how I'm doing."
 
 **`closing` (3):**
 1. "We're wrapping up now — how would you say goodbye?"
@@ -149,9 +154,9 @@ This table reconciles what were previously two separate, inconsistent tables (a 
 | --- | --- |
 | `achieved` | The learner's message communicated this Goal's intent — in their own words or not, prompted by Emily or not, and whether or not another part of the message said something else. |
 | `failed` | The message recognisably attempted this Goal's intent — each Goal's attempt is its own (see Section 1, "Per Goal, per part") — but did not communicate it, because the attempt was garbled or trailed off into words that mean nothing here. Grammar alone never makes an attempt `failed`, and an attempt at a different Goal never does either. |
-| `untouched` | The message did not attempt this Goal. Unrelated chatter, off-topic remarks, filler, a bare "Yes." — all `untouched`, never `failed` and never `achieved`. |
+| `untouched` | The message did not attempt this Goal. Unrelated chatter, off-topic remarks, filler, a bare "Yes." — all `untouched`, never `failed` and never `achieved`. A bare thank-you lands here for `response`, for the same reason: it attempts no Goal (Section 1, "Per Goal, per part"). |
 
-The Judge also still reports `learner_asked_back` (whether the message asked Emily a question back), which selects the Response sub-pool in Section 3.
+The Judge also still reports `learner_asked_back` (whether the message asked Emily a question back). It is the signal that the `response` Goal was achieved — asking Emily a question back is what that Goal means (ADR-0013) — so it is what decides whether Emily answers at all, even when the Check-in landed in an earlier Turn, and it selects which Response sub-pool she draws from in Section 3.
 
 **Verdict derivation — all-or-nothing.** `accepted` when the Goal Report contains at least one `achieved` and no `failed`; every `achieved` Goal then joins Goal Progress at once. `needs_retry` otherwise — including when one Goal was `achieved` and another `failed` in the same message: nothing from that Turn is saved, and the learner says the whole thing again. This is a deliberate departure from the flexible-tracking brief's "save completed goals" line: a learner should never have to work out which half of their sentence counted. A `support_requested` Turn Outcome never reaches Goal Progress at all.
 
