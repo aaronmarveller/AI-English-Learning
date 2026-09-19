@@ -161,11 +161,22 @@ test.describe("Practice page — Chinese help mode", () => {
 
     await micButton.click();
     await expect(micButton).toHaveAttribute("data-state", "listening");
-    await expect(micButton).toHaveAccessibleName("停止中文录音 Stop listening");
+    // The listening label is the shared "stop speaking" pair both microphones
+    // publish (src/components/practice/ask-in-chinese-sheet.tsx; commit 58bace9
+    // unified this surface with practice-input-form.tsx, retiring the older
+    // "停止中文录音 Stop listening" wording this assertion used to expect). What
+    // is Chinese-specific about this mic is its *idle* prompt and the language
+    // it listens in (see the zh-CN assertion above), not the stop label.
+    await expect(micButton).toHaveAccessibleName("停止说话 Stop listening");
     await micButton.click();
 
     await expect(micButton).toHaveAttribute("data-state", "idle");
-    await expect(micButton).toHaveAccessibleName("用中文提问 Ask in Chinese by voice");
+    await expect(micButton).toHaveAccessibleName("开始说话 Start speaking");
+    // Back to the sheet's own Chinese prompt: this is still the Ask-in-Chinese
+    // microphone, not the Practice one, once recognition has stopped.
+    await expect(page.getByTestId("ask-in-chinese-mic-status")).toHaveText(
+      "点击麦克风用中文提问 Tap the mic to ask in Chinese",
+    );
   });
 
   test("speaking/typing English while in help mode exits help mode and submits the turn", async ({ page }) => {

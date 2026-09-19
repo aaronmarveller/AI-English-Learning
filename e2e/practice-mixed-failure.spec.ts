@@ -1,11 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
 import {
+  absoluteAudioUrls,
   audioPathsFor,
+  emilyLines,
   installScriptedPracticeApi,
   mockSpeechApis,
   persistedPracticeSnapshot,
   playedSources,
   PRACTICE_URL,
+  recoveryQuestionLine,
   resetStorage,
   startSpeaking,
   submitReply,
@@ -14,16 +17,22 @@ import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
 
 /**
  * Issue #49's headline scenario, end to end (ADR-0012; docs/ai-configuration.md
- * section 3's `needs_retry` pool rule and section 4's "Verdict derivation —
- * all-or-nothing").
+ * section 3's "Recovery" rule and section 4's "Verdict derivation —
+ * all-or-nothing"), re-grained by issue #56 into the two-tier Recovery.
  *
  * The Focus Goal is Check-in and the learner says "I'm fine. See you later
  * alligator crocodile". The Judge reports `checkin: achieved` and `closing:
  * failed`, so the client derives `needs_retry` and none of the Turn is saved:
  * Goal Progress does not move and the progress steps keep their states. Emily
- * then speaks one line from the **Closing** `needs_retry` pool — the first
- * `failed` Goal in canonical order — never the Check-in pool written for the
- * Focus Goal whose Goal the learner just got right.
+ * then speaks the **Closing** Recovery — the first `failed` Goal in canonical
+ * order — never the Check-in one written for the Focus Goal whose Goal the
+ * learner just got right. Because the report has a `failed` Goal, that Recovery
+ * is the `unclear` variant's two lines: the shared "Sorry, I didn't quite get
+ * that." and then Closing's own question (issue #56; v2 ticket 8's "First
+ * Try"), and it is the *first* `needs_retry` Turn on this Focus Goal, so the
+ * Retry Streak is 0 and tier 1 is what it gets — tier 2's direct example (the
+ * `unclear`/`off-topic`-independent single line) would only come on a second
+ * consecutive retry, which this spec's three-Turn conversation never reaches.
  *
  * The retry still counts against the Focus Goal (src/lib/practice-state.ts
  * keys `retryCounts` by the Goal a Turn was judged against), which is what
@@ -34,43 +43,54 @@ import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
  * The Judge is stubbed (`installScriptedPracticeApi`, whose
  * `ScriptedTurnResponse` is exactly the report a real Judge returns);
  * everything else — Verdict derivation, Goal Progress, the retry-pool rule,
- * pool selection, the store, turn-taking and playback gating — runs real code
- * against a real `next build && next start` server.
+ * Recovery selection, the store, turn-taking and playback gating — runs real
+ * code against a real `next build && next start` server.
  */
 
 const CHECKIN_TEXTS = GREETING_SOMEBODY_LESSON.checkinLines.map((line) => line.en);
-const CHECKIN_RETRY_TEXTS = GREETING_SOMEBODY_LESSON.script.checkin.needsRetryLines.map(
-  (line) => line.en,
-);
-const CLOSING_RETRY_TEXTS = GREETING_SOMEBODY_LESSON.script.closing.needsRetryLines.map(
-  (line) => line.en,
-);
 const RESPONSE_TEXTS = [
   ...GREETING_SOMEBODY_LESSON.responseLines.didNotAskBack,
   ...GREETING_SOMEBODY_LESSON.responseLines.askedBack,
 ].map((line) => line.en);
 
 /**
- * Each Closing `needs_retry` line's pre-generated file, from the same manifest
- * src/lib/speech-synthesis.ts resolves against at runtime (e2e/fixtures.ts's
- * `audioPathsFor`) — looked up rather than hard-coded, so the playback test
- * fails loudly if a pool line ever loses its audio.
+ * The two lines the mixed Turn's Recovery must speak, in order: Closing's
+ * `unclear` nudge (the sentence v2 ticket 8 repeats in all four of its rows)
+ * and then Closing's question — derived from the Lesson, so neither can drift.
  */
-const CLOSING_RETRY_AUDIO_PATHS = audioPathsFor(GREETING_SOMEBODY_LESSON.script.closing.needsRetryLines);
+const CLOSING_RECOVERY_TIER_ONE_TEXTS = [
+  GREETING_SOMEBODY_LESSON.script.closing.recovery.unclearNudge.en,
+  recoveryQuestionLine("closing").en,
+];
 
 /**
- * The three fields this spec asserts on, projected off the shared persisted
- * snapshot (e2e/fixtures.ts's `persistedPracticeSnapshot`).
+ * Each of those two lines' pre-generated file, from the same manifest
+ * src/lib/speech-synthesis.ts resolves against at runtime (e2e/fixtures.ts's
+ * `audioPathsFor`) — looked up rather than hard-coded, so the playback test
+ * fails loudly if a Recovery line ever loses its audio. Two entries because a
+ * Recovery is a sequence: the shared `unclear` nudge and the Goal's question
+ * each have their own recording (issue #56's ten new files).
+ */
+const CLOSING_RECOVERY_AUDIO_PATHS = [
+  audioPathsFor([GREETING_SOMEBODY_LESSON.script.closing.recovery.unclearNudge]),
+  audioPathsFor([recoveryQuestionLine("closing")]),
+];
+
+/**
+ * The fields this spec asserts on, projected off the shared persisted snapshot
+ * (e2e/fixtures.ts's `persistedPracticeSnapshot`).
  */
 async function persistedState(page: Page): Promise<{
   goalProgress: string[];
   retryCounts: Record<string, number>;
+  retryStreak: { goal: string; count: number } | null;
   turnRecords: { state: string; passedFirstTry: boolean }[];
 }> {
   const snapshot = await persistedPracticeSnapshot(page);
   return {
     goalProgress: snapshot.goalProgress ?? [],
     retryCounts: snapshot.retryCounts ?? {},
+    retryStreak: snapshot.retryStreak ?? null,
     turnRecords: (snapshot.turnRecords ?? []).map((record) => ({
       state: record.state,
       passedFirstTry: record.passedFirstTry,
@@ -108,21 +128,41 @@ test.describe("Practice page — a Turn with one Goal right and another wrong is
     await expect(page.getByTestId("practice-step-response")).toHaveAttribute("data-state", "upcoming");
     await expect(page.getByTestId("practice-step-closing")).toHaveAttribute("data-state", "upcoming");
 
-    // Emily's one line comes from the Closing retry pool — the Goal that
-    // failed, not the Focus Goal the learner just got right.
-    const retryText = await page.getByTestId("emily-message-bubble").innerText();
-    expect(CLOSING_RETRY_TEXTS).toContain(retryText);
-    expect(CHECKIN_RETRY_TEXTS).not.toContain(retryText);
+    // Emily's two lines come from the Closing Recovery — the Goal that failed,
+    // not the Focus Goal the learner just got right. Exactly those two, in
+    // order, shown as the one bubble a Turn's lines always share: the second
+    // line (Closing's own question) is what makes the Goal this Recovery talks
+    // about observable at all, because the `unclear` nudge is one shared
+    // sentence. Tier 1, not the direct example: this is the first `needs_retry`
+    // Turn on Check-in, so the Retry Streak is 0.
+    await expect(page.getByTestId("emily-message-bubble")).toHaveText(
+      CLOSING_RECOVERY_TIER_ONE_TEXTS.join(" "),
+    );
+    const turnLines = (await emilyLines(page)).slice(-CLOSING_RECOVERY_TIER_ONE_TEXTS.length);
+    expect(turnLines).toEqual(CLOSING_RECOVERY_TIER_ONE_TEXTS);
+
+    // Never anything Check-in's — neither the pool the learner was just asked
+    // with, nor the half of the Check-in Recovery that is its own (its
+    // off-topic nudge and its direct example; its `unclear` nudge is the same
+    // shared sentence Closing's is, so that one is not Check-in-specific).
+    const checkinRecovery = GREETING_SOMEBODY_LESSON.script.checkin.recovery;
+    for (const line of CLOSING_RECOVERY_TIER_ONE_TEXTS) {
+      expect(CHECKIN_TEXTS).not.toContain(line);
+      expect(line).not.toBe(checkinRecovery.offTopicNudge?.en);
+      expect(line).not.toBe(checkinRecovery.directExample.en);
+    }
 
     // Nothing from the Turn reached Goal Progress, and the retry was booked
     // against the Focus Goal — Check-in — while the failed Closing attempt is
     // nowhere in the store at all. That is what keeps the Learning Summary
     // able to say "Check-in wasn't first try" without ever mentioning Closing.
     // Turn 1's accepted greeting is not in `retryCounts`: an accepted Turn is
-    // not a retry, so it books nothing.
+    // not a retry, so it books nothing. The Retry Streak is now Check-in's own
+    // first retry (issue #56) — which is exactly why this Turn got tier 1.
     const afterMixedFailure = await persistedState(page);
     expect(afterMixedFailure.goalProgress).toEqual(["greeting"]);
     expect(afterMixedFailure.retryCounts).toEqual({ checkin: 1 });
+    expect(afterMixedFailure.retryStreak).toEqual({ goal: "checkin", count: 1 });
     expect(afterMixedFailure.turnRecords).toEqual([{ state: "greeting", passedFirstTry: true }]);
 
     // The next Turn credits Check-in for real — as a second attempt, never a
@@ -139,15 +179,17 @@ test.describe("Practice page — a Turn with one Goal right and another wrong is
     const afterRecovery = await persistedState(page);
     expect(afterRecovery.goalProgress).toEqual(["greeting", "checkin"]);
     // Still one retry on Check-in — the accepted Turn that followed is not
-    // counted, only read.
+    // counted, only read — and the streak is cleared by it, which is what
+    // returns the learner to the normal flow (issue #56).
     expect(afterRecovery.retryCounts).toEqual({ checkin: 1 });
+    expect(afterRecovery.retryStreak).toBeNull();
     expect(afterRecovery.turnRecords).toEqual([
       { state: "greeting", passedFirstTry: true },
       { state: "checkin", passedFirstTry: false },
     ]);
   });
 
-  test("Emily speaks the Closing retry line's own audio, and the microphone waits for her Handoff Gap", async ({
+  test("Emily speaks both of the Closing Recovery's own audio files, in order, and the microphone waits for her Handoff Gap", async ({
     page,
   }) => {
     await resetStorage(page);
@@ -160,6 +202,9 @@ test.describe("Practice page — a Turn with one Goal right and another wrong is
 
     const micButton = page.getByTestId("practice-mic-button");
     const baseUrl = page.url();
+    const closingRecoveryUrls = CLOSING_RECOVERY_AUDIO_PATHS.map((paths) =>
+      absoluteAudioUrls(paths, baseUrl),
+    );
 
     // Turn 1 over voice, so the mic tap is also the gesture that unlocks the
     // reusable audio element (e2e/fixtures.ts's `<audio>` stub models iOS's
@@ -183,20 +228,27 @@ test.describe("Practice page — a Turn with one Goal right and another wrong is
       }),
     );
 
-    // The one line she speaks is the Closing retry line, by its own audio file
-    // (an absolute URL — assigning a relative path to `HTMLMediaElement.src`
-    // resolves it against the document, which is what the stub records).
+    // The Recovery's FIRST line plays from its own file: the shared `unclear`
+    // nudge (an absolute URL — assigning a relative path to
+    // `HTMLMediaElement.src` resolves it against the document, which is what
+    // the stub records).
     await expect.poll(async () => (await playedSources(page)).length).toBe(3);
-    const retrySource = (await playedSources(page))[2];
-    expect(
-      CLOSING_RETRY_AUDIO_PATHS.map((path) => new URL(path, baseUrl).toString()),
-    ).toContain(retrySource);
+    expect(closingRecoveryUrls[0]).toContain((await playedSources(page))[2]);
     await expect(micButton).toBeDisabled();
     await expect(page.getByTestId("practice-mic-status")).toContainText("Emily is speaking");
 
-    // And the floor comes back only after her line has ended plus one Handoff
-    // Gap — the retry Turn does not end Emily's turn any earlier than a clean
-    // one does.
+    // The first line ends and the floor must NOT come back: it is one Turn, so
+    // the Goal's question follows immediately, and the mic stays unavailable
+    // across both lines.
+    await page.evaluate(() => window.__mockAudio?.endCurrent());
+    await expect.poll(async () => (await playedSources(page)).length).toBe(4);
+    expect(closingRecoveryUrls[1]).toContain((await playedSources(page))[3]);
+    await expect(micButton).toBeDisabled();
+    await expect(page.getByTestId("practice-mic-status")).toContainText("Emily is speaking");
+
+    // And the floor comes back only after the second line has ended plus one
+    // Handoff Gap — the retry Turn does not end Emily's turn any earlier than a
+    // clean one does.
     await page.evaluate(() => window.__mockAudio?.endCurrent());
     await expect(page.getByTestId("practice-mic-status")).toContainText("Wait for her voice to settle");
     await expect(micButton).toBeEnabled({ timeout: 10_000 });

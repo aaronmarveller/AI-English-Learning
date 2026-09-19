@@ -20,8 +20,8 @@
  * Every English sentence she speaks — on `accepted` and on `needs_retry` —
  * is now selected at random from a fixed pool that lives on this Lesson,
  * never paraphrased or composed. This file grew four new pools
- * (`checkinLines`, `responseLines`, `closingLines`, `needsRetryLines` per
- * state) and turned the old single silence-timeout line into a 3-line pool
+ * (`checkinLines`, `responseLines`, `closingLines`, per-Goal recovery lines
+ * since #56) and turned the old single silence-timeout line into a 3-line pool
  * (`silenceNudgeLines`) — every one of them copied verbatim from
  * docs/ai-configuration.md section 3, with Chinese translations authored
  * fresh here (the AI Configuration doc only specifies the English). The
@@ -30,6 +30,16 @@
  * re-authored both from v2 ticket 5's Closing table, and their own doc
  * comments below say what changed and why. Selection itself lives in
  * src/lib/emily-reply-selector.ts, not here — this file only owns content.
+ *
+ * Issue #56 (v2 tickets 8, 10 and 9; ADR-0014) splits the per-Goal
+ * `needsRetryLines` pool in two, because those tickets ask for *progressive*
+ * support rather than one repeated nudge: each Goal now carries a `recovery`
+ * (tier 1 = a nudge followed by that Goal's question, tier 2 = a direct
+ * example) and the old pool survives, unchanged in content, as `steerLines` —
+ * the line an `accepted` Turn uses to steer toward a Goal left open, which is
+ * the only job it has left. The silence nudge pool is unchanged; what changed
+ * is that it is now spoken as a sequence with that same Goal question (see
+ * src/lib/emily-reply-selector.ts's `selectSilenceReminder`).
  */
 
 import {
@@ -198,6 +208,79 @@ const CLOSING_LINES: ScriptLine[] = [
   { en: "See you!", zh: "再见啦！" },
 ];
 
+// --- Two-tier recovery (issue #56; docs/ai-configuration.md section 3) -----
+
+/**
+ * Emily's two-tier recovery for one Conversation Goal (issue #56; v2 tickets
+ * 8, 10 and 9; docs/ai-configuration.md section 3). What a `needs_retry` Turn
+ * speaks instead of the flat 3-line pool this used to be.
+ *
+ * Tier 1 is a *sequence* — a nudge, then the Goal's question — because the
+ * learner has not answered yet and the question is what asks them to. Which
+ * nudge opens it is the Goal Report's job to decide (section 3's "Recovery"):
+ * a `failed` Goal means a recognisable attempt that did not come through, so
+ * the learner hears `unclearNudge`; a Turn that attempted nothing at all
+ * (every open Goal `untouched` — what off-topic input looks like) hears
+ * `offTopicNudge` instead, or no nudge at all where that Goal's row in v2
+ * ticket 10's table has none.
+ *
+ * Tier 2 is one line and says what tier 1 would not: a direct example, spoken
+ * on the learner's second consecutive `needs_retry` Turn on the same Focus
+ * Goal (the Retry Streak — src/lib/practice-state.ts). Both of v2 tickets 8
+ * and 10 write the same sentence for this tier, so one line per Goal covers
+ * both variants.
+ *
+ * The tier-1/tier-2 split is also a *reveal* rule (docs/ai-configuration.md
+ * section 1's Global Constraints, ADR-0014 decision 1): tier 1 never names an
+ * Accepted Response, tier 2 hands one over on purpose.
+ */
+export type RecoveryScript = {
+  /**
+   * Tier 1's nudge when at least one open Goal's report is `failed` — v2
+   * ticket 8's "First Try" prefix. All four Goals carry the same one, because
+   * that table repeats this sentence in every one of its rows: the
+   * Goal-specific half of the line is the question that follows it, not this.
+   * Spelled per Goal anyway, so a Goal's recovery stays a complete account of
+   * what that Goal says and a Goal that ever needs its own wording has
+   * somewhere to put it. A divergence would be loud rather than silent:
+   * `audio-manifest.test.ts` covers every Goal's `unclearNudge`, and
+   * src/lib/audio-manifest.ts throws at module load on duplicate text.
+   */
+  unclearNudge: ScriptLine;
+  /**
+   * Tier 1's nudge when the Turn attempted nothing (off-topic) — v2 ticket
+   * 10's "First Redirect" prefix. `null` where that table's row has no prefix
+   * of its own (`response`, `closing`), so those Goals open straight onto
+   * their question; inventing one would be the combined line ADR-0014
+   * decision 2 rejects, one level down.
+   */
+  offTopicNudge: ScriptLine | null;
+  /**
+   * The question tier 1 steers with — v2 tickets 8 and 10 ask the same one in
+   * both of their rows for a Goal, so one line per Goal serves both variants.
+   *
+   * `null` for `checkin`, and only for `checkin`: that Goal's question already
+   * exists as its steer pool (`CHECKIN_LINES` — "How are you today?"), and the
+   * decision recorded in ADR-0014 keeps the steer pools the single source of
+   * the question wording rather than authoring a second copy of it here.
+   */
+  question: ScriptLine | null;
+  /** Tier 2 — v2 tickets 8 and 10's "If Still Unclear"/"If Still Off-topic" sentence, the same in both. */
+  directExample: ScriptLine;
+};
+
+/**
+ * Tier 1's `unclear` nudge (see `RecoveryScript.unclearNudge`). One shared
+ * value, because v2 ticket 8's table repeats this exact sentence in all four
+ * of its rows — the Goal-specific half of that line is the question that
+ * follows it, not this — and exported so the audio manifest can name it once
+ * rather than emitting the same text under four ids (src/lib/audio-manifest.ts).
+ */
+export const RECOVERY_UNCLEAR_NUDGE: ScriptLine = {
+  en: "Sorry, I didn't quite get that.",
+  zh: "抱歉，我好像没太听懂。",
+};
+
 // --- Per-state script: Learning Goal + Accepted Responses whitelist ------
 
 export type PracticeStateScript = {
@@ -226,15 +309,25 @@ export type PracticeStateScript = {
    */
   acceptedResponses: string[];
   /**
-   * Issue #16 (docs/ai-configuration.md section 3): the fixed 3-line pool
-   * Emily selects from, verbatim, when a Turn judged against this Goal is
-   * `needs_retry`. Per-Goal (not global) so the line can point the learner at
-   * what *this* Goal is asking for, and — per the Global Constraints — never
-   * names or implies the Goal's `acceptedResponses`. These lines double as the
-   * steer toward `greeting` and `response`, which have no steer pool of their
-   * own (src/lib/emily-reply-selector.ts).
+   * Issue #16 (docs/ai-configuration.md section 3), as narrowed by issue #56:
+   * the fixed pool of "here's what to say next" lines, carried by the two
+   * Goals that have no steer pool of their own — `greeting` and `response`
+   * (issue #50). Optional because those are the only two: `checkin` steers
+   * from `CHECKIN_LINES` and `closing` from `CLOSING_LINES`, so a pool here
+   * would be content nothing can speak. #56 deleted the two pools that were
+   * in that position (`checkin`'s and `closing`'s) along with their audio,
+   * exactly as it replaced every Goal's `needs_retry` lines with `recovery`.
+   *
+   * It used to be the pool a `needs_retry` Turn spoke from — hence its old
+   * name, `needsRetryLines` — and it is now spoken on `accepted` Turns only,
+   * as the borrowed steer `selectSteerLineForFocusGoal`
+   * (src/lib/emily-reply-selector.ts) picks when the Focus Goal has no steer
+   * pool. The rename follows the pool's job, as CONTEXT.md's glossary
+   * discipline requires (ADR-0014 decision 5).
    */
-  needsRetryLines: ScriptLine[];
+  steerLines?: ScriptLine[];
+  /** Emily's two-tier recovery for this Goal — what a `needs_retry` Turn speaks (issue #56; see `RecoveryScript` above). */
+  recovery: RecoveryScript;
 };
 
 /**
@@ -275,7 +368,7 @@ const PRACTICE_SCRIPT: Record<ActiveConversationState, PracticeStateScript> = {
       "Good evening.",
       "Nice to meet you.",
     ],
-    needsRetryLines: [
+    steerLines: [
       {
         en: "I don't think I caught a greeting there — want to try saying hi?",
         zh: "我好像没听到你跟我打招呼呢——要不要试着说声嗨？",
@@ -289,6 +382,15 @@ const PRACTICE_SCRIPT: Record<ActiveConversationState, PracticeStateScript> = {
         zh: "就差一点啦！现在正是先说一声你好的时候。",
       },
     ],
+    recovery: {
+      unclearNudge: RECOVERY_UNCLEAR_NUDGE,
+      offTopicNudge: { en: "Let's start with a greeting.", zh: "我们先从打招呼开始吧。" },
+      question: {
+        en: "What would you say when you meet someone?",
+        zh: "遇到一个人时，你会怎么打招呼呢？",
+      },
+      directExample: { en: 'You can say "Hi" or "Hello."', zh: "你可以说 “Hi” 或者 “Hello.”" },
+    },
   },
   checkin: {
     state: "checkin",
@@ -323,20 +425,18 @@ const PRACTICE_SCRIPT: Record<ActiveConversationState, PracticeStateScript> = {
       "I'm great.",
       "Great!",
     ],
-    needsRetryLines: [
-      {
-        en: "I asked how you're doing — how would you answer that?",
-        zh: "我刚问你最近怎么样——你会怎么回答呢？",
+    recovery: {
+      unclearNudge: RECOVERY_UNCLEAR_NUDGE,
+      offTopicNudge: { en: "Let's keep going.", zh: "我们继续吧。" },
+      // No question of its own: the Check-in steer pool asks it ("How are you
+      // today?"), and ADR-0014 decision 2 keeps that pool the single source of
+      // the wording rather than authoring a second copy here.
+      question: null,
+      directExample: {
+        en: 'You can say "I\'m good" or "I\'m okay."',
+        zh: "你可以说 “I'm good” 或者 “I'm okay.”",
       },
-      {
-        en: "Let's try again — how are you feeling today?",
-        zh: "我们再试一次吧——你今天感觉怎么样？",
-      },
-      {
-        en: "That's not quite an answer to my question yet — how's your day going?",
-        zh: "这还不太算是回答我的问题哦——你今天过得怎么样？",
-      },
-    ],
+    },
   },
   response: {
     state: "response",
@@ -364,7 +464,7 @@ const PRACTICE_SCRIPT: Record<ActiveConversationState, PracticeStateScript> = {
       "How are you doing?",
       "How about yourself?",
     ],
-    needsRetryLines: [
+    steerLines: [
       {
         en: "Let's keep the conversation going — what could you ask me?",
         zh: "我们继续聊下去吧——你可以问我点什么呢？",
@@ -378,6 +478,15 @@ const PRACTICE_SCRIPT: Record<ActiveConversationState, PracticeStateScript> = {
         zh: "这里正是问问我过得怎么样的好时机。",
       },
     ],
+    recovery: {
+      unclearNudge: RECOVERY_UNCLEAR_NUDGE,
+      // Ticket 10's row for this Goal has no redirect prefix of its own — the
+      // question is the whole first redirect, so this stays `null` rather than
+      // copying the Check-in nudge onto a Goal the table does not give one.
+      offTopicNudge: null,
+      question: { en: "What could you ask me back?", zh: "你可以反问我什么呢？" },
+      directExample: { en: 'You can say "How about you?"', zh: "你可以说 “How about you?”" },
+    },
   },
   closing: {
     state: "closing",
@@ -391,20 +500,21 @@ const PRACTICE_SCRIPT: Record<ActiveConversationState, PracticeStateScript> = {
       "Goodbye.",
       "You too.",
     ],
-    needsRetryLines: [
-      {
-        en: "We're wrapping up now — how would you say goodbye?",
-        zh: "我们现在要结束啦——你会怎么说再见呢？",
+    recovery: {
+      unclearNudge: RECOVERY_UNCLEAR_NUDGE,
+      // Ticket 10's row for this Goal has no redirect prefix of its own, same
+      // as `response` above.
+      offTopicNudge: null,
+      // The one Goal whose recovery question is *not* its steer line: the
+      // Closing steer pool says goodbye itself ("Have a nice day!"), which
+      // cannot ask the learner to. So the question is authored here, and the
+      // Closing steer stays what an `accepted` Turn picks from CLOSING_LINES.
+      question: { en: "What could you say before we go?", zh: "我们分开前，你可以说什么呢？" },
+      directExample: {
+        en: 'You can say "See you" or "Take care."',
+        zh: "你可以说 “See you” 或者 “Take care.”",
       },
-      {
-        en: "Let's try again — what would you say to end the conversation?",
-        zh: "我们再试一次吧——结束对话时你会说什么？",
-      },
-      {
-        en: "Almost! This is the moment to say your goodbyes.",
-        zh: "就差一点啦！现在正是说再见的时候。",
-      },
-    ],
+    },
   },
 };
 
@@ -488,15 +598,23 @@ const ASK_IN_CHINESE_HELP: Record<ActiveConversationState, AskInChineseHelp> = {
 export type SupportNudge = ScriptLine;
 
 /**
- * Fixed bilingual 3-line pool Emily picks from when the learner has gone
- * quiet for a while — appended via practice-state.ts's
- * `appendSupportMessage`, which never touches Goal Progress. Issue #16
- * (docs/ai-configuration.md section 3) expanded this from a single fixed
- * line to a 3-line pool so a long pause doesn't produce the same sentence
- * over and over (user story 18) — selection (src/lib/emily-reply-selector.ts's
- * `selectSilenceNudge`) must never repeat the same line twice in a row.
+ * Fixed bilingual 3-line nudge pool — the *first half* of the silence
+ * reminder Emily speaks when the learner has gone quiet for a while (issue
+ * #56; docs/ai-configuration.md section 3's "Silence reminder"), appended via
+ * practice-state.ts's `appendSupportMessages`, which never touches Goal
+ * Progress. Issue #16 (that section) expanded this from a single fixed line to
+ * a 3-line pool so a long pause doesn't produce the same sentence over and
+ * over (user story 18) — selection (src/lib/emily-reply-selector.ts's
+ * `selectSilenceReminder`) must never repeat the same line twice in a row.
  * `nudge-0`'s text is kept identical to before so the already-generated
  * `public/audio/nudge-0.mp3` file still matches.
+ *
+ * The second half is the Focus Goal's question, which is a Goal's content and
+ * not this pool's (v2 ticket 9's own example is "Take your time. How are you
+ * today?" — a nudge plus the Check-in question Emily already asked). The pool
+ * is one for the whole Lesson rather than per Goal, deliberately: a nudge
+ * breaks a silence, it does not say anything about what the learner has or
+ * hasn't said.
  */
 const SILENCE_NUDGE_LINES: ScriptLine[] = [
   { en: "Take your time!", zh: "别着急，慢慢想。" },

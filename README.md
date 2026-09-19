@@ -44,8 +44,9 @@ model calls. Run it by hand, and re-run it whenever
 
 `npm run generate:audio` pre-generates `public/audio/*.mp3` for every fixed
 English line listed in `src/lib/audio-manifest.ts` — Emily's opening line, the
-Check-in / Response / Closing / Completion pools and the four `needs_retry`
-pools, the silence nudge, and Explore's 13 expressions/combo sentence — via a
+Check-in / Response / Closing / Completion pools, the `greeting` and `response`
+steer pools, every line of the per-Goal two-tier Recovery, the silence nudge,
+and Explore's 13 expressions/combo sentence — via a
 real TTS provider (OpenAI's `tts-1` by default). Since issue #16 the model only
 *judges* the learner's message; the client picks Emily's reply from those fixed
 pools, so every line she speaks is pre-generated. `src/lib/speech-synthesis.ts`

@@ -1,7 +1,8 @@
 import type { Page, Route } from "@playwright/test";
 import type { GoalReport } from "@/lib/practice-turn-protocol";
 import { AUDIO_MANIFEST } from "@/lib/audio-manifest";
-import type { ScriptLine } from "@/content/lesson";
+import { GREETING_SOMEBODY_LESSON, type ScriptLine } from "@/content/lesson";
+import type { ActiveConversationState } from "@/lib/conversation-state-machine";
 
 /**
  * Shared E2E helpers (ticket 03).
@@ -303,11 +304,21 @@ export type PersistedTurnRecord = {
   learnerAskedBack: boolean;
 };
 
-/** One persisted `PracticeMessage` (src/lib/practice-state.ts) — one per Conversation Script line of a Turn. */
+/**
+ * One persisted `PracticeMessage` (src/lib/practice-state.ts) — one per
+ * Conversation Script line of a Turn.
+ */
 export type PersistedPracticeMessage = {
   role: string;
   textEn: string;
   textZh: string;
+  /**
+   * Which write this message arrived in (issue #48): every line of one Turn
+   * shares a value, so two messages with the same `sequenceId` are one Turn —
+   * what a spec asserting "these two lines are one reminder, not two" reads.
+   * Optional because snapshots persisted before #48 have none.
+   */
+  sequenceId?: string;
 };
 
 /**
@@ -317,6 +328,13 @@ export type PersistedPracticeMessage = {
  * data: whether an absent field is a failure is the assertion's business, not
  * this reader's.
  *
+ * Issue #56 added `retryStreak`. It is deliberately the one field whose
+ * absence is not a shape mismatch — `deserialize` accepts a snapshot without
+ * it (a pre-#56 session, whose streak is unknowable) and reads it as "no
+ * streak", so a spec seeding an old snapshot still loads — which is why it is
+ * optional here like every other field, and why a spec asserting on the
+ * streak must read it off a snapshot a Turn actually wrote.
+ *
  * Throws when nothing is persisted at all, since every call site reads after a
  * Turn has been recorded — a missing snapshot means the write under test never
  * happened, and a clear error beats a confusing assertion diff.
@@ -324,6 +342,8 @@ export type PersistedPracticeMessage = {
 export type PersistedPracticeSnapshot = {
   goalProgress?: string[];
   retryCounts?: Record<string, number>;
+  /** The Retry Streak as persisted (issue #56): which Goal, and how many `needs_retry` Turns in a row it has had — `null` once an `accepted` Turn cleared it. */
+  retryStreak?: { goal: string; count: number } | null;
   turnRecords?: PersistedTurnRecord[];
   messages?: PersistedPracticeMessage[];
 };
@@ -339,6 +359,77 @@ export async function persistedPracticeSnapshot(page: Page): Promise<PersistedPr
 /** The persisted transcript, in order. */
 export async function persistedMessages(page: Page): Promise<PersistedPracticeMessage[]> {
   return (await persistedPracticeSnapshot(page)).messages ?? [];
+}
+
+/**
+ * Emily's spoken lines, in order — one entry per persisted Emily message,
+ * which is one per Conversation Script line (src/lib/practice-state.ts's
+ * `recordTurnResult`). The per-line counterpart of the bubble's joined text:
+ * `emily-message-bubble` shows a Turn's lines as one string (joined with a
+ * single space, message-bubble-pair.tsx), so a spec that needs to assert a
+ * Turn's *sequence* — a Recovery's two lines, for instance — reads it here.
+ */
+export async function emilyLines(page: Page): Promise<string[]> {
+  const messages = await persistedMessages(page);
+  return messages.filter((message) => message.role === "emily").map((message) => message.textEn);
+}
+
+// --- Lesson-content expectations (issue #56) ------------------------------
+//
+// The two-tier Recovery (src/content/lesson.ts's `RecoveryScript`) is content,
+// not a string a spec may copy by hand: a spec asserts against these readers so
+// an assertion can never drift from the Lesson it is checking, and so a Goal
+// that loses a half of its Recovery fails the spec loudly instead of reading as
+// an empty expectation. `RECOVERY_UNCLEAR_NUDGE` is exported by the Lesson and
+// imported directly where a spec needs the shared `unclear` nudge.
+
+/**
+ * A Goal's off-topic nudge — the first line of its first-tier Recovery when
+ * every open Goal was `untouched` (v2 ticket 10's "First Redirect" prefix).
+ *
+ * Throws for `response` and `closing`, whose rows in ticket 10's table have no
+ * prefix of their own: the question is those Goals' whole off-topic variant,
+ * deliberately (src/content/lesson.ts's `RecoveryScript.offTopicNudge`). A spec
+ * asserting a two-line off-topic Recovery for one of them would be asserting a
+ * line the Lesson does not have.
+ */
+export function recoveryOffTopicNudgeLine(goal: ActiveConversationState): ScriptLine {
+  const nudge = GREETING_SOMEBODY_LESSON.script[goal].recovery.offTopicNudge;
+  if (nudge === null) {
+    throw new Error(`recovery: ${goal}'s off-topic variant has no nudge of its own`);
+  }
+  return nudge;
+}
+
+/**
+ * The question a Goal's first-tier Recovery asks, and the second line of its
+ * silence reminder (one function serves both — issue #56; docs/ai-configuration.md
+ * section 3's "Recovery" and "Silence reminder"). Throws for `checkin`, whose
+ * question is its steer pool's ("How are you today?" — `CHECKIN_TEXTS`), so a
+ * spec asserts membership in that pool instead.
+ */
+export function recoveryQuestionLine(goal: ActiveConversationState): ScriptLine {
+  const question = GREETING_SOMEBODY_LESSON.script[goal].recovery.question;
+  if (question === null) {
+    throw new Error(`recovery: ${goal} has no question of its own — it steers from its pool`);
+  }
+  return question;
+}
+
+/**
+ * A Goal's borrowed steer pool, by text — the pool renamed `needsRetryLines` →
+ * `steerLines` by issue #56, now spoken only by an `accepted` Turn's steer
+ * toward an open Goal. Only `greeting` and `response` carry one (issue #50);
+ * asking for another Goal's throws rather than returning an empty list, which
+ * would make every `toContain` against it vacuously false and the spec's real
+ * subject untested.
+ */
+export function steerLineTexts(goal: ActiveConversationState): string[] {
+  const pool = GREETING_SOMEBODY_LESSON.script[goal].steerLines;
+  if (pool === undefined || pool.length === 0) {
+    throw new Error(`steerLines: ${goal} has no steer pool to borrow from`);
+  }
+  return pool.map((line) => line.en);
 }
 
 // --- Audio-path helpers (issues #48-#50) ---------------------------------

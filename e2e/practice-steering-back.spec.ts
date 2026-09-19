@@ -3,12 +3,13 @@ import {
   absoluteAudioUrls,
   audioPathsFor,
   audioPathsForTexts,
+  emilyLines,
   installScriptedPracticeApi,
   mockSpeechApis,
-  persistedMessages,
   playedSources,
   PRACTICE_URL,
   resetStorage,
+  steerLineTexts,
   submitReply,
 } from "./fixtures";
 import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
@@ -22,14 +23,16 @@ import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
  * - **Steering back.** A learner whose *first* line answers the check-in
  *   ("I'm fine, thanks!") clears `checkin` while `greeting` is still open, so
  *   the Focus Goal is Greeting. Emily reacts (e.g. "Glad to hear that!") and
- *   then steers back with a Greeting `needs_retry` line, because `greeting` has
- *   no steer pool of its own. The mirror image — Greeting achieved while
- *   Check-in is already in Goal Progress — steers with a *Response*
- *   `needs_retry` line, with no reaction line in front of it: Check-in was not
- *   achieved this Turn, so there is no check-in to react to. Emily never ends a
- *   Turn silent. (Every line quoted in this file is one possible draw from a
- *   randomly-picked pool, never a deterministic one; the assertions below check
- *   pool membership.)
+ *   then steers back with a Greeting steer line — issue #50's borrowed steer,
+ *   from the pool issue #56 renamed `needsRetryLines` → `steerLines`, because
+ *   `needs_retry` Turns no longer speak it (they speak the Recovery) and
+ *   `greeting` has no steer pool of its own. The mirror image — Greeting
+ *   achieved while Check-in is already in Goal Progress — steers with a
+ *   *Response* steer line, with no reaction line in front of it: Check-in was
+ *   not achieved this Turn, so there is no check-in to react to. Emily never
+ *   ends a Turn silent. (Every line quoted in this file is one possible draw
+ *   from a randomly-picked pool, never a deterministic one; the assertions
+ *   below check pool membership.)
  * - **Goodbye before completion.** A learner who says "Hi! Bye!" up front
  *   clears `closing` in the first Turn, so the Turn that finally completes
  *   Practice has `closing` already in Goal Progress rather than achieved by it.
@@ -60,12 +63,15 @@ const RESPONSE_TEXTS = [
 const RESPONSE_ASKED_BACK_TEXTS = GREETING_SOMEBODY_LESSON.responseLines.askedBack.map(
   (line) => line.en,
 );
-const GREETING_RETRY_TEXTS = GREETING_SOMEBODY_LESSON.script.greeting.needsRetryLines.map(
-  (line) => line.en,
-);
-const RESPONSE_RETRY_TEXTS = GREETING_SOMEBODY_LESSON.script.response.needsRetryLines.map(
-  (line) => line.en,
-);
+/**
+ * The borrowed steer pools (issue #50), by their issue #56 name: the 3 lines
+ * per Goal that an `accepted` Turn speaks toward an open Goal — and the only
+ * thing these pools do now. Read through the fixtures' `steerLineTexts` so a
+ * Goal that lost its pool (as `checkin` and `closing` did in #56) fails the
+ * spec rather than silently matching nothing.
+ */
+const GREETING_STEER_TEXTS = steerLineTexts("greeting");
+const RESPONSE_STEER_TEXTS = steerLineTexts("response");
 const CHECKIN_TEXTS = GREETING_SOMEBODY_LESSON.checkinLines.map((line) => line.en);
 const CLOSING_TEXTS = GREETING_SOMEBODY_LESSON.closingLines.map((line) => line.en);
 const COMPLETION_TEXTS = [...GREETING_SOMEBODY_LESSON.completionMessages];
@@ -95,15 +101,6 @@ const EARLIER_TURN_AUDIO_PATHS = [
     GREETING_SOMEBODY_LESSON.responseLines.didNotAskBack.map((line) => line.en),
   ),
 ];
-
-/**
- * Emily's spoken lines, in order — one message per Conversation Script line
- * (e2e/fixtures.ts's `persistedMessages`), so a Turn's sequence is its last N.
- */
-async function emilyLines(page: Page): Promise<string[]> {
-  const messages = await persistedMessages(page);
-  return messages.filter((message) => message.role === "emily").map((message) => message.textEn);
-}
 
 /** Waits until one of `urls` starts playing, ignoring plays from before `playedBefore`. */
 async function expectNewPlayback(page: Page, playedBefore: number, urls: string[]): Promise<void> {
@@ -163,23 +160,24 @@ test.describe("Practice page — Emily steers back to an open earlier Goal", () 
     await expect(page.getByTestId("practice-step-response")).toHaveAttribute("data-state", "upcoming");
 
     // Two lines, in order: the reaction to the check-in, then the steer back to
-    // Greeting — borrowed from greeting's own `needs_retry` pool, which is the
-    // only pool written for that Goal.
+    // Greeting — borrowed from greeting's own `steerLines` pool (issue #56's
+    // name for the pool `needs_retry` Turns used to speak), which is the only
+    // pool written for that Goal.
     const replyText = await page.getByTestId("emily-message-bubble").innerText();
     expect(RESPONSE_TEXTS.some((line) => replyText.startsWith(line))).toBe(true);
-    expect(GREETING_RETRY_TEXTS.some((line) => replyText.endsWith(line))).toBe(true);
+    expect(GREETING_STEER_TEXTS.some((line) => replyText.endsWith(line))).toBe(true);
     // Never the Check-in pool: the learner just said how they were doing.
     expect(CHECKIN_TEXTS.some((line) => replyText.includes(line))).toBe(false);
 
     // One message per line in the transcript, the two of this Turn last.
     const [reactionLine, steerLine] = (await emilyLines(page)).slice(-2);
     expect(RESPONSE_TEXTS).toContain(reactionLine);
-    expect(GREETING_RETRY_TEXTS).toContain(steerLine);
+    expect(GREETING_STEER_TEXTS).toContain(steerLine);
 
     // Now the mirror image: greeting lands while `checkin` is already in Goal
     // Progress, so `response` becomes the Focus Goal. Nothing reacts (Check-in
     // was not achieved this Turn), so the steer is the one line — Response's
-    // own `needs_retry` pool, not the Response pool, which would be answering a
+    // own `steerLines` pool, not the Response pool, which would be answering a
     // check-in that did not happen.
     await submitReply(page, "Hi!");
 
@@ -187,7 +185,7 @@ test.describe("Practice page — Emily steers back to an open earlier Goal", () 
     await expect(page.getByTestId("practice-step-response")).toHaveAttribute("data-state", "current");
 
     const steerOnlyText = await page.getByTestId("emily-message-bubble").innerText();
-    expect(RESPONSE_RETRY_TEXTS).toContain(steerOnlyText);
+    expect(RESPONSE_STEER_TEXTS).toContain(steerOnlyText);
     expect(RESPONSE_TEXTS).not.toContain(steerOnlyText);
     expect((await emilyLines(page)).at(-1)).toBe(steerOnlyText);
   });

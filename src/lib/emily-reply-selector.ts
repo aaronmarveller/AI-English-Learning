@@ -4,6 +4,7 @@ import {
   getFocusGoal,
   getNewlyAchievedGoals,
   getOpenGoals,
+  reportHasFailedGoal,
   type GoalProgress,
 } from "@/lib/goal-progress";
 import type { GoalReport } from "@/lib/practice-turn-protocol";
@@ -28,10 +29,11 @@ import type { Lesson, ScriptLine } from "@/content/lesson";
  * Conversation State pointer. Given the Goal Progress a Turn left behind:
  *   - `needs_retry` → that Progress is where it started (nothing from a
  *     `needs_retry` Turn is saved — src/lib/goal-progress.ts's
- *     `applyGoalReport`), and the line comes from the `needsRetryLines` of
- *     the first Goal in canonical order the report marked `failed` — or of
- *     the Focus Goal when nothing was `failed` (issue #49; section 3's own
- *     rule — see `selectRetryPoolGoal`).
+ *     `applyGoalReport`), and the reply is that Goal's two-tier Recovery: for
+ *     the Goal the first entry in canonical order the report marked `failed`
+ *     names, or the Focus Goal when nothing was `failed` (issue #49; section
+ *     3's own rule — see `selectRecoveryGoal`), and at the tier the learner's
+ *     Retry Streak has earned (issue #56 — `selectRecoveryLines`).
  *   - `accepted` → the *new* Focus Goal, or the completion pool once all four
  *     Goals are achieved.
  *
@@ -71,6 +73,16 @@ import type { Lesson, ScriptLine } from "@/content/lesson";
  * could be the same text, so the second pick excludes the first (see step 3 in
  * `selectEmilyLinesForTurn`, and `pickOneExcludingBy`, the one helper both
  * exclusion sites go through).
+ *
+ * Issue #56 (v2 tickets 8, 10 and 9; ADR-0014) turns a `needs_retry` Turn's
+ * single line into a **two-tier Recovery** — see `selectRecoveryLines`. The
+ * tier is chosen by the learner's Retry Streak, which the caller reads off the
+ * store (`SelectEmilyLinesInput.focusRetryStreak`); the first tier is a nudge
+ * followed by the Goal's question, the second a direct example. The same
+ * question half is what `selectSilenceReminder` now speaks after the nudge, so
+ * the silence reminder and the first-tier recovery ask for a Goal in one pair
+ * of functions (`selectGoalQuestionLine`), and the steer pools stay the single
+ * source of the question wording throughout (ADR-0014 decisions 2 and 3).
  */
 
 /** Injectable RNG, defaulting to `Math.random` — see this file's top doc comment. */
@@ -86,7 +98,7 @@ function pickOne<T>(pool: readonly T[], random: RandomSource): T {
  * `keyOf(entry)` equals `excludeValue` when the pool has more than one entry
  * to choose from. Two callers, one rule each:
  *
- * - `selectSilenceNudge` passes `keyOf = (line) => line.en`, so a long pause
+ * - `selectSilenceReminder` passes `keyOf = (line) => line.en`, so a long pause
  *   never repeats the exact same line twice in a row (docs/ai-configuration.md
  *   section 3's own rule for this pool; user story 18).
  * - step 3 of `selectEmilyLinesForTurn` passes `keyOf` as the identity on the
@@ -140,6 +152,22 @@ export type SelectEmilyLinesInput = {
   /** The Judge's Goal Report for this Turn (src/lib/practice-turn-protocol.ts). */
   goalReport: GoalReport;
   learnerAskedBack: boolean;
+  /**
+   * The learner's Retry Streak (issue #56; docs/ai-configuration.md section
+   * 3): how many `needs_retry` Turns in a row the *current Focus Goal* has
+   * already had — `0` on the first one. Only a `needs_retry` Turn reads it,
+   * and it is the whole of the tier decision: `0` means tier 1 (a nudge, then
+   * the Goal's question), anything above means tier 2 (the direct example).
+   *
+   * Taken as an input rather than derived here because it is *persisted*
+   * conversation state (src/lib/practice-state.ts's `retryStreak`): it resets
+   * on any `accepted` Turn, which is a fact about Turns this function never
+   * sees, and it is read off the store before the Turn being selected is
+   * recorded (`practice-page-content.tsx`). Required, not defaulted: a caller
+   * that forgot it would silently speak tier 1 to a learner who has already
+   * been nudged, which is the one failure this field exists to prevent.
+   */
+  focusRetryStreak: number;
 };
 
 /**
@@ -189,13 +217,13 @@ export type SelectEmilyLinesInput = {
  * emily-reply-selector.test.ts: an `accepted` Turn achieves at least one open
  * Goal by definition, so every branch here has to be one some line covers.
  *
- * A `needs_retry` Turn is a single line — one retry line is the whole reply to
- * a Turn whose parts that were right were not saved (#49's "don't grow the
- * sequence") — picked by `selectRetryPoolGoal`: the first `failed` Goal's
- * `needsRetryLines` in canonical order, or the Focus Goal's when the report
- * failed nothing at all. The ticket example is `checkin` achieved and `closing`
- * failed, where the nudge has to come from Closing, not from the Check-in the
- * learner just got right.
+ * A `needs_retry` Turn speaks a **Recovery** instead (issue #56): one or two
+ * lines, never a composed sentence, from `selectRecoveryLines` below. Which
+ * Goal's recovery it is stays #49's rule — the first `failed` Goal in
+ * canonical order, or the Focus Goal's when the report failed nothing at all —
+ * and the tier comes from the caller's Retry Streak. The ticket example is
+ * `checkin` achieved and `closing` failed, where the nudge has to come from
+ * Closing, not from the Check-in the learner just got right.
  *
  * Deliberately returns an array even in the single-line cases: every call site
  * speaks and persists a sequence, and a caller that had to special-case
@@ -215,13 +243,13 @@ export function selectEmilyLinesForTurn(
   const focusGoal = getFocusGoal(progressAfterTurn);
 
   if (input.verdict === "needs_retry") {
-    const retryGoal = selectRetryPoolGoal(input.progressBeforeTurn, input.goalReport);
+    const retryGoal = selectRecoveryGoal(input.progressBeforeTurn, input.goalReport);
     if (retryGoal === null) {
       // Unreachable: a Turn is only ever submitted while at least one Goal is
       // open, and a needs_retry Turn leaves Goal Progress exactly as it was.
       throw new Error("emily-reply-selector: no open Goal to retry against");
     }
-    return [pickOne(lesson.script[retryGoal].needsRetryLines, random)];
+    return selectRecoveryLines(lesson, retryGoal, input, random);
   }
 
   // All-or-nothing, so this is empty on a needs_retry Turn: read off the one
@@ -301,15 +329,15 @@ export function selectEmilyLinesForTurn(
 }
 
 /**
- * Which Goal's `needs_retry` pool a `needs_retry` Turn speaks from
- * (issue #49; docs/ai-configuration.md section 3's `needs_retry` table: "the
- * pool used is the first Goal in canonical order the Goal Report marked
- * `failed`, or the Focus Goal's when nothing was `failed`").
+ * Which Goal's Recovery a `needs_retry` Turn speaks from (issue #49's rule,
+ * unchanged by #56; docs/ai-configuration.md section 3's Recovery table: "the
+ * first Goal in canonical order the Goal Report marked `failed`, or the Focus
+ * Goal's when nothing was `failed`").
  *
  * Reading the report, not only the Focus Goal, is what makes Emily answer the
  * *right* half of a mixed Turn: in the ticket's example the Focus Goal is
  * Check-in but the learner's "I'm fine. See you later alligator crocodile"
- * achieved `checkin` and failed `closing`, so the nudge has to be a Closing
+ * achieved `checkin` and failed `closing`, so the Recovery has to be a Closing
  * one — pointing at what actually went wrong, not at the Goal they just got
  * right. "First in canonical order" (rather than, say, the last `failed` Goal)
  * keeps a Turn that fails several deterministic and non-arbitrary: the
@@ -321,8 +349,12 @@ export function selectEmilyLinesForTurn(
  * Goal Progress can never redirect Emily's line. `null` only when no Goal is
  * open, which no submitted Turn reaches (the client stops submitting once
  * Practice is complete).
+ *
+ * Named for the Recovery rather than for a "retry pool" (issue #56 renamed it):
+ * the pool it used to choose between no longer exists, and speaking that Goal's
+ * Recovery is what the caller does with the answer.
  */
-function selectRetryPoolGoal(
+function selectRecoveryGoal(
   progressBeforeTurn: GoalProgress,
   goalReport: GoalReport,
 ): ActiveConversationState | null {
@@ -331,25 +363,114 @@ function selectRetryPoolGoal(
 }
 
 /**
+ * Emily's Recovery for one `needs_retry` Turn (issue #56; v2 tickets 8 and 10;
+ * docs/ai-configuration.md section 3's "Recovery").
+ *
+ * Two tiers, and the caller's Retry Streak picks between them:
+ *
+ * - **Tier 2** — from the learner's *second* consecutive `needs_retry` Turn on
+ *   the same Focus Goal — is `directExample`, one line, and the only recovery
+ *   line that may name an Accepted Response (ADR-0014 decision 1).
+ * - **Tier 1** — everything else — is a *sequence*: a nudge, then the Goal's
+ *   question (`selectGoalQuestionLine`). Which nudge is the Goal Report's
+ *   difference: at least one open Goal `failed` means a recognisable attempt
+ *   that did not come through, so the learner hears the Goal's `unclearNudge`;
+ *   a report that attempted nothing at all (every open Goal `untouched` —
+ *   what off-topic input looks like, ADR-0006) hears `offTopicNudge` instead,
+ *   or no nudge at all where that Goal's row in v2 ticket 10's table has none.
+ *
+ * That `failed`/`untouched` split is read off *every* open Goal, not only off
+ * `retryGoal`: it describes the learner's Turn, while `retryGoal` describes
+ * which Goal the recovery talks about (issue #49's rule, which this function
+ * is handed already decided). In the ticket's own mixed Turn — `checkin`
+ * achieved, `closing` failed — the two coincide as "unclear", which is what
+ * that Turn deserves: something was attempted and did not land. (`failed` on
+ * the chosen Goal would answer the same way — `selectRecoveryGoal` picks a
+ * `failed` Goal whenever one exists — but the variant is a fact about the
+ * Turn, so it is read as one rather than as a property of the Goal answering
+ * it.)
+ *
+ * Tier 1 is two lines rather than the one combined sentence the tickets quote
+ * ("Let's keep going. How are you today?") because the question half of those
+ * sentences is *already written* — it is the Goal's own question — and
+ * authoring a second copy of it is the composed line ADR-0013 decision 2 and
+ * ADR-0014 decisions 2/3 reject. A sequence of existing lines is how the rest
+ * of this module composes too (see `selectEmilyLinesForTurn`).
+ */
+function selectRecoveryLines(
+  lesson: Lesson,
+  retryGoal: ActiveConversationState,
+  input: SelectEmilyLinesInput,
+  random: RandomSource,
+): ScriptLine[] {
+  const recovery = lesson.script[retryGoal].recovery;
+
+  // Second consecutive `needs_retry` on this Focus Goal: stop nudging, hand
+  // over an example. The streak counts *Turns*, and it is the store that
+  // resets it on any accepted Turn (src/lib/practice-state.ts's `retryStreak`)
+  // — this function only ever reads it.
+  if (input.focusRetryStreak > 0) return [recovery.directExample];
+
+  const attempted = reportHasFailedGoal(input.progressBeforeTurn, input.goalReport);
+  const nudge = attempted ? recovery.unclearNudge : recovery.offTopicNudge;
+
+  // `null` for a Goal whose off-topic row in ticket 10's table has no prefix
+  // of its own (response, closing) — the question is that Goal's whole first
+  // redirect, so it opens the recovery on its own.
+  const lines: ScriptLine[] = [];
+  if (nudge !== null) lines.push(nudge);
+  lines.push(selectGoalQuestionLine(lesson, retryGoal, random));
+  return lines;
+}
+
+/**
+ * The question Emily asks for one Goal when the learner has not delivered it:
+ * the first-tier Recovery's second half, and the second line of the silence
+ * reminder (`selectSilenceReminder`) — one question, so a Goal is asked for the
+ * same way however Emily got there.
+ *
+ * `recovery.question` is `null` for `checkin` and only for it: that Goal's
+ * question is its steer pool's ("How are you today?", "How's it going?"), and
+ * those lines are what Emily actually asked the learner a moment earlier — so
+ * asking it again from there is the single-source rule, not a shortcut
+ * (ADR-0014 decisions 2 and 3; docs/ai-configuration.md section 3's
+ * "Silence reminder" quotes the Check-in case by name). The steer pools serve
+ * this Goal's *accepted* Turn too (`selectSteerLineForFocusGoal`), which is
+ * the same reading: one pool, two ways to point at the same Goal.
+ */
+function selectGoalQuestionLine(
+  lesson: Lesson,
+  goal: ActiveConversationState,
+  random: RandomSource,
+): ScriptLine {
+  const question = lesson.script[goal].recovery.question;
+  if (question !== null) return question;
+  return selectSteerLineForFocusGoal(lesson, goal, random);
+}
+
+/**
  * The steer line toward one Focus Goal (step 2 of the composition above).
  *
  * `greeting` and `response` have no steer pool, so they borrow their own
- * `needs_retry` lines. Issue #50 ratifies that against section 3, which states
- * it outright ("When the Focus Goal is `greeting` or `response` (which have no
- * steer pool of their own) and step 1 did not already address it, one line
- * from that Goal's `needs_retry` pool serves as the steer — those lines
- * already read as 'here's what to say next'"), and settles the one place #47's
- * mapping disagreed: that mapping sent a `response` Focus Goal to the Response
- * pool, which *reacts* to something the learner gave — and a Turn that leaves
- * `response` open without having just achieved `checkin` and without an
- * ask-back has nothing to react to (ADR-0013 widened the reaction's trigger,
- * not its meaning: a reaction answers the learner, so it can never be spent on
- * asking). The two coincide for every one-Goal-per-Turn conversation (where
- * the reaction is always what steers toward `response`), so this only shows up
- * in the non-contiguous Goal Progress #48 made reachable. Giving either Goal a
- * steer pool of its own stays out of scope: it would need new lines and so new
- * audio, which #50's design notes rule out — ADR-0012 names that as the fix if
- * these borrowed lines ever read as criticism in practice.
+ * `steerLines`. Issue #50 ratifies that against section 3, which states it
+ * outright, and settles the one place #47's mapping disagreed: that mapping
+ * sent a `response` Focus Goal to the Response pool, which *reacts* to
+ * something the learner gave — and a Turn that leaves `response` open without
+ * having just achieved `checkin` and without an ask-back has nothing to react
+ * to (ADR-0013 widened the reaction's trigger, not its meaning: a reaction
+ * answers the learner, so it can never be spent on asking). The two coincide
+ * for every one-Goal-per-Turn conversation (where the reaction is always what
+ * steers toward `response`), so this only shows up in the non-contiguous Goal
+ * Progress #48 made reachable. Giving either Goal a steer pool of its own
+ * stays out of scope: it would need new lines and so new audio, which #50's
+ * design notes rule out — ADR-0012 names that as the fix if these borrowed
+ * lines ever read as criticism in practice.
+ *
+ * Issue #56 renamed the borrowed pool `needsRetryLines` → `steerLines`, made
+ * it optional, and left it this one job (ADR-0014 decision 5): a `needs_retry`
+ * Turn speaks the Goal's recovery now, so nothing about this function's
+ * behaviour changed — only the name of the pool it reads, and the fact that
+ * the check-in and closing Goals no longer carry one nothing could speak.
  *
  * The "and step 1 did not already address it" half of that rule is the caller's
  * `focusGoal === "response" && reacted` short-circuit, not a second condition
@@ -359,7 +480,7 @@ function selectRetryPoolGoal(
  * — which is what keeps the composition's "never silent" guarantee true rather
  * than mostly true. Issue #54 keys that short-circuit to the reaction having
  * actually been spoken rather than to `checkin` having landed in this Turn, so
- * an ask-back alone cannot leave `response` saying a needs_retry line *after*
+ * an ask-back alone cannot leave `response` saying a steer line *after*
  * Emily has just answered the question.
  */
 function selectSteerLineForFocusGoal(
@@ -373,36 +494,78 @@ function selectSteerLineForFocusGoal(
     case "closing":
       return pickOne(lesson.closingLines, random);
     case "response":
-      // See this function's doc comment.
-      return pickOne(lesson.script[focusGoal].needsRetryLines, random);
     case "greeting":
     default:
-      // `greeting` has no steer pool of its own either, so — per section 3's
-      // own rule — one of its `needs_retry` lines serves as the steer; those
-      // lines already read as "here's what to say next". Reachable when a Turn
-      // achieved a *later* Goal while `greeting` stayed open, which is the
+      // Neither Goal has a steer pool of its own, so — per section 3's own
+      // rule — one of its `steerLines` serves as the steer; those lines
+      // already read as "here's what to say next". Reachable for `greeting`
+      // when a Turn achieved a *later* Goal while it stayed open, which is the
       // non-contiguous Goal Progress this ticket's multi-Goal Turns produce.
-      return pickOne(lesson.script[focusGoal].needsRetryLines, random);
+      return pickBorrowedSteerLine(lesson, focusGoal, random);
   }
 }
 
 /**
- * Picks Emily's silence-timeout nudge (docs/ai-configuration.md section 3's
- * 3-line pool), never repeating `lastNudgeText` (the `.en` of whichever
- * nudge was shown last, or `undefined` if none has been shown yet this
- * session) twice in a row.
+ * One line from a Goal's borrowed steer pool — the `steerLines` only
+ * `greeting` and `response` carry (see `PracticeStateScript.steerLines`), and
+ * the only thing that pool is for.
  *
- * One pool for the whole Lesson, not per Goal, and it takes no Goal Progress:
- * the nudge's job is to break a silence, not to say anything about what the
- * learner has or hasn't said, and it "never changes Goal Progress, never
- * reveals an Accepted Response" (that section). The message it produces is
- * still *tagged* with the Focus Goal — that happens in
- * src/lib/practice-state.ts's `appendSupportMessage`.
+ * Throws rather than falling back to an empty pool: a Goal reaching here
+ * without a pool is a content error the compiler cannot see (the field is
+ * optional), and the alternative — speaking nothing — is the one outcome this
+ * module's "never silent" invariant forbids. Same shape as
+ * `selectRecoveryGoal`'s unreachable-`null` throw.
  */
-export function selectSilenceNudge(
+function pickBorrowedSteerLine(
   lesson: Lesson,
+  focusGoal: ActiveConversationState,
+  random: RandomSource,
+): ScriptLine {
+  const pool = lesson.script[focusGoal].steerLines;
+  if (pool === undefined || pool.length === 0) {
+    throw new Error(`emily-reply-selector: ${focusGoal} has no steer pool to borrow from`);
+  }
+  return pickOne(pool, random);
+}
+
+/**
+ * Emily's silence reminder (issue #56; v2 ticket 9; docs/ai-configuration.md
+ * section 3's "Silence reminder"): the nudge, then the Focus Goal's question.
+ * "Take your time. How are you today?" is the ticket's own example, and it is
+ * a sequence here for the same reason the first-tier Recovery is: the question
+ * is the Goal's, already authored, and the steer pools stay its single source
+ * (ADR-0014 decisions 3 and 6).
+ *
+ * The nudge barely changed — same pool, same rule that a long pause never
+ * repeats the exact same line twice in a row — so what this returns is the
+ * nudge *and* the lines that are spoken, because the caller has to persist and
+ * speak both while only the nudge is what the no-repeat rule tracks:
+ *
+ * - `nudge` is the pick, `.en` of which the caller keeps as `lastNudgeText`.
+ * - `lines` is what to say, in order.
+ *
+ * The Goal is the caller's to pass rather than derived here: the silence
+ * reminder is aimed at the Focus Goal (CONTEXT.md "Focus Goal" — what Emily is
+ * waiting for), and it *is* the Focus Goal because silence is not a Turn and
+ * cannot change it, but this module has no Goal Progress to derive that from.
+ * A reminder never reveals an Accepted Response: tier 1's wording is all it
+ * ever speaks, and the Retry Streak is deliberately not consulted — silence is
+ * not a failed attempt, so a quiet learner is not a learner on their second
+ * try (ADR-0014's considered options).
+ */
+export type SilenceReminder = {
+  /** The nudge line picked — the one the never-twice-in-a-row rule tracks. */
+  nudge: ScriptLine;
+  /** The whole reminder to speak and persist, in order: the nudge, then the Focus Goal's question. */
+  lines: ScriptLine[];
+};
+
+export function selectSilenceReminder(
+  lesson: Lesson,
+  focusGoal: ActiveConversationState,
   lastNudgeText: string | undefined,
   random: RandomSource = Math.random,
-): ScriptLine {
-  return pickOneExcludingBy(lesson.silenceNudgeLines, lastNudgeText, (line) => line.en, random);
+): SilenceReminder {
+  const nudge = pickOneExcludingBy(lesson.silenceNudgeLines, lastNudgeText, (line) => line.en, random);
+  return { nudge, lines: [nudge, selectGoalQuestionLine(lesson, focusGoal, random)] };
 }

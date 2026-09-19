@@ -15,6 +15,16 @@ The judgment a Turn receives: `accepted` when the Goal Report has at least one `
 What a learner's submission resolves to overall: `support_requested`, `accepted`, or `needs_retry`. The latter two are Verdicts, derived from the Judge's Goal Report. `support_requested` is decided on the client *before* the Judge is involved — the learner addressed Emily in Chinese — so it is an outcome that never becomes a Verdict.
 _Avoid_: Validation Result
 
+## Recovery
+
+Emily's reply to a `needs_retry` Turn, in one of two tiers. Tier 1 is a nudge followed by the Goal's question: the shared "Sorry, I didn't quite get that." when an open Goal's Goal Report is `failed`, or the Goal's own off-topic nudge when every open Goal is `untouched`. Tier 2 — from the learner's second consecutive `needs_retry` Turn on the current Focus Goal — is a single direct example. The tier is chosen by the Retry Streak, and which Goal's Recovery is spoken follows the `needs_retry` rule: the first Goal in canonical order the Goal Report marked `failed`, or the Focus Goal when nothing was `failed`. A Recovery never changes Goal Progress and never moves the Focus Goal; only its second tier may reveal an Accepted Response.
+_Avoid_: retry line, `needs_retry` line — a Recovery is a sequence, and the pool once called `needsRetryLines` is now `steerLines`
+
+## Retry Streak
+
+How many `needs_retry` Turns in a row the current Focus Goal has had: the first one hears the Recovery's tier 1, and the second and later ones hear tier 2. It resets on any `accepted` Turn — including one that leaves the Focus Goal open — and starts over when the Focus Goal changes; a `support_requested` Turn never touches it. Deliberately not the per-Goal `retryCounts`, which counts every `needs_retry` Turn ever judged against a Goal and never resets.
+_Avoid_: retry count — that is `retryCounts`, the per-Goal bookkeeping the Learning Summary reads, and it must not reset
+
 ## Conversation Script
 
 A Lesson's verbatim library of Emily's lines: for each Conversation Goal, the pool of English sentences Emily may say to react to it being achieved or to steer toward it. Emily selects from this library and never improvises — a Turn that achieves several Goals at once is answered by several library lines in sequence, never by a composed one — which is what makes every line she speaks pre-generatable as audio.
@@ -39,7 +49,7 @@ The set of Conversation Goals achieved so far in this Practice. Grows only throu
 
 ## Focus Goal
 
-The first open Conversation Goal in canonical order — the one Emily's next line steers toward, and the one a `needs_retry` line and the Chinese help content are written for. A `support_requested` Turn Outcome never changes it.
+The first open Conversation Goal in canonical order — the one Emily's next line steers toward, and the one a Recovery and the Chinese help content are written for. A `support_requested` Turn Outcome never changes it.
 
 ## Conversation State
 
@@ -64,6 +74,11 @@ _Avoid_: barge-in — interrupting Emily mid-line is deliberately not offered
 ## Handoff Gap
 
 The short beat after Emily's line ends in which the floor belongs to neither side: she has finished, and the learner may not start yet. Part of Turn-Taking rather than a delay bolted onto it — waiting for the other person's voice to settle before answering is what a real conversation does.
+
+## Silence Reminder
+
+What Emily speaks after 15–20 s of the learner's silence — measured from the end of her line, once the Handoff Gap has ended — as the silence-nudge pool's line followed by the Goal question the Recovery's first tier asks. It never changes Goal Progress, never records a Turn, never reveals an Accepted Response, and never repeats the same nudge twice in a row; it is not a `needs_retry` Turn and does not advance the Retry Streak, because silence is not a failed attempt.
+_Avoid_: Silence nudge — that names the three-line pool, which is now only the reminder's first half
 
 ## Tap-to-Talk
 

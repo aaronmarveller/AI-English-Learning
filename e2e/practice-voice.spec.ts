@@ -161,7 +161,12 @@ test.describe("Practice page — voice input", () => {
   test("tapping the listening mic again submits the speech recognized so far", async ({ page }) => {
     await resetStorage(page);
     await mockSpeechApis(page);
-    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }]);
+    // delayMs for the same reason as the sibling tests above: this assertion is
+    // about the *transient* learner bubble, and without a delay the mocked route
+    // can resolve fast enough that the append and the graded reply land in one
+    // render, so the bubble this test looks for never reaches the DOM (see
+    // installScriptedPracticeApi's own doc comment).
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }], { delayMs: 300 });
     await page.goto(PRACTICE_URL);
 
     const micButton = page.getByTestId("practice-mic-button");

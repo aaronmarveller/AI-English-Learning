@@ -1,4 +1,4 @@
-import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
+import { GREETING_SOMEBODY_LESSON, RECOVERY_UNCLEAR_NUDGE } from "@/content/lesson";
 import { ACTIVE_CONVERSATION_STATES } from "@/lib/conversation-state-machine";
 import {
   CHECKIN_EXPRESSIONS,
@@ -17,8 +17,8 @@ import {
  * once in src/content/*.ts, not text the LLM generates fresh per turn. That is
  * every line Emily says: since issue #16 the model only *judges* the learner's
  * message (src/lib/practice-judge.ts) and the client picks her reply from the
- * Lesson's fixed pools, so the Check-in, Response, Closing, Completion and
- * `needs_retry` pools below are all pre-generated here — only text with no
+ * Lesson's fixed pools, so the Check-in, Response, Closing, Completion, steer
+ * and Recovery pools below are all pre-generated here — only text with no
  * fixed pool (a dynamic Chinese help follow-up) reaches live TTS or
  * browser-synthesis fallback at runtime.
  *
@@ -125,14 +125,47 @@ export const AUDIO_MANIFEST: AudioManifestEntry[] = [
     )
     .map((line, index) => ({ id: `closing-script-${index + 1}`, text: line.en })),
 
-  // Per-state `needs_retry` pools (4 states x 3, issue #16/#17) — spoken
-  // when a learner's turn for that state is judged `needs_retry`.
+  // Borrowed steer pools (2 states x 3, issue #16/#17; renamed from
+  // `needs-retry-*` by issue #56). Spoken on `accepted` Turns only, as the
+  // line steering toward an open `greeting` or `response` — the two Goals with
+  // no steer pool of their own (issue #50); a `needs_retry` Turn speaks that
+  // Goal's Recovery below instead (ADR-0014 decision 5). Only those two Goals
+  // carry a pool: `checkin` and `closing` steer from their own pools, so #56
+  // deleted the two that could never be spoken, and their recordings with
+  // them. The surviving texts did not change, and their files were renamed on
+  // disk alongside these ids, which is what keeps a re-run of
+  // `npm run generate:audio` from regenerating six lines that already have
+  // audio (the generator skips any file that exists).
   ...ACTIVE_CONVERSATION_STATES.flatMap((state) =>
-    GREETING_SOMEBODY_LESSON.script[state].needsRetryLines.map((line, index) => ({
-      id: `needs-retry-${state}-${index + 1}`,
+    (GREETING_SOMEBODY_LESSON.script[state].steerLines ?? []).map((line, index) => ({
+      id: `steer-${state}-${index + 1}`,
       text: line.en,
     })),
   ),
+
+  // Two-tier Recovery (issue #56; src/content/lesson.ts's `RecoveryScript`).
+  // Every line a `needs_retry` Turn can speak. The tier-1 `unclear` nudge is
+  // one sentence shared by all four Goals, so it is emitted once here from the
+  // exported constant rather than four times from the Goals that name it —
+  // duplicate text is a module-load error below, and a single recording is
+  // what four identical lines should share anyway. The per-Goal entries skip a
+  // `null` nudge or question: `response` and `closing` have no off-topic nudge
+  // of their own (v2 ticket 10's table gives them none), and `checkin` has no
+  // question of its own (its steer pool's is reused — see
+  // `RecoveryScript.question`).
+  { id: "recovery-unclear-nudge", text: RECOVERY_UNCLEAR_NUDGE.en },
+  ...ACTIVE_CONVERSATION_STATES.flatMap((state) => {
+    const recovery = GREETING_SOMEBODY_LESSON.script[state].recovery;
+    const entries: AudioManifestEntry[] = [];
+    if (recovery.offTopicNudge !== null) {
+      entries.push({ id: `recovery-${state}-offtopic-nudge`, text: recovery.offTopicNudge.en });
+    }
+    if (recovery.question !== null) {
+      entries.push({ id: `recovery-${state}-question`, text: recovery.question.en });
+    }
+    entries.push({ id: `recovery-${state}-example`, text: recovery.directExample.en });
+    return entries;
+  }),
 
   // Explore page's 13 pronounceable texts: 3 sections x 3 expressions each,
   // plus the Response section's 3 steps and their 1 combined combo sentence.

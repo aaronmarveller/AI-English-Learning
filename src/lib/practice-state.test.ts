@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  appendSupportMessages,
   deserialize,
   getCurrentTurnEmilyMessages,
   recordTurnResult,
@@ -8,6 +9,37 @@ import {
 } from "@/lib/practice-state";
 import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
 import type { StateTurnRecord } from "@/lib/turn-record";
+
+/**
+ * The question half of a Goal's tier-1 Recovery, for the tests below that need
+ * *a* `needs_retry` reply. `RecoveryScript.question` is `ScriptLine | null`
+ * because `checkin` authors none — its question is the Check-in pool's
+ * (ADR-0014 decision 2) — and this file only ever needs it for the three Goals
+ * that do. Narrowing it here keeps the null branch visible in one place rather
+ * than as a non-null assertion per call site, which this codebase does not use.
+ */
+function authoredRecoveryQuestion(goal: "greeting" | "response" | "closing") {
+  const question = GREETING_SOMEBODY_LESSON.script[goal].recovery.question;
+  if (question === null) {
+    throw new Error(`the ${goal} Recovery authors a question`);
+  }
+  return question;
+}
+
+/**
+ * One of the two Goals' borrowed steer pools (issue #50; #56's follow-up) —
+ * the `steerLines` only `greeting` and `response` carry, because `checkin` and
+ * `closing` steer from pools of their own and their borrowed pools were
+ * deleted. Asserted rather than defaulted to `[]`, and restricted to those two
+ * Goals by its parameter type: these tests only need *a* reply line for an
+ * `accepted` Turn that leaves the Focus Goal open, and a Goal that lost its
+ * pool should fail here by name instead of quietly answering with nothing.
+ */
+function borrowedSteerLines(goal: "greeting" | "response") {
+  const pool = GREETING_SOMEBODY_LESSON.script[goal].steerLines;
+  if (pool === undefined) throw new Error(`${goal} carries no borrowed steer pool`);
+  return pool;
+}
 
 /**
  * Issue #20 (#12's Further Notes: "In-flight practice sessions will reset"),
@@ -26,6 +58,14 @@ import type { StateTurnRecord } from "@/lib/turn-record";
  * state" restart, not a thrown exception, not a store with `goalProgress:
  * undefined` that later crashes goal-progress.ts, and — the case the rename
  * exists for — not a set of submission counts silently re-read as retries.
+ *
+ * Issue #56 adds one field to that set, and it is the one exception to the
+ * discard-wholesale rule: `retryStreak` (the consecutive `needs_retry` count
+ * that picks the Recovery's tier) is *optional* on load. Its absence has
+ * exactly one cause — a pre-#56 session — and the value it would recover is
+ * genuinely unknowable, so a snapshot without it degrades to "no streak"
+ * instead of throwing the learner's conversation away (see the cases at the
+ * end of this describe, and `deserialize`'s own doc comment).
  */
 describe("practice-state deserialize — discard-safely on shape mismatch", () => {
   const INITIAL_STATE_SHAPE = {
@@ -33,6 +73,9 @@ describe("practice-state deserialize — discard-safely on shape mismatch", () =
     messages: [],
     turnRecords: [],
     retryCounts: {},
+    // Issue #56: `deserialize` always returns the field, `null` when the
+    // snapshot had none or had a malformed one.
+    retryStreak: null,
   };
 
   it("discards a pre-issue-#20 snapshot (highlightKeys, no turnRecords) instead of crashing", () => {
@@ -131,7 +174,7 @@ describe("practice-state deserialize — discard-safely on shape mismatch", () =
     expect(deserialize(JSON.stringify(null))).toEqual(INITIAL_STATE_SHAPE);
   });
 
-  it("accepts a well-formed current-shape snapshot and preserves its Goal Progress, turnRecords and retryCounts", () => {
+  it("accepts a well-formed current-shape snapshot and preserves its Goal Progress, turnRecords, retryCounts and retryStreak", () => {
     const current = JSON.stringify({
       goalProgress: ["greeting", "checkin"],
       messages: [],
@@ -140,6 +183,7 @@ describe("practice-state deserialize — discard-safely on shape mismatch", () =
         { state: "checkin", passedFirstTry: false, matchedAcceptedResponse: false, learnerAskedBack: true },
       ],
       retryCounts: { checkin: 1 },
+      retryStreak: { goal: "response", count: 2 },
     });
 
     const result = deserialize(current);
@@ -152,6 +196,10 @@ describe("practice-state deserialize — discard-safely on shape mismatch", () =
       learnerAskedBack: true,
     });
     expect(result.retryCounts).toEqual({ checkin: 1 });
+    // The streak travels like any other load-bearing field when it is there
+    // (issue #56): a learner mid-retry who refreshes the page stays on the tier
+    // they had earned.
+    expect(result.retryStreak).toEqual({ goal: "response", count: 2 });
   });
 
   it("keeps a non-contiguous Goal Progress set intact, exactly as persisted (ADR-0012)", () => {
@@ -247,6 +295,66 @@ describe("practice-state deserialize — discard-safely on shape mismatch", () =
     expect(deserialize(current).messages.map((message) => message.sequenceId)).toEqual([
       "practice-sequence-1",
     ]);
+  });
+
+  it("accepts a snapshot with no retryStreak at all — a pre-#56 session — as no streak, not a shape mismatch (issue #56)", () => {
+    // The one field whose absence is *not* evidence of a stale shape. It is not
+    // load-bearing (a learner with no streak is on their first attempt at the
+    // Focus Goal, which is exactly where a fresh conversation starts), and its
+    // absence has one possible cause: a session saved before the field existed,
+    // whose streak is unknowable. Discarding the snapshot would throw the
+    // learner's conversation away to invent a value the old code never wrote.
+    const preStreakShape = JSON.stringify({
+      goalProgress: ["greeting", "checkin"],
+      messages: [
+        { id: "seed-1", role: "emily", textEn: "How are you today?", textZh: "你今天怎么样？", state: "checkin" },
+      ],
+      turnRecords: [
+        { state: "greeting", passedFirstTry: true, matchedAcceptedResponse: true, learnerAskedBack: false },
+      ],
+      retryCounts: { checkin: 1 },
+    });
+
+    const result = deserialize(preStreakShape);
+    expect(result.retryStreak).toBeNull();
+    // Everything load-bearing survives, which is the point: absence degrades
+    // one field, it does not reset the conversation.
+    expect(result.goalProgress).toEqual(["greeting", "checkin"]);
+    expect(result.messages).toHaveLength(1);
+    expect(result.turnRecords).toHaveLength(1);
+    expect(result.retryCounts).toEqual({ checkin: 1 });
+  });
+
+  it("sanitizes a malformed retryStreak to no streak, without discarding the snapshot (issue #56)", () => {
+    // Same discipline as `retryCounts`: the field being *present* is what would
+    // make it load-bearing, so a corrupt value inside it is not evidence of a
+    // pre-change snapshot — it degrades to `null`, which is a legal state
+    // ("first attempt at the Focus Goal") rather than a reason to reset.
+    const withStreak = (retryStreak: unknown) =>
+      JSON.stringify({
+        goalProgress: ["greeting"],
+        messages: [],
+        turnRecords: [],
+        retryCounts: {},
+        retryStreak,
+      });
+
+    for (const malformed of [
+      "one",
+      3,
+      ["checkin", 1],
+      { count: 1 }, // no Goal
+      { goal: "goodbye", count: 1 }, // not a Conversation Goal
+      { goal: "checkin", count: "1" },
+      { goal: "checkin" }, // no count
+      { goal: "checkin", count: 0 }, // a streak of zero is no streak
+      { goal: "checkin", count: -2 },
+    ]) {
+      const result = deserialize(withStreak(malformed));
+      expect(result.retryStreak, `malformed streak accepted: ${JSON.stringify(malformed)}`).toBeNull();
+      // ...and the rest of the snapshot is untouched.
+      expect(result.goalProgress).toEqual(["greeting"]);
+    }
   });
 });
 
@@ -355,17 +463,25 @@ describe("recordTurnResult — one Turn, several Goals, one sequence of lines", 
   });
 
   it("saves nothing from a needs_retry Turn, even a Goal it marked achieved", () => {
+    // The reply is the two lines a tier-1 Recovery speaks (issue #56): the
+    // shared nudge and the Goal's question, in one write — a `needs_retry` Turn
+    // reports just as faithfully as an accepted one.
+    const recovery = GREETING_SOMEBODY_LESSON.script.greeting.recovery;
     const progress = recordTurnResult({
       focusGoal: "greeting",
       verdict: "needs_retry",
       goalReport: { greeting: "achieved", checkin: "failed" },
-      replyLines: GREETING_SOMEBODY_LESSON.script.greeting.needsRetryLines.slice(0, 1),
+      replyLines: [recovery.unclearNudge, authoredRecoveryQuestion("greeting")],
       matchedAcceptedResponseGoals: [],
       learnerAskedBack: false,
     });
 
     expect(progress).toEqual([]);
-    expect(persistedMessages()).toHaveLength(1);
+    expect(persistedMessages()).toHaveLength(2);
+    expect(persistedMessages().map((message) => message.textEn)).toEqual([
+      recovery.unclearNudge.en,
+      authoredRecoveryQuestion("greeting").en,
+    ]);
   });
 });
 
@@ -471,7 +587,7 @@ describe("recordTurnResult — one record per Goal achieved, in canonical order"
       focusGoal: "checkin",
       verdict: "needs_retry",
       goalReport: {},
-      replyLines: GREETING_SOMEBODY_LESSON.script.checkin.needsRetryLines.slice(0, 1),
+      replyLines: [GREETING_SOMEBODY_LESSON.script.checkin.recovery.directExample],
       matchedAcceptedResponseGoals: [],
       learnerAskedBack: false,
     });
@@ -508,7 +624,7 @@ describe("recordTurnResult — one record per Goal achieved, in canonical order"
       focusGoal: "checkin",
       verdict: "needs_retry",
       goalReport: {},
-      replyLines: GREETING_SOMEBODY_LESSON.script.checkin.needsRetryLines.slice(0, 1),
+      replyLines: [GREETING_SOMEBODY_LESSON.script.checkin.recovery.directExample],
       matchedAcceptedResponseGoals: [],
       learnerAskedBack: false,
     });
@@ -555,7 +671,7 @@ describe("recordTurnResult — one record per Goal achieved, in canonical order"
       focusGoal: "greeting",
       verdict: "accepted",
       goalReport: { checkin: "achieved" },
-      replyLines: GREETING_SOMEBODY_LESSON.script.greeting.needsRetryLines.slice(0, 1),
+      replyLines: borrowedSteerLines("greeting").slice(0, 1),
       matchedAcceptedResponseGoals: [],
       learnerAskedBack: false,
     });
@@ -563,7 +679,7 @@ describe("recordTurnResult — one record per Goal achieved, in canonical order"
       focusGoal: "greeting",
       verdict: "accepted",
       goalReport: { response: "achieved" },
-      replyLines: GREETING_SOMEBODY_LESSON.script.greeting.needsRetryLines.slice(1, 2),
+      replyLines: borrowedSteerLines("greeting").slice(1, 2),
       matchedAcceptedResponseGoals: [],
       learnerAskedBack: false,
     });
@@ -586,6 +702,227 @@ describe("recordTurnResult — one record per Goal achieved, in canonical order"
     expect(
       deserialize(written[written.length - 1]).retryCounts,
     ).toEqual({});
+  });
+});
+
+/**
+ * Issue #56 (docs/ai-configuration.md section 3's "The Retry Streak";
+ * ADR-0014 decision 4): a second persisted counter beside `retryCounts`, and
+ * the one the Recovery's tier is read from. The two answer different questions
+ * and only one of them resets — `retryCounts` is per-Goal history and never
+ * resets (it is what makes a later accepted Goal not-first-try, and what
+ * Review reads), while the streak is the *current run* of `needs_retry` Turns
+ * on the Focus Goal Emily is asking about, so any `accepted` Turn clears it,
+ * including one that leaves the Focus Goal open. Both are written in the same
+ * persist as the reply and everything else a Turn moves, so a snapshot can
+ * never show one of them moved without the other.
+ *
+ * The field is keyed by the Goal it counts, so "a new Focus Goal starts a
+ * fresh streak" is a property of the shape rather than a rule someone has to
+ * remember. Same seam as the sibling describes: `window.localStorage` is
+ * stubbed in and the last value written is read back with the module's own
+ * `deserialize`.
+ */
+describe("recordTurnResult — the Retry Streak (issue #56, ADR-0014 decision 4)", () => {
+  const STORAGE_KEY = "greeting-somebody:practice";
+  const written: string[] = [];
+
+  beforeEach(() => {
+    written.length = 0;
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: () => null,
+        setItem: (key: string, value: string) => {
+          if (key === STORAGE_KEY) written.push(value);
+        },
+      },
+    });
+    resetPractice();
+    written.length = 0;
+  });
+
+  function persistedRetryStreak() {
+    return deserialize(written[written.length - 1]).retryStreak;
+  }
+
+  function persistedRetryCounts() {
+    return deserialize(written[written.length - 1]).retryCounts;
+  }
+
+  it("bumps the streak on a `needs_retry` Turn and keeps counting while the Focus Goal stays the same", () => {
+    const retryTurn = () =>
+      recordTurnResult({
+        focusGoal: "checkin",
+        verdict: "needs_retry",
+        goalReport: {},
+        replyLines: [GREETING_SOMEBODY_LESSON.script.checkin.recovery.directExample],
+        matchedAcceptedResponseGoals: [],
+        learnerAskedBack: false,
+      });
+
+    retryTurn();
+    expect(persistedRetryStreak()).toEqual({ goal: "checkin", count: 1 });
+
+    retryTurn();
+    // Two consecutive retries on the same Goal: this is the count
+    // `selectEmilyLinesForTurn` reads as "tier 2 from now on".
+    expect(persistedRetryStreak()).toEqual({ goal: "checkin", count: 2 });
+    // `retryCounts` has been counting alongside it, per Goal and forever.
+    expect(persistedRetryCounts()).toEqual({ checkin: 2 });
+  });
+
+  it("starts a fresh streak at 1 when the Focus Goal changes", () => {
+    for (const focusGoal of ["greeting", "greeting"] as const) {
+      recordTurnResult({
+        focusGoal,
+        verdict: "needs_retry",
+        goalReport: { greeting: "failed" },
+        replyLines: [
+          GREETING_SOMEBODY_LESSON.script.greeting.recovery.unclearNudge,
+          authoredRecoveryQuestion("greeting"),
+        ],
+        matchedAcceptedResponseGoals: [],
+        learnerAskedBack: false,
+      });
+    }
+    expect(persistedRetryStreak()).toEqual({ goal: "greeting", count: 2 });
+
+    // The learner's next attempt is judged against Check-in — the Focus Goal
+    // moved on — so the count starts over: a streak recorded for one Goal can
+    // never be read for another, and the learner gets tier 1 again.
+    recordTurnResult({
+      focusGoal: "checkin",
+      verdict: "needs_retry",
+      goalReport: {},
+      replyLines: [GREETING_SOMEBODY_LESSON.script.checkin.recovery.directExample],
+      matchedAcceptedResponseGoals: [],
+      learnerAskedBack: false,
+    });
+
+    expect(persistedRetryStreak()).toEqual({ goal: "checkin", count: 1 });
+    // Both Goals keep their own never-resetting history meanwhile.
+    expect(persistedRetryCounts()).toEqual({ greeting: 2, checkin: 1 });
+  });
+
+  it("clears the streak on any `accepted` Turn, including one that leaves the Focus Goal open", () => {
+    recordTurnResult({
+      focusGoal: "greeting",
+      verdict: "needs_retry",
+      goalReport: { greeting: "failed" },
+      replyLines: [
+        GREETING_SOMEBODY_LESSON.script.greeting.recovery.unclearNudge,
+        authoredRecoveryQuestion("greeting"),
+      ],
+      matchedAcceptedResponseGoals: [],
+      learnerAskedBack: false,
+    });
+    expect(persistedRetryStreak()).toEqual({ goal: "greeting", count: 1 });
+
+    // "hi, I'm good, thanks" — `checkin` achieved while `greeting` stays open.
+    // Progress is progress even though the Focus Goal did not change, so the
+    // streak clears: the learner made progress since their stuck attempt, so
+    // the next one on Greeting deserves tier 1 rather than the direct example.
+    // `retryCounts` keeps its entry, which is exactly why the tier cannot be
+    // read off it (ADR-0014's considered option 3, rejected for this reason).
+    recordTurnResult({
+      focusGoal: "greeting",
+      verdict: "accepted",
+      goalReport: { checkin: "achieved" },
+      replyLines: borrowedSteerLines("greeting").slice(0, 1),
+      matchedAcceptedResponseGoals: [],
+      learnerAskedBack: false,
+    });
+
+    expect(persistedRetryStreak()).toBeNull();
+    expect(persistedRetryCounts()).toEqual({ greeting: 1 });
+  });
+});
+
+/**
+ * Issue #56 makes the silence nudge plural: what Emily appends on a long pause
+ * is a *silence reminder* — the nudge followed by the Focus Goal's question —
+ * and the two lines have to arrive as one Turn. `appendSupportMessages` is
+ * where that reaches the transcript, and it is the support seam's whole
+ * contract: one `appendMessages` call for the whole reminder (one shared
+ * `sequenceId`, which is what the bubble and the autoplay read — see
+ * `getCurrentTurnEmilyMessages`), and nothing else moved at all.
+ *
+ * That last part is the ticket-10 rule this function has always kept: a
+ * support message never touches Goal Progress, never records a Turn and never
+ * counts as an attempt — so it bumps neither `retryCounts` nor the Retry Streak
+ * (silence is not a failed attempt, ADR-0014 decision 6). Same seam as the
+ * sibling describes: `window.localStorage` is stubbed in and what was
+ * persisted is read back with the module's own `deserialize`.
+ */
+describe("appendSupportMessages — one reminder, one write, no conversation state moved (issue #56)", () => {
+  const STORAGE_KEY = "greeting-somebody:practice";
+  const written: string[] = [];
+
+  beforeEach(() => {
+    written.length = 0;
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: () => null,
+        setItem: (key: string, value: string) => {
+          if (key === STORAGE_KEY) written.push(value);
+        },
+      },
+    });
+    resetPractice();
+    written.length = 0;
+  });
+
+  it("appends the reminder's lines as one Turn — one write, one sequenceId — and moves nothing else", () => {
+    // A graded Turn first, so "moves nothing" has something to compare against:
+    // `greeting` achieved, which also puts a Turn record and a `retryCounts`
+    // entry in reach of the assertions below.
+    recordTurnResult({
+      focusGoal: "greeting",
+      verdict: "needs_retry",
+      goalReport: { greeting: "failed" },
+      replyLines: [GREETING_SOMEBODY_LESSON.script.greeting.recovery.directExample],
+      matchedAcceptedResponseGoals: [],
+      learnerAskedBack: false,
+    });
+    const before = deserialize(written[written.length - 1]);
+    const writesBefore = written.length;
+
+    // The shape `selectSilenceReminder` returns for a Check-in Focus Goal: the
+    // nudge, then the Goal's question — which for `checkin` is the Check-in
+    // pool's own line (ADR-0014 decision 2).
+    const reminder = [
+      GREETING_SOMEBODY_LESSON.silenceNudgeLines[0],
+      GREETING_SOMEBODY_LESSON.checkinLines[0],
+    ];
+    appendSupportMessages(reminder);
+
+    // One write for both lines. Two appends would read as two Turns, and a
+    // re-render could observe a half-arrived reminder.
+    expect(written).toHaveLength(writesBefore + 1);
+    const after = deserialize(written[written.length - 1]);
+    expect(after.messages.slice(0, before.messages.length).map((message) => message.id)).toEqual(
+      before.messages.map((message) => message.id),
+    );
+    expect(after.messages.slice(-2).map((message) => message.textEn)).toEqual(
+      reminder.map((line) => line.en),
+    );
+    // One shared `sequenceId`, and not the preceding Turn's.
+    const [nudgeMessage, questionMessage] = after.messages.slice(-2);
+    expect(nudgeMessage.sequenceId).toBe(questionMessage.sequenceId);
+    expect(nudgeMessage.sequenceId).not.toBe(before.messages[before.messages.length - 1].sequenceId);
+
+    // The reminder reads as its own Turn, never joined to the line before it —
+    // the regression the sequenceId exists to prevent.
+    expect(getCurrentTurnEmilyMessages(after.messages).map((message) => message.textEn)).toEqual(
+      reminder.map((line) => line.en),
+    );
+
+    // And nothing conversation-shaped moved: no Goal Progress, no Turn record,
+    // no counter, no streak.
+    expect(after.goalProgress).toEqual(before.goalProgress);
+    expect(after.turnRecords).toEqual(before.turnRecords);
+    expect(after.retryCounts).toEqual(before.retryCounts);
+    expect(after.retryStreak).toEqual(before.retryStreak);
   });
 });
 
@@ -670,12 +1007,18 @@ describe("getCurrentTurnEmilyMessages", () => {
     ).toEqual(["e1a", "e1b"]);
   });
 
-  it("returns a silence nudge alone, not joined to the line before it", () => {
-    // Regression: the nudge is its own Turn, even though the only message
-    // between it and the opening line is nothing at all.
+  it("returns a silence reminder whole, not joined to the line before it", () => {
+    // Regression, in its issue #56 shape: the nudge is now a *reminder* — the
+    // nudge and the Focus Goal's question, appended in one write — so both must
+    // come back as one Turn, and the opening line above them (a different
+    // write, with no learner message in between) must not be swallowed into it.
     expect(
-      getCurrentTurnEmilyMessages([emily("e0", "s0"), emily("nudge", "s1")]).map((m) => m.id),
-    ).toEqual(["nudge"]);
+      getCurrentTurnEmilyMessages([
+        emily("e0", "s0"),
+        emily("nudge", "s1"),
+        emily("question", "s1"),
+      ]).map((m) => m.id),
+    ).toEqual(["nudge", "question"]);
   });
 
   it("returns a nudge that landed after a multi-line Turn alone too", () => {
@@ -686,8 +1029,9 @@ describe("getCurrentTurnEmilyMessages", () => {
         emily("e1a", "s1"),
         emily("e1b", "s1"),
         emily("nudge", "s2"),
+        emily("question", "s2"),
       ]).map((m) => m.id),
-    ).toEqual(["nudge"]);
+    ).toEqual(["nudge", "question"]);
   });
 
   it("returns the newest of two adjacent Emily messages that arrived separately", () => {

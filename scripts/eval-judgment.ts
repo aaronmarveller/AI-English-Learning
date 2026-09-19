@@ -454,6 +454,18 @@ const EVAL_CASES: EvalCase[] = [
   // Emily back ------------------------------------------------------------
   {
     category: "untouched-boundary",
+    goalProgress: goalsBefore("checkin"),
+    message: "I'm good! I like pizza.",
+    expectedReport: {
+      checkin: "achieved",
+      response: "untouched",
+      closing: "untouched",
+    },
+    expectedAskedBack: false,
+    note: "v2 ticket 10's own example of its Important rule ('if the learner says something off-topic but also completes a goal, recognize the valid goal'): with the greeting already achieved, 'I'm good!' answers the check-in and 'I like pizza' is off-topic chatter that attempts no Goal — so the answer is `achieved` and the off-topic part is `untouched`, never `failed`. Issue #56 is what makes the report's shape load-bearing here: `failed` anywhere sends Emily to the Recovery's `unclear` first tier, while everything `untouched` sends her to the `off-topic` one, so this Turn is the one that must not be read as a failed attempt.",
+  },
+  {
+    category: "untouched-boundary",
     goalProgress: [],
     message: "I'm good, thanks.",
     expectedReport: {

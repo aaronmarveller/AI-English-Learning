@@ -14,15 +14,18 @@ import { StageTag } from "@/components/stage-tag";
 import { GREETING_SOMEBODY_LESSON, pickRandomOpeningLine } from "@/content/lesson";
 import { ACTIVE_CONVERSATION_STATES } from "@/lib/conversation-state-machine";
 import { containsChineseText } from "@/lib/detect-chinese-input";
-import { selectEmilyLinesForTurn, selectSilenceNudge } from "@/lib/emily-reply-selector";
+import { selectEmilyLinesForTurn, selectSilenceReminder } from "@/lib/emily-reply-selector";
 import { deriveVerdict } from "@/lib/goal-progress";
 import { markStepComplete } from "@/lib/progress";
 import { getCurrentTurnEmilyMessages, usePractice } from "@/lib/practice-state";
 import {
   cancelSpeech,
+  getMicListeningSnapshot,
+  getServerMicListeningSnapshot,
   getServerTurnTakingSnapshot,
   getTurnTakingSnapshot,
   speakLinesAssertively,
+  subscribeToMicListening,
   subscribeToTurnTaking,
 } from "@/lib/speech-synthesis";
 import { submitPracticeTurn } from "@/lib/submit-practice-turn";
@@ -33,10 +36,10 @@ import { matchesAcceptedResponse } from "@/lib/turn-record";
  * Chinese straight into the main reply box, rather than tapping "中文提问"
  * (which opens `AskInChineseSheet`'s real help mode — issue #19 — with its
  * own 4-part canned explanation and Chinese follow-up conversation for the
- * Focus Goal). Appended via `appendSupportMessage` — same as the silence
- * nudge — so it never moves Goal Progress and never contributes a Turn record
- * to the Learning Summary (CONTEXT.md "Focus Goal": a `support_requested` Turn
- * Outcome never changes it).
+ * Focus Goal). Appended via `appendSupportMessages` — same as the silence
+ * reminder — so it never moves Goal Progress and never contributes a Turn
+ * record to the Learning Summary (CONTEXT.md "Focus Goal": a
+ * `support_requested` Turn Outcome never changes it).
  *
  * Deliberately minimal: typing Chinese into the main reply box only nudges
  * the learner toward the help button rather than opening a full explanation
@@ -64,10 +67,17 @@ const TALKING_DURATION_MS = 1400;
 let autoSpokenMessageId: string | undefined;
 
 /**
- * How long the learner can go without submitting a reply before Emily sends
- * one gentle nudge (ticket 10; spec.md "Practice 页交互模型": "无响应计时
- * 15–20 秒触发一次鼓励语，不推进状态，不提供答案"; user story 62). Picked at
- * the middle of the spec's 15-20s range.
+ * How long the learner can go without submitting a reply before Emily speaks
+ * a silence reminder (ticket 10, v2 ticket 9; spec.md "Practice 页交互模型":
+ * "无响应计时 15–20 秒触发一次鼓励语，不推进状态，不提供答案"; user story 62).
+ * Picked at the middle of the spec's 15-20s range — which v2 ticket 9 states
+ * as the window itself ("After 15–20 seconds with no response"), so the
+ * constant is the ticket's, not a free choice within it.
+ *
+ * The window opens only once the floor is genuinely the learner's — see the
+ * timer effect below for the three gates (Emily not speaking, past the Handoff
+ * Gap, microphone not open), which is what "15–20 s of silence" means in a
+ * conversation where Emily's own line is not the learner's silence.
  */
 const SILENCE_TIMEOUT_MS = 18000;
 
@@ -101,12 +111,13 @@ export function PracticePageContent() {
   const {
     goalProgress,
     focusGoal,
+    focusRetryStreak,
     messages,
     isComplete,
     ensureOpeningMessage,
     appendLearnerMessage,
     recordTurnResult,
-    appendSupportMessage,
+    appendSupportMessages,
     resetPractice,
   } = usePractice();
 
@@ -128,6 +139,16 @@ export function PracticePageContent() {
     getServerTurnTakingSnapshot,
   );
 
+  // Issue #56, v2 ticket 9: the silence timer reads the microphone the same
+  // way, and for the same reason — a reminder must not be spoken into an open
+  // microphone. Same external-store read as the gate above; see
+  // src/lib/speech-synthesis.ts's `getMicListeningSnapshot`.
+  const isMicListening = useSyncExternalStore(
+    subscribeToMicListening,
+    getMicListeningSnapshot,
+    getServerMicListeningSnapshot,
+  );
+
   const openingPickedRef = useRef(false);
   // Tracks the in-flight submitPracticeTurn request, if any, so the cleanup
   // effect below can abort it on unmount — same ref-plus-unmount-cleanup
@@ -146,11 +167,14 @@ export function PracticePageContent() {
   // Mode's fake remount same as any other ref, and we want a fresh "haven't
   // checked yet" on every real mount too.
   const hasCheckedReplyAutoplayRef = useRef(false);
-  // The `.en` text of whichever silence nudge was shown last this mount, or
-  // `undefined` if none has fired yet — `selectSilenceNudge` uses this to
+  // The `.en` of whichever silence nudge was shown last this mount, or
+  // `undefined` if none has fired yet — `selectSilenceReminder` uses this to
   // never repeat the same nudge twice in a row (docs/ai-configuration.md
   // section 3). A ref, not store state: which nudge played last is a purely
-  // local selection concern, not persisted conversation data.
+  // local selection concern, not persisted conversation data. Since #56 it
+  // tracks the reminder's *nudge* line only, not the question that follows it:
+  // the no-repeat rule is about the nudge pool, and the question is the Focus
+  // Goal's, which changes as the conversation moves on anyway.
   const lastNudgeTextRef = useRef<string | undefined>(undefined);
 
   // Opening line: picked once per mount, only actually applied by
@@ -251,28 +275,59 @@ export function PracticePageContent() {
     if (isAskInChineseOpen) cancelSpeech();
   }, [isAskInChineseOpen]);
 
-  // Silence-timeout nudge: a single-shot timer keyed off the last message's
-  // id (or its absence, before the opening line lands) — any new message
-  // (a learner submission, Emily's graded reply, or this nudge itself)
-  // reruns the effect and re-arms a fresh window, so this fires once per
-  // stretch of continued silence rather than on a repeating interval. Stays
-  // idle while a turn is mid-flight (`isSubmitting`) so the nudge never
-  // fires while Emily is "thinking", and stops entirely once the
-  // conversation is complete. Deliberately calls `appendSupportMessage`
-  // directly, never `recordTurnResult` — no LLM call, no state transition.
+  // Silence reminder (issue #56; v2 ticket 9; docs/ai-configuration.md
+  // section 3's "Silence reminder"): a single-shot timer keyed off the last
+  // message's id (or its absence, before the opening line lands) — any new
+  // message (a learner submission, Emily's graded reply, or this reminder
+  // itself) reruns the effect and re-arms a fresh window, so this fires once
+  // per stretch of continued silence rather than on a repeating interval.
+  //
+  // Three gates, and together they are what "15–20 s of silence" means: the
+  // timer runs only while the floor belongs to the learner. `turnTakingState
+  // === "idle"` is the first two of them in one value — it is "speaking" while
+  // Emily talks and "handoff-gap" for the beat after she stops, so waiting for
+  // "idle" is waiting for her line (and the Handoff Gap after it) to be over
+  // rather than counting her own voice as the learner's silence. `isMicListening`
+  // is the third: the learner has taken the floor and is mid-turn, so there is
+  // nothing to remind them of. Each gate is a dependency, so the effect re-arms
+  // the moment the floor comes back to them, and it stays idle while a turn is
+  // mid-flight (`isSubmitting`) and stops entirely once the conversation is
+  // complete.
+  //
+  // Deliberately calls `appendSupportMessages` directly, never
+  // `recordTurnResult` — no LLM call, no state transition, no Goal Progress and
+  // no touched Retry Streak: silence is not a failed attempt, so it earns the
+  // tier-1 wording and never the direct example.
   const lastMessageId = messages[messages.length - 1]?.id;
   useEffect(() => {
     if (isComplete || isSubmitting || isAskInChineseOpen) return;
+    if (turnTakingState !== "idle" || isMicListening || focusGoal === null) return;
     const timeoutId = setTimeout(() => {
-      // Issue #16 (docs/ai-configuration.md section 3): the silence nudge is
-      // now a 3-line pool, not one fixed line — picked so it never repeats
-      // the immediately preceding nudge's text twice in a row.
-      const nudge = selectSilenceNudge(GREETING_SOMEBODY_LESSON, lastNudgeTextRef.current);
-      lastNudgeTextRef.current = nudge.en;
-      appendSupportMessage(nudge);
+      // Issue #16 (docs/ai-configuration.md section 3): the nudge is a 3-line
+      // pool, not one fixed line — picked so it never repeats the immediately
+      // preceding nudge's text twice in a row. Issue #56: the nudge is spoken
+      // as a silence reminder, followed by the Focus Goal's question ("Take
+      // your time. How are you today?" — v2 ticket 9's own example), and both
+      // lines are one Turn for the bubble and one playback.
+      const reminder = selectSilenceReminder(
+        GREETING_SOMEBODY_LESSON,
+        focusGoal,
+        lastNudgeTextRef.current,
+      );
+      lastNudgeTextRef.current = reminder.nudge.en;
+      appendSupportMessages(reminder.lines);
     }, SILENCE_TIMEOUT_MS);
     return () => clearTimeout(timeoutId);
-  }, [lastMessageId, isComplete, isSubmitting, isAskInChineseOpen, appendSupportMessage]);
+  }, [
+    lastMessageId,
+    isComplete,
+    isSubmitting,
+    isAskInChineseOpen,
+    turnTakingState,
+    isMicListening,
+    focusGoal,
+    appendSupportMessages,
+  ]);
 
   async function handleSubmit(text: string) {
     // `focusGoal` is null exactly when Practice is complete, so this is the
@@ -286,14 +341,14 @@ export function PracticePageContent() {
     // here, client-side, BEFORE the Judge is ever called — it resolves
     // straight to `support_requested` and never becomes a Verdict. The
     // learner's input is still echoed (same as any other turn) and Emily
-    // still responds, but purely through `appendSupportMessage`, which never
+    // still responds, but purely through `appendSupportMessages`, which never
     // touches Goal Progress and never records a Turn — a support_requested
     // Turn contributes nothing to the Learning Summary. The Focus Goal is
     // deliberately untouched too.
     if (containsChineseText(text)) {
       setErrorMessage(null);
       appendLearnerMessage(text);
-      appendSupportMessage(CHINESE_INPUT_SUPPORT_NUDGE);
+      appendSupportMessages([CHINESE_INPUT_SUPPORT_NUDGE]);
       setAvatarState("idle");
       return;
     }
@@ -340,6 +395,12 @@ export function PracticePageContent() {
         progressBeforeTurn: goalProgress,
         goalReport,
         learnerAskedBack,
+        // Issue #56: how many `needs_retry` Turns in a row this Focus Goal has
+        // already had, read off the store as it stands *before* this Turn is
+        // recorded — 0 on the first attempt, which is tier 1. A `needs_retry`
+        // Turn is the only one that reads it; the store bumps it (or clears it
+        // on an `accepted` Turn) in `recordTurnResult` below.
+        focusRetryStreak,
       });
       // Issue #20 (#12's "Learning Summary inputs are derived, not
       // reported"): whether the learner's text matched an Accepted Response is

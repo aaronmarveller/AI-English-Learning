@@ -302,12 +302,52 @@ function ownsSpeaking(owner: symbol): boolean {
 export function acquireMicListening(): MicListeningOwner {
   const owner = Symbol("mic-listening");
   micListeningOwners.add(owner);
+  publishMicListening();
   cancelSpeech();
   return owner;
 }
 
 export function releaseMicListening(owner: MicListeningOwner): void {
   micListeningOwners.delete(owner);
+  publishMicListening();
+}
+
+/**
+ * Public read of "a speech-recognition session currently holds the
+ * microphone", as an external store — same shape as the Turn-Taking snapshot
+ * above, added by issue #56 for its one consumer: the Practice page's silence
+ * timer, which must not run while the learner has the microphone open
+ * (docs/ai-configuration.md section 3's "Silence reminder"). The mic is the
+ * learner's to hold; a reminder fired into it would be Emily talking over an
+ * already-open turn.
+ *
+ * A page-level subscriber cannot see the private owner set, and should not:
+ * which surfaces own the microphone changes over time (the reply box, the
+ * Ask-in-Chinese sheet), and each acquires and releases its own token. This
+ * reports whether *anyone* holds it.
+ */
+let lastPublishedMicListening = false;
+const micListeningListeners = new Set<() => void>();
+
+function publishMicListening(): void {
+  const listening = isMicListening();
+  if (listening === lastPublishedMicListening) return;
+  lastPublishedMicListening = listening;
+  micListeningListeners.forEach((listener) => listener());
+}
+
+export function getMicListeningSnapshot(): boolean {
+  return isMicListening();
+}
+
+/** Server render and the first hydration pass agree on "nobody is listening" — no microphone exists before hydration. */
+export function getServerMicListeningSnapshot(): boolean {
+  return false;
+}
+
+export function subscribeToMicListening(listener: () => void): () => void {
+  micListeningListeners.add(listener);
+  return () => micListeningListeners.delete(listener);
 }
 
 /**

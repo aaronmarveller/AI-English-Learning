@@ -4,6 +4,7 @@ import { useSyncExternalStore } from "react";
 import { createPersistedStore } from "@/lib/create-persisted-store";
 import {
   ACTIVE_CONVERSATION_STATES,
+  isActiveConversationState,
   isConversationState,
   type ActiveConversationState,
   type ConversationState,
@@ -125,6 +126,31 @@ export type PracticeStoreState = {
   turnRecords: StateTurnRecord[];
   /** How many `needs_retry` Turns this Goal has been the Focus Goal of so far — only those, because a `needs_retry` Turn is the whole of what makes a later accepted Goal not-first-try (see `recordTurnResult`). Keyed by the Focus Goal at submission time, exactly as #47 specified; every other Verdict leaves it untouched. */
   retryCounts: Partial<Record<ActiveConversationState, number>>;
+  /**
+   * The learner's Retry Streak (issue #56; docs/ai-configuration.md section 3):
+   * how many `needs_retry` Turns in a row the *current* Focus Goal has had, and
+   * which Goal that was. `null` means no streak at all — the learner's last
+   * Turn was `accepted`, or nothing has been retried yet.
+   *
+   * Deliberately a second field beside `retryCounts` rather than a reuse of it,
+   * because the two say different things and only one of them resets:
+   * `retryCounts` is *cumulative per Goal* and never resets — it is what Review
+   * reads to say "needed support for <Goal>" (#51/#57) and what makes a later
+   * accepted Goal not-first-try — while the streak is about *consecutive
+   * attempts at the Goal Emily is currently asking for*, which is what decides
+   * whether the recovery speaks tier 1 or tier 2 (`selectEmilyLinesForTurn`'s
+   * `focusRetryStreak`). A learner who retried Check-in, then achieved
+   * `response` out of order — an `accepted` Turn that leaves Check-in open —
+   * has `retryCounts.checkin === 1` forever and a streak of `null`, and the
+   * next stuck Check-in attempt deserves tier 1: they made progress since.
+   *
+   * Keyed by Goal so "the streak resets when the Focus Goal changes" is a
+   * property of the shape rather than a rule someone has to remember: a count
+   * recorded for Check-in can never be read for a later Focus Goal. A
+   * `support_requested` Turn Outcome never reaches this store at all, so the
+   * streak is untouched by the one Turn that is not an attempt.
+   */
+  retryStreak: { goal: ActiveConversationState; count: number } | null;
 };
 
 const STORAGE_KEY = "greeting-somebody:practice";
@@ -139,6 +165,7 @@ const INITIAL_STATE: PracticeStoreState = {
   messages: [],
   turnRecords: [],
   retryCounts: {},
+  retryStreak: null,
 };
 
 function isPracticeMessage(value: unknown): value is PracticeMessage {
@@ -168,6 +195,23 @@ function sanitizeRetryCounts(value: unknown): Partial<Record<ActiveConversationS
 }
 
 /**
+ * Sanitizes a persisted `retryStreak` (issue #56), for the same reason
+ * `sanitizeRetryCounts` exists: a corrupt entry degrades to "no streak" rather
+ * than discarding the snapshot. `undefined` is a *missing* field, handled in
+ * `deserialize` — see its doc comment for why that one is not an error.
+ */
+function sanitizeRetryStreak(
+  value: unknown,
+): { goal: ActiveConversationState; count: number } | null {
+  if (typeof value !== "object" || value === null) return null;
+  const v = value as Record<string, unknown>;
+  const goal = v.goal;
+  const count = v.count;
+  if (!isActiveConversationState(goal) || typeof count !== "number" || count <= 0) return null;
+  return { goal, count };
+}
+
+/**
  * Issue #20 (#12's Further Notes: "In-flight practice sessions will reset"):
  * a snapshot is only trusted if the fields this store cannot work without are
  * present and well-shaped — `turnRecords` (whose absence means the old
@@ -180,6 +224,16 @@ function sanitizeRetryCounts(value: unknown): Partial<Record<ActiveConversationS
  * is discarded (falling back to `INITIAL_STATE`, same as a JSON.parse failure)
  * instead of crashing or silently mixing old and new shapes. `messages`
  * degrades per-entry instead, since it isn't load-bearing for correctness.
+ *
+ * Issue #56's `retryStreak` is the one field whose *absence* is not treated as
+ * a shape mismatch, and deliberately so: it is not load-bearing (a snapshot
+ * without one is a conversation where the learner has not retried since their
+ * last `accepted` Turn, which is a perfectly good starting point — the first
+ * attempt on the Focus Goal), and its absence has exactly one possible cause,
+ * a pre-#56 session, whose streak is genuinely unknowable. Discarding an
+ * otherwise-valid snapshot to recover a value the old code never wrote would
+ * throw away the learner's conversation to no purpose. A *malformed* one is
+ * sanitized away as usual (`sanitizeRetryStreak`).
  */
 /** Exported for practice-state.test.ts's discard-safely coverage (the persisted-store factory's own `serialize`/`deserialize` contract is otherwise private per store). */
 export function deserialize(raw: string): PracticeStoreState {
@@ -201,7 +255,8 @@ export function deserialize(raw: string): PracticeStoreState {
   const messages = Array.isArray(p.messages) ? p.messages.filter(isPracticeMessage) : [];
   const turnRecords = p.turnRecords;
   const retryCounts = sanitizeRetryCounts(p.retryCounts);
-  return { goalProgress, messages, turnRecords, retryCounts };
+  const retryStreak = sanitizeRetryStreak(p.retryStreak);
+  return { goalProgress, messages, turnRecords, retryCounts, retryStreak };
 }
 
 function serialize(state: PracticeStoreState): string {
@@ -256,7 +311,9 @@ function nextSequenceId(): string {
 function appendMessages(
   current: PracticeStoreState,
   inputs: { role: PracticeMessage["role"]; textEn: string; textZh: string; state: ConversationState }[],
-  stateOverrides: Partial<Pick<PracticeStoreState, "goalProgress" | "turnRecords" | "retryCounts">> = {},
+  stateOverrides: Partial<
+    Pick<PracticeStoreState, "goalProgress" | "turnRecords" | "retryCounts" | "retryStreak">
+  > = {},
 ): void {
   if (inputs.length === 0) return;
   const sequenceId = nextSequenceId();
@@ -399,6 +456,16 @@ export function appendLearnerMessage(text: string): void {
  *     `false` on every other one. A Turn that did not achieve `response`
  *     records nothing for it.
  *
+ * Issue #56 adds one more piece of bookkeeping beside `retryCounts`:
+ * `retryStreak`, the count of consecutive `needs_retry` Turns on the Focus Goal
+ * that decides the next recovery's tier. It is bumped by exactly the Turns
+ * `retryCounts` is bumped by and cleared by every other Verdict — but it is
+ * *replaced* rather than accumulated, and it is keyed by the Goal it counts, so
+ * it answers a different question from `retryCounts` (see that field's own doc
+ * comment in `PracticeStoreState`). Both are written in the same persist as the
+ * reply, so a Turn can never be recorded with one of them moved and not the
+ * other.
+ *
  * Issue #48: `replyLines` is the *sequence* Emily's line selector returned
  * (src/lib/emily-reply-selector.ts) — one or more Conversation Script lines
  * for this Turn. Each becomes its own `PracticeMessage`, in order, in a single
@@ -440,6 +507,21 @@ export function recordTurnResult(input: {
         }
       : current.retryCounts;
 
+  // The Retry Streak (issue #56): consecutive `needs_retry` Turns on the Focus
+  // Goal, so this is the *other* half of the same Verdict — where `retryCounts`
+  // adds one to a Goal's lifetime total, this replaces the streak, and any
+  // `accepted` Turn clears it outright. Progress is progress even when the
+  // Focus Goal stays open (a Turn that achieved a later Goal), which is the
+  // whole reason the streak is not `retryCounts`: that Turn's learner should
+  // hear tier 1 again, not the second try's direct example.
+  const retryStreak =
+    input.verdict === "needs_retry"
+      ? {
+          goal: input.focusGoal,
+          count: (current.retryStreak?.goal === input.focusGoal ? current.retryStreak.count : 0) + 1,
+        }
+      : null;
+
   const goalProgress = applyGoalReport(current.goalProgress, input.goalReport, input.verdict);
   // Exactly what this Turn added to Goal Progress: canonical order, no
   // duplicates, and empty for a `needs_retry` Turn (applyGoalReport saves
@@ -471,44 +553,52 @@ export function recordTurnResult(input: {
       textZh: line.zh,
       state: input.focusGoal,
     })),
-    { goalProgress, turnRecords, retryCounts },
+    { goalProgress, turnRecords, retryCounts, retryStreak },
   );
   return goalProgress;
 }
 
 /**
- * Appends an Emily message without touching Goal Progress or `turnRecords` —
- * for support features that must never move a conversation forward (ticket
- * 10's silence-timeout nudge; spec.md user story 62: "20 秒没说话时 Emily
- * 只轻轻推一下、不催也不给答案"). Unlike `recordTurnResult`, this never
- * applies a Goal Report — the learner hasn't submitted a turn to judge, so
- * there is nothing to apply.
+ * Appends one or more Emily messages without touching Goal Progress or
+ * `turnRecords` — for support features that must never move a conversation
+ * forward (ticket 10's silence-timeout nudge; spec.md user story 62: "20 秒没
+ * 说话时 Emily 只轻轻推一下、不催也不给答案"). Unlike `recordTurnResult`, this
+ * never applies a Goal Report — the learner hasn't submitted a turn to judge,
+ * so there is nothing to apply.
  *
- * Issue #47: the message is tagged with the Focus Goal (the Conversation
+ * Issue #47: the messages are tagged with the Focus Goal (the Conversation
  * State derived from Goal Progress) — the nudge is aimed at whatever Emily is
  * waiting for, which is the Focus Goal by definition. The nudge *text* is
  * still drawn from the Lesson's one global 3-line pool
  * (docs/ai-configuration.md section 3 specifies a single pool, not one per
  * Goal); selection happens at the call site
- * (src/lib/emily-reply-selector.ts's `selectSilenceNudge`). Takes a single
- * `SupportNudge`-shaped object (rather than two positional `en`/`zh` strings)
- * so call sites can pass a nudge value straight through.
+ * (src/lib/emily-reply-selector.ts's `selectSilenceReminder`).
+ *
+ * Issue #56: plural, because the silence nudge is now a *silence reminder* —
+ * the nudge followed by the Focus Goal's question (section 3's "Silence
+ * reminder"), which the learner must see and hear as one Turn. Both lines
+ * therefore go through one `appendMessages` call and share a `sequenceId`,
+ * which is what keeps them one Turn for the bubble and one playback (see
+ * `getCurrentTurnEmilyMessages`); appending them separately would read as two.
+ * Takes `SupportNudge`-shaped objects (rather than positional strings) so call
+ * sites can pass a reminder's lines straight through.
  */
-export function appendSupportMessage(input: SupportNudge): void {
+export function appendSupportMessages(inputs: readonly SupportNudge[]): void {
   const current = store.getSnapshot();
-  appendMessages(current, [
-    {
-      role: "emily",
+  appendMessages(
+    current,
+    inputs.map((input) => ({
+      role: "emily" as const,
       textEn: input.en,
       textZh: input.zh,
       state: deriveConversationState(current.goalProgress),
-    },
-  ]);
+    })),
+  );
 }
 
 /** Clears the conversation back to a clean start — ticket 11's Retry button will call this. */
 export function resetPractice(): void {
-  store.persist({ goalProgress: [], messages: [], turnRecords: [], retryCounts: {} });
+  store.persist({ goalProgress: [], messages: [], turnRecords: [], retryCounts: {}, retryStreak: null });
 }
 
 /**
@@ -528,17 +618,30 @@ export function resetPractice(): void {
  */
 export function usePractice() {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getServerSnapshot);
+  const focusGoal = getFocusGoal(state.goalProgress);
   return {
     goalProgress: state.goalProgress,
     /** The first open Goal in canonical order, or `null` once every Goal is achieved. */
-    focusGoal: getFocusGoal(state.goalProgress),
+    focusGoal,
     messages: state.messages,
     turnRecords: state.turnRecords,
     isComplete: isGoalProgressComplete(state.goalProgress),
+    /**
+     * The Retry Streak for the *current* Focus Goal (issue #56), as the count
+     * `selectEmilyLinesForTurn` reads: `0` when there is no streak, or when the
+     * one on record belongs to a Goal the learner has since left behind. That
+     * second case is why this is derived here rather than handed out raw — a
+     * count for a Goal that is no longer the Focus Goal is stale by
+     * construction, and `0` is what "the Focus Goal changed" means.
+     */
+    focusRetryStreak:
+      state.retryStreak !== null && state.retryStreak.goal === focusGoal
+        ? state.retryStreak.count
+        : 0,
     ensureOpeningMessage,
     appendLearnerMessage,
     recordTurnResult,
-    appendSupportMessage,
+    appendSupportMessages,
     resetPractice,
   };
 }

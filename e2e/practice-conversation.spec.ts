@@ -1,8 +1,11 @@
 import { test, expect } from "@playwright/test";
 import {
+  emilyLines,
   installScriptedPracticeApi,
   persistedMessages,
   PRACTICE_URL,
+  recoveryOffTopicNudgeLine,
+  recoveryQuestionLine,
   resetStorage,
   submitReply,
 } from "./fixtures";
@@ -29,6 +32,17 @@ import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
  * `accepted` from a report naming that Goal, and `needs_retry` from a report
  * that achieves nothing.
  *
+ * Issue #56: a `needs_retry` Turn no longer speaks one line from a flat pool —
+ * it speaks the Goal's two-tier **Recovery**. A report that attempted nothing
+ * (every open Goal `untouched` — what off-topic input looks like) earns the
+ * first tier's *off-topic* variant: the Goal's off-topic nudge, then its
+ * question, as two lines (ADR-0014 decision 2: a sequence, never one composed
+ * sentence). The two tests that drive such a Turn below assert the sequence
+ * line by line, derived from `GREETING_SOMEBODY_LESSON.script.greeting.recovery`,
+ * and still assert the halves this file always asserted: Goal Progress does not
+ * move and the progress steps keep their states. The full tier-1/tier-2 and
+ * streak behaviour lives in e2e/practice-recovery.spec.ts.
+ *
  * The scripted turn-endpoint stub (`installScriptedPracticeApi`) and the
  * text-reply helper (`submitReply`) originated in this file but now live in
  * e2e/fixtures.ts, shared with practice-voice.spec.ts, practice-support
@@ -41,7 +55,19 @@ const RESPONSE_DID_NOT_ASK_BACK_TEXTS = GREETING_SOMEBODY_LESSON.responseLines.d
 const RESPONSE_ASKED_BACK_TEXTS = GREETING_SOMEBODY_LESSON.responseLines.askedBack.map((line) => line.en);
 const CLOSING_TEXTS = GREETING_SOMEBODY_LESSON.closingLines.map((line) => line.en);
 const COMPLETION_TEXTS = [...GREETING_SOMEBODY_LESSON.completionMessages];
-const GREETING_NEEDS_RETRY_TEXTS = GREETING_SOMEBODY_LESSON.script.greeting.needsRetryLines.map((line) => line.en);
+
+/**
+ * The first-tier Recovery a Turn that attempted nothing earns at Greeting
+ * (issue #56; v2 ticket 10's `greeting` row): the Goal's own off-topic nudge,
+ * then its question — two lines, derived from the Lesson rather than copied, so
+ * the assertion fails loudly if the wording ever moves. The `unclear` variant
+ * (the shared "Sorry, I didn't quite get that.") is a different first line, and
+ * is covered in e2e/practice-recovery.spec.ts and practice-mixed-failure.spec.ts.
+ */
+const GREETING_OFF_TOPIC_RECOVERY_TEXTS = [
+  recoveryOffTopicNudgeLine("greeting").en,
+  recoveryQuestionLine("greeting").en,
+];
 
 test.describe("Practice page — conversation core", () => {
   test("Emily's opening line renders on load with zero calls to the turn endpoint", async ({
@@ -110,13 +136,15 @@ test.describe("Practice page — conversation core", () => {
     expect(CHECKIN_TEXTS).toContain(replyText);
   });
 
-  test("a Goal Report of nothing achieved leaves the Focus Goal where it was and shows a line from its needs_retry pool", async ({
+  test("a Goal Report of nothing achieved leaves the Focus Goal where it was and speaks the Goal's first-tier Recovery", async ({
     page,
   }) => {
     await resetStorage(page);
     // Issue #47: the wire carries a Goal Report now — `greeting` is the first
     // open Goal, and "untouched" (not "failed") is what an unrelated message
     // looks like, so the client derives needs_retry from "nothing achieved".
+    // Issue #56: a report that attempted nothing speaks the *off-topic* variant
+    // of the Goal's first-tier Recovery.
     await installScriptedPracticeApi(page, [{ goalReport: { greeting: "untouched" } }]);
     await page.goto(PRACTICE_URL);
 
@@ -125,11 +153,21 @@ test.describe("Practice page — conversation core", () => {
     // needs_retry never moves Goal Progress, so there's no step-attribute
     // change to wait on the way an accepted Turn has — wait on the learner
     // bubble clearing instead (recordTurnResult always clears it once the turn
-    // resolves, either Verdict), which still guarantees the reply text has
-    // landed before a one-shot innerText() read below.
+    // resolves, either Verdict), which still guarantees the reply has landed
+    // before the assertions below.
     await expect(page.getByTestId("learner-message-bubble")).toHaveCount(0);
-    const replyText = await page.getByTestId("emily-message-bubble").innerText();
-    expect(GREETING_NEEDS_RETRY_TEXTS).toContain(replyText);
+
+    // Two lines, in order — the Goal's off-topic nudge, then its question —
+    // shown as the one bubble a Turn's lines always share (joined with a
+    // single space, message-bubble-pair.tsx).
+    await expect(page.getByTestId("emily-message-bubble")).toHaveText(
+      GREETING_OFF_TOPIC_RECOVERY_TEXTS.join(" "),
+    );
+    // And line by line in the transcript, which is where "one message per
+    // Conversation Script line" is observable at all.
+    const turnLines = (await emilyLines(page)).slice(-GREETING_OFF_TOPIC_RECOVERY_TEXTS.length);
+    expect(turnLines).toEqual(GREETING_OFF_TOPIC_RECOVERY_TEXTS);
+
     await expect(page.getByTestId("practice-step-greeting")).toHaveAttribute("data-state", "current");
     await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "upcoming");
   });
@@ -141,7 +179,9 @@ test.describe("Practice page — conversation core", () => {
     // wanders off the lesson's topic is judged "needs_retry" like any other
     // unsuccessful attempt. Issue #47: their Goal Report is empty (unrelated
     // chatter touches no Goal, and is never reported "failed"), which is
-    // exactly the report below.
+    // exactly the report below — and issue #56 makes it the difference between
+    // the Recovery's two first-tier variants: every open Goal `untouched` is
+    // the off-topic variant, not the shared `unclear` nudge.
     await resetStorage(page);
     await installScriptedPracticeApi(page, [{ goalReport: {} }]);
     await page.goto(PRACTICE_URL);
@@ -149,8 +189,14 @@ test.describe("Practice page — conversation core", () => {
     await submitReply(page, "What's the weather like on Mars?");
 
     await expect(page.getByTestId("learner-message-bubble")).toHaveCount(0);
-    const replyText = await page.getByTestId("emily-message-bubble").innerText();
-    expect(GREETING_NEEDS_RETRY_TEXTS).toContain(replyText);
+    // The Goal's off-topic nudge, then its question — never the `unclear`
+    // nudge (nothing was attempted, so nothing failed to come through).
+    await expect(page.getByTestId("emily-message-bubble")).toHaveText(
+      GREETING_OFF_TOPIC_RECOVERY_TEXTS.join(" "),
+    );
+    const turnLines = (await emilyLines(page)).slice(-GREETING_OFF_TOPIC_RECOVERY_TEXTS.length);
+    expect(turnLines).toEqual(GREETING_OFF_TOPIC_RECOVERY_TEXTS);
+
     await expect(page.getByTestId("practice-step-greeting")).toHaveAttribute("data-state", "current");
     await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "upcoming");
   });

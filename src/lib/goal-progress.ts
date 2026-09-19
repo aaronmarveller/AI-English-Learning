@@ -23,9 +23,9 @@
  *     sentence counted).
  *   - `getFocusGoal` — the first *open* Goal in canonical order, which every
  *     place that used to read "the current state" now reads instead: Emily's
- *     next line, a `needs_retry` line, the silence nudge, and the
- *     Ask-in-Chinese help content. A `support_requested` Turn Outcome never
- *     changes it.
+ *     next line, the Recovery a `needs_retry` Turn speaks, the silence
+ *     reminder, and the Ask-in-Chinese help content. A `support_requested`
+ *     Turn Outcome never changes it.
  *
  * Goal Progress can be non-contiguous (there is no rule crediting an earlier
  * Goal because a later one was achieved — ADR-0012's first considered option
@@ -39,7 +39,7 @@
  * answer every shape correctly because the shape itself is final — see
  * goal-progress.test.ts. Which *line* a `failed` Goal earns Emily is not a
  * Goal Progress question at all, so it lives with the rest of pool selection
- * (issue #49 — src/lib/emily-reply-selector.ts's `selectRetryPoolGoal`).
+ * (issue #49 — src/lib/emily-reply-selector.ts's `selectRecoveryGoal`).
  */
 
 import {
@@ -75,8 +75,8 @@ export function getOpenGoals(progress: GoalProgress): ActiveConversationState[] 
 
 /**
  * The Focus Goal (CONTEXT.md): the first open Goal in canonical order — the
- * one Emily's next line steers toward, and the one a `needs_retry` line and
- * the Chinese help content are written for. `null` once every Goal is
+ * one Emily's next line steers toward, and the one a Recovery and the
+ * Chinese help content are written for. `null` once every Goal is
  * achieved, i.e. once Practice is complete.
  */
 export function getFocusGoal(progress: GoalProgress): ActiveConversationState | null {
@@ -106,8 +106,27 @@ export function deriveConversationState(progress: GoalProgress): ConversationSta
 export function deriveVerdict(progress: GoalProgress, report: GoalReport): Verdict {
   const reported = getOpenGoals(progress).map((goal) => report[goal]);
   const achieved = reported.includes("achieved");
-  const failed = reported.includes("failed");
-  return achieved && !failed ? "accepted" : "needs_retry";
+  return achieved && !reportHasFailedGoal(progress, report) ? "accepted" : "needs_retry";
+}
+
+/**
+ * Whether any *open* Goal's Goal Report is `failed` — the "a recognisable
+ * attempt that did not come through" half of a Verdict, read on its own.
+ *
+ * `deriveVerdict` reads it as one of its two conditions, and the Recovery
+ * (`src/lib/emily-reply-selector.ts`) reads it to tell its tier-1 variants
+ * apart: `failed` anywhere in the report means the learner tried something,
+ * while every open Goal `untouched` means they attempted nothing at all (an
+ * off-topic reply, ADR-0006). One predicate rather than the same `.some(...)`
+ * written twice, because those two callers must always agree about which Turn
+ * arrived — they are the same fact about the same report.
+ *
+ * Only the open Goals are considered, exactly as `deriveVerdict` considers
+ * only those: a `failed` key naming a Goal already in Goal Progress (or no
+ * Goal at all) is ignored, never treated as an attempt.
+ */
+export function reportHasFailedGoal(progress: GoalProgress, report: GoalReport): boolean {
+  return getOpenGoals(progress).some((goal) => report[goal] === "failed");
 }
 
 /**
