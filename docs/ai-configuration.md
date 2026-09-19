@@ -60,7 +60,7 @@ Emily's lines are a **verbatim Conversation Script**: a per-Conversation-Goal po
 
 1. **Reaction** — a reaction line is due when **the learner asked a question back** (Emily owes them an answer to it, whenever the Check-in was answered) **or** when `checkin` was achieved in this Turn (she owes them a reaction to it). Either way it is one line from the Response pool, and `learner_asked_back` — the same boolean that is the signal `response` was achieved — chooses the sub-pool: the "asked back" one in the first case, the "did not ask back" one in the second. This is the only reaction-type pool; every other pool steers. ADR-0013 widened the trigger: the reaction used to be due only when the Check-in landed in the same Turn, which left a learner who answered the Check-in on one Turn and asked "How about you?" on the next steered silently to Closing without ever hearing an answer.
 2. **Steer** — a line steering toward the new Focus Goal: Check-in pool when it is `checkin`, Closing pool when it is `closing`, Completion pool when all four Goals are achieved. When the Focus Goal is `greeting` or `response` (which have no steer pool of their own) and step 1 did not already address it, one line from that Goal's `needs_retry` pool serves as the steer — those lines already read as "here's what to say next". A `response` steer almost never fires: `response` is a question the learner has to decide to ask, so after a Check-in acknowledgement Emily says her one line and waits rather than steering toward it (v2 ticket 3). It survives as the line for Goal Progress that skipped `response` — a learner who says goodbye while `response` is still open hears a `response` `needs_retry` line.
-3. **Farewell before completion** — if the Turn completes Practice but `closing` was achieved in an *earlier* Turn, a Closing-pool line is spoken before the Completion line, so Emily always says goodbye.
+3. **Farewell before completion** — if the Turn completes Practice but `closing` was achieved in an *earlier* Turn, a Closing-pool line is spoken before the Completion line, so Emily always says goodbye. (Since the re-authoring below, both of those lines are farewells and "See you!" is in both pools, so in that rare Turn Emily says goodbye twice; the Completion pick skips the Farewell's exact text rather than repeating it.)
 
 Emily never ends a Turn silent: the composition above always yields at least one line.
 
@@ -70,8 +70,8 @@ Emily never ends a Turn silent: the composition above always yields at least one
 | Check-in | 3 | authored below |
 | Response — learner did not ask back | 6 | authored below |
 | Response — learner asked back | 4 | authored below |
-| Closing | 4 | authored below |
-| Completion | 3 | existing completion pool, unchanged |
+| Closing | 3 | authored below |
+| Completion | 3 | authored below |
 | `needs_retry` | 4 Goals × 3 = 12 | authored below |
 | Silence nudge | 3 | authored below |
 
@@ -99,12 +99,28 @@ The Response step's pool is split because a plain acknowledgement and a reply th
 3. "I'm good, thanks!"
 4. "I'm doing well, thanks!"
 
-### Closing (4)
+### Closing (3)
 
-1. "See you!"
-2. "Have a nice day!"
-3. "Bye for now!"
-4. "Take care!"
+The steer toward the `closing` Goal, re-authored from v2 ticket 5's Closing table (its "Emily Closing" column, de-duplicated in first-appearance order). "Bye for now!" left with the old pool — it is not in the table — and every line here is now verbatim-identical to one of Explore's closing expressions, so Emily's Closing steers are spoken from Explore's own recordings rather than from a second set of files saying the same words (see `src/lib/audio-manifest.ts`).
+
+1. "Have a nice day!"
+2. "Take care!"
+3. "See you!"
+
+### Completion (3)
+
+Emily's one final line, spoken when an accepted Turn puts the last Goal into Goal Progress — after which Practice is complete and the learner can open the Learning Summary. Re-authored from v2 ticket 5's "Emily Final Response" column, which makes these lines farewells rather than the congratulations they used to be ("Great job! Let's check your learning summary.").
+
+1. "Thanks! See you!"
+2. "See you!"
+3. "Thanks! Take care!"
+
+**One pool, picked independently of the Closing line Emily spoke.** Ticket 5 pairs each of its Closing lines with a particular final response, and the tempting alternative — keying the final line to the steer that preceded it — was rejected: ADR-0013 decision 2 settled that a Turn's reply is a *sequence* of existing pool lines rather than one line composed for the situation, and pairing one pool entry with another is composition by another name. Instead the pool is written so that **every line fits every steer**: "Thanks! See you!" reads naturally after "Have a nice day!", "Take care!" and "See you!" alike. The decision is recorded in ADR-0013.
+
+Two consequences worth stating, because neither is visible from the pool alone:
+
+- **"See you!" is shared, not duplicated.** It is the same text as the Closing pool's third line and Explore's `closing-see-you` expression, and the runtime resolves a recording by exact text, so all three surfaces use the one recording; only "Thanks! See you!" and "Thanks! Take care!" needed new audio.
+- **No line invites the learner to review.** The old pool ended by telling the learner where to go next, which the client can no longer claim: Emily's final line is a farewell like any other, and the Review action appearing *is* the signal that Practice is complete (v2 ticket 11 — no additional AI message follows the last Turn).
 
 ### `needs_retry` (12 — 3 per Conversation Goal)
 

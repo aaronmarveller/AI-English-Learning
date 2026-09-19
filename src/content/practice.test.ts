@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildGoalSetSystemPromptSection, GLOBAL_SYSTEM_RULES } from "@/content/practice";
 import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
 import { ACTIVE_CONVERSATION_STATES } from "@/lib/conversation-state-machine";
+import type { GoalProgress } from "@/lib/goal-progress";
 
 /**
  * Issue #16: the model no longer writes Emily's reply — its output shrank to
@@ -49,6 +50,13 @@ import { ACTIVE_CONVERSATION_STATES } from "@/lib/conversation-state-machine";
  * the signal that `response` was achieved and what makes Emily answer the
  * question whenever it comes, rather than a boolean that only matters right
  * after a check-in.
+ *
+ * Issue #55 (v2 tickets 5 and 11) re-authors the Closing and Completion pools
+ * into farewells that overlap each other, which is why the completion-pool
+ * absence check below is no longer text-shaped: the pool's lines now
+ * legitimately appear in the prompt as `closing`'s Accepted Responses (see
+ * that test's own comment). Nothing in the prompt itself changed — it still
+ * asks for a Goal Report and `learner_asked_back` and nothing else.
  */
 describe("Practice system prompt", () => {
   it("describes the two-field submit_turn_result contract, not reply generation or a verdict", () => {
@@ -72,11 +80,30 @@ describe("Practice system prompt", () => {
   });
 
   it("no longer instructs the model to pick a completion message", () => {
-    const prompt = buildGoalSetSystemPromptSection([...ACTIVE_CONVERSATION_STATES]);
-    expect(prompt).not.toContain("Completion Message Rule");
-    for (const message of GREETING_SOMEBODY_LESSON.completionMessages) {
-      expect(prompt).not.toContain(message);
+    // Issue #55 re-authored the Completion pool into bare farewells
+    // ("Thanks! See you!", "See you!", "Thanks! Take care!"), which are also
+    // `closing`-shaped expressions — "See you!" is one of `closing`'s own
+    // Accepted Responses. So the pool's *text* can no longer be asserted
+    // absent: on a prompt whose Goal Progress still has `closing` open, those
+    // very words appear legitimately, as the learner-facing examples they are.
+    // What this test pins instead is the real intent — the prompt never asks
+    // the model for a completion line at all. Both ends of the Goal-Progress
+    // range are checked, because the old text-shaped assertion only ever bit
+    // at the one where `closing` is open.
+    //
+    // The replacement's own limit is worth stating: it pins the *word*
+    // "completion", not the concept — a regression worded as "pick the final
+    // line" would slip past it. That is the price of the pool's lines now
+    // legitimately appearing in the prompt as Accepted Responses, and the
+    // text-shaped assertion it replaces was not obviously better: it only
+    // avoided vacuously passing because the all-achieved prompt above happens
+    // not to print any Accepted Responses at all.
+    const goalProgresses: GoalProgress[] = [[], [...ACTIVE_CONVERSATION_STATES]];
+    for (const goalProgress of goalProgresses) {
+      const prompt = buildGoalSetSystemPromptSection(goalProgress);
+      expect(prompt).not.toMatch(/completion/i);
     }
+    expect(GLOBAL_SYSTEM_RULES).not.toContain("Completion Message Rule");
   });
 
   it("lists all four Goals with their Learning Goals, and nothing about a reply", () => {

@@ -25,8 +25,10 @@
  * (`silenceNudgeLines`) — every one of them copied verbatim from
  * docs/ai-configuration.md section 3, with Chinese translations authored
  * fresh here (the AI Configuration doc only specifies the English). The
- * opening-line and completion-message pools are unchanged (spec.md's own
- * table: "existing pool, unchanged"). Selection itself lives in
+ * opening-line pool is unchanged (spec.md's own table: "existing pool,
+ * unchanged"); the closing and completion pools are not — issue #55
+ * re-authored both from v2 ticket 5's Closing table, and their own doc
+ * comments below say what changed and why. Selection itself lives in
  * src/lib/emily-reply-selector.ts, not here — this file only owns content.
  */
 
@@ -82,20 +84,34 @@ const OPENING_LINES: OpeningLine[] = [
 ];
 
 /**
- * The fixed completion-message library from AI Configuration section ②.
- * Emily selects one entry verbatim client-side (src/lib/emily-reply-selector.ts)
- * when an accepted Closing turn advances the conversation to "complete" —
- * unchanged by issue #16 (spec.md's own table: "existing completion pool,
- * unchanged"), just no longer selected by the model. English-only, same as
- * before ticket 16 — the model used to supply its own `reply_zh` translation
- * for whichever entry it picked; now that selection is client-side, there is
- * no accompanying Chinese translation authored for this pool specifically.
+ * The fixed Completion pool — Emily's ONE short final line, spoken when an
+ * accepted Closing turn advances the conversation to "complete"
+ * (src/lib/emily-reply-selector.ts). Selection is client-side and verbatim
+ * (issue #16); nothing here is model-generated.
+ *
+ * Issue #55 re-authored this pool from v2 ticket 5's Closing table, whose
+ * Emily Final Response column is a farewell — "Thanks! See you!",
+ * "See you!", "Thanks! Take care!" — so the pre-#55 claim that these lines
+ * were "unchanged"/"the existing completion pool" is false now. The pool is
+ * one list picked independently of which Closing line Emily herself spoke:
+ * ADR-0013 decision 2 settled that a Turn's reply is a *sequence* of
+ * existing pool lines rather than one composed line, and keying the final
+ * line to the steer that preceded it would reintroduce exactly that
+ * composition (see docs/adr/0013-response-goal-means-asking-emily-back.md's
+ * decision 5, "one Completion pool, picked independently of the Closing line
+ * Emily spoke"). Each line is written to fit every Closing-pool steer, so the
+ * pairing always reads naturally: "Have a nice day!" → "Thanks! See you!".
+ *
+ * No line invites the learner to Review, deliberately (v2 ticket 11): the
+ * Review action appearing IS the signal that Practice is complete, so a
+ * "let's check your summary" line would be Emily announcing a step she does
+ * not control. English-only, same as before issue #16 — the model used to
+ * supply its own `reply_zh` translation for whichever entry it picked; now
+ * that selection is client-side, there is no accompanying Chinese
+ * translation authored for this pool, and the selector gives each line
+ * `zh: ""` (see emily-reply-selector.ts's composition).
  */
-const COMPLETION_MESSAGES = [
-  "Great job! Let's check your learning summary.",
-  "Nice work! Let's see what you learned today.",
-  "Well done! Time to review today's lesson.",
-] as const;
+const COMPLETION_MESSAGES = ["Thanks! See you!", "See you!", "Thanks! Take care!"] as const;
 
 // --- Conversation Script pools added by issue #16 (docs/ai-configuration.md
 // section 3) — verbatim English from that document, Chinese translations
@@ -161,12 +177,25 @@ const RESPONSE_LINES: { didNotAskBack: ScriptLine[]; askedBack: ScriptLine[] } =
   ],
 };
 
-/** Closing (4) — the steer line toward the `closing` Goal, spoken whenever `closing` is the Focus Goal. */
+/**
+ * Closing (3) — the steer line toward the `closing` Goal, spoken whenever
+ * `closing` is the Focus Goal.
+ *
+ * Issue #55 re-authored this pool to ticket 5's table's "Emily Closing"
+ * column, de-duplicated and in first-appearance order: the table lists exactly
+ * "Have a nice day!", "Take care!" and "See you!", and "Bye for now!" — which
+ * the old pool had — is not in it. Every line here is now verbatim-identical to
+ * one of Explore's closing expressions, so the audio manifest contributes no
+ * entries for this pool at all — those lines reuse Explore's recordings (see
+ * src/lib/audio-manifest.ts). Every `zh` here is the translation already
+ * authored for that same English line in the old pool, and only the order
+ * changed; the one line that left ("Bye for now!") took its translation with
+ * it.
+ */
 const CLOSING_LINES: ScriptLine[] = [
-  { en: "See you!", zh: "再见啦！" },
   { en: "Have a nice day!", zh: "祝你今天愉快！" },
-  { en: "Bye for now!", zh: "先说再见啦！" },
   { en: "Take care!", zh: "保重！" },
+  { en: "See you!", zh: "再见啦！" },
 ];
 
 // --- Per-state script: Learning Goal + Accepted Responses whitelist ------
@@ -482,7 +511,7 @@ export type Lesson = {
   headline: { en: string; zh: string };
   /** Fixed pool of opening lines (see `OPENING_LINES` above — one line since ADR-0013). */
   openingLines: OpeningLine[];
-  /** Fixed post-Closing completion-message library (see `COMPLETION_MESSAGES` above). */
+  /** The Completion pool: Emily's one final farewell line, picked from three (see `COMPLETION_MESSAGES` above). */
   completionMessages: readonly string[];
   /** Check-in Conversation Script pool (see `CHECKIN_LINES` above). */
   checkinLines: ScriptLine[];

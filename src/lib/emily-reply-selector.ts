@@ -60,6 +60,17 @@ import type { Lesson, ScriptLine } from "@/content/lesson";
  * `focusGoal === "response"` short-circuit now fires whenever a reaction line
  * was actually spoken rather than only when the check-in was. See step 1 of
  * `selectEmilyLinesForTurn`.
+ *
+ * Issue #55 (v2 ticket 5's Closing table) re-authors the two pools that end a
+ * conversation: the Closing steer pool and the Completion pool are now both
+ * farewells, so "See you!" is in both. Composition is otherwise unchanged —
+ * one Completion pool, picked independently of which Closing line Emily just
+ * spoke, because ADR-0013 decision 2 rejects keying a composed reply to the
+ * sequence that preceded it (see lesson.ts's `COMPLETION_MESSAGES`). The one
+ * consequence here is step 3: a Farewell line followed by the Completion line
+ * could be the same text, so the second pick excludes the first (see step 3 in
+ * `selectEmilyLinesForTurn`, and `pickOneExcludingBy`, the one helper both
+ * exclusion sites go through).
  */
 
 /** Injectable RNG, defaulting to `Math.random` — see this file's top doc comment. */
@@ -71,19 +82,33 @@ function pickOne<T>(pool: readonly T[], random: RandomSource): T {
 }
 
 /**
- * Picks one entry from `pool` at random, excluding `exclude` (by reference
- * equality on `.en`) when the pool has more than one entry to choose from —
- * used by `selectSilenceNudge` so a long pause never repeats the exact same
- * line twice in a row (docs/ai-configuration.md section 3's own rule for
- * this pool; user story 18).
+ * Picks one entry from `pool` at random, excluding the entry whose
+ * `keyOf(entry)` equals `excludeValue` when the pool has more than one entry
+ * to choose from. Two callers, one rule each:
+ *
+ * - `selectSilenceNudge` passes `keyOf = (line) => line.en`, so a long pause
+ *   never repeats the exact same line twice in a row (docs/ai-configuration.md
+ *   section 3's own rule for this pool; user story 18).
+ * - step 3 of `selectEmilyLinesForTurn` passes `keyOf` as the identity on the
+ *   Completion pool's bare strings, so the Farewell line is not immediately
+ *   repeated as the Completion line (issue #55: both pools hold "See you!"
+ *   now).
+ *
+ * One function rather than a `ScriptLine` version and a string copy of it,
+ * because the interesting part is the fallback discipline and it has to hold
+ * for both callers identically: an empty or absent exclusion, a single-entry
+ * pool, and a filter that would empty the pool all fall back to a plain
+ * `pickOne` — a one-line pool still has to say *something* rather than throw,
+ * and never-excluding is a better failure than never-speaking.
  */
-function pickOneExcluding<T extends { en: string }>(
+function pickOneExcludingBy<T>(
   pool: readonly T[],
-  excludeText: string | undefined,
+  excludeValue: string | undefined,
+  keyOf: (entry: T) => string,
   random: RandomSource,
 ): T {
-  if (pool.length <= 1 || excludeText === undefined) return pickOne(pool, random);
-  const candidates = pool.filter((entry) => entry.en !== excludeText);
+  if (pool.length <= 1 || excludeValue === undefined) return pickOne(pool, random);
+  const candidates = pool.filter((entry) => keyOf(entry) !== excludeValue);
   if (candidates.length === 0) return pickOne(pool, random);
   return pickOne(candidates, random);
 }
@@ -152,9 +177,11 @@ export type SelectEmilyLinesInput = {
  *    Practice but `closing` was achieved in an *earlier* one, a Closing-pool
  *    line is spoken before the Completion line, so Emily always says goodbye:
  *    a learner who opened with "Hi! Bye!" hears "See you!" back when the
- *    conversation finally closes, instead of being thanked and cut off. When
- *    `closing` was achieved *in this Turn* there is nothing to add — the
- *    Completion line answers the goodbye the learner just said.
+ *    conversation finally closes, instead of being cut off. When `closing` was
+ *    achieved *in this Turn* there is nothing to add — the Completion line
+ *    answers the goodbye the learner just said. Since #55 both lines are
+ *    farewells, so in that rare Turn Emily says goodbye twice; the second pick
+ *    skips the first's exact text rather than repeating it.
  *
  * The three steps are what makes section 3's guarantee true — "Emily never
  * ends a Turn silent: the composition above always yields at least one line" —
@@ -236,7 +263,27 @@ export function selectEmilyLinesForTurn(
     // `closing` draws from: a goodbye is a goodbye whether Emily is suggesting
     // it or answering it.
     if (input.progressBeforeTurn.includes("closing")) {
-      lines.push(pickOne(lesson.closingLines, random));
+      const farewell = pickOne(lesson.closingLines, random);
+      lines.push(farewell);
+      // Issue #55: the Completion pool was re-authored into bare farewells
+      // ("See you!" is in both pools now), so the two lines this step can
+      // produce could be the *same text* — the same repetition step 1's
+      // `response` short-circuit exists to prevent, and this file's one
+      // standing invariant is that a Turn never repeats a line (see
+      // emily-reply-selector.test.ts's exhaustion over the whole Progress ×
+      // Report space). The pool is still picked independently of which
+      // Closing line was spoken — ADR-0013 rejects keying one line to
+      // another — it just skips the text it has already said.
+      lines.push({
+        en: pickOneExcludingBy(
+          lesson.completionMessages,
+          farewell.en,
+          (message) => message,
+          random,
+        ),
+        zh: "",
+      });
+      return lines;
     }
     lines.push({ en: pickOne(lesson.completionMessages, random), zh: "" });
     return lines;
@@ -357,5 +404,5 @@ export function selectSilenceNudge(
   lastNudgeText: string | undefined,
   random: RandomSource = Math.random,
 ): ScriptLine {
-  return pickOneExcluding(lesson.silenceNudgeLines, lastNudgeText, random);
+  return pickOneExcludingBy(lesson.silenceNudgeLines, lastNudgeText, (line) => line.en, random);
 }

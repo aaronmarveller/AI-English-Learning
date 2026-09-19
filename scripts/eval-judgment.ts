@@ -69,6 +69,13 @@
  * How are you?" for three at once, and ticket 2's "Hi! How are you today?" for
  * greeting + ask-back with the check-in still open). No new category: these
  * cases use the four #52 added.
+ *
+ * Issue #55 (v2 tickets 5 and 11) adds ticket 5's own closing table one
+ * expression at a time — the seven learner-side goodbyes the ticket pairs with
+ * Emily's Closing steers, plus its "See u." misspelling, which must still be
+ * `achieved` because grammar alone never makes an attempt `failed`. All eight
+ * are `closing`-only against `goalsBefore("closing")`, the same shape #52's
+ * closing cases already use, and again no new category.
  */
 
 import {
@@ -509,6 +516,85 @@ const EVAL_CASES: EvalCase[] = [
     },
     expectedAskedBack: true,
     note: "v2 ticket 2's Example 1, and ADR-0013 decision 1 in the first exchange of a conversation: the learner greets and asks Emily how she is in one breath, which achieves `response` and says nothing about how *they* are, so `checkin` stays `untouched`. Emily answers, then steers to the check-in — the Focus Goal.",
+  },
+
+  // --- issue #55 (v2 ticket 5's Closing table; tickets 5 and 11) -----------
+  //
+  // The fine-grained half of ticket 5: the exact learner-side expressions its
+  // Closing table pairs with each of Emily's steers, plus the misspelling the
+  // ticket calls out. Every one of them is a goodbye and nothing else — the
+  // other three Goals are already in Goal Progress (`goalsBefore("closing")`),
+  // so the whole report is `closing` — and none of them asks Emily a question,
+  // so `learner_asked_back` is `false` throughout. Six of the eight are rows on
+  // `closing`'s Accepted Responses list (Section 2 of docs/ai-configuration.md)
+  // and are `whitelist` cases, though the table's own punctuation differs from
+  // the list's in places ("Bye." and "You too." are listed without the table's
+  // exclamation mark). The other two are `natural-paraphrase` cases —
+  // "Thanks, you too!" and the misspelling "See u." — which the Global
+  // Conversation Rules require to be accepted just the same.
+  {
+    category: "whitelist",
+    goalProgress: goalsBefore("closing"),
+    message: "You too!",
+    expectedReport: { closing: "achieved" },
+    expectedAskedBack: false,
+    note: "v2 ticket 5's first learner-response row ('Have a nice day!' → 'You too!'): the returned well-wish is a goodbye in this position. The whitelist carries it as \"You too.\" — the exclamation mark is punctuation, not a different expression.",
+  },
+  {
+    category: "whitelist",
+    goalProgress: goalsBefore("closing"),
+    message: "See you!",
+    expectedReport: { closing: "achieved" },
+    expectedAskedBack: false,
+    note: "v2 ticket 5's most-paired learner response, and one of the Closing pool's own lines — the pool and the learner can say the same thing, which is why issue #55 re-authored both pools.",
+  },
+  {
+    category: "whitelist",
+    goalProgress: goalsBefore("closing"),
+    message: "Bye!",
+    expectedReport: { closing: "achieved" },
+    expectedAskedBack: false,
+    note: "the shortest goodbye on the list (whitelist: \"Bye.\") — a one-word farewell is a complete attempt at this Goal.",
+  },
+  {
+    category: "whitelist",
+    goalProgress: goalsBefore("closing"),
+    message: "Take care!",
+    expectedReport: { closing: "achieved" },
+    expectedAskedBack: false,
+    note: "v2 ticket 5's learner-response column under 'Take care!' — an offer of care that closes a conversation rather than continuing it.",
+  },
+  {
+    category: "natural-paraphrase",
+    goalProgress: goalsBefore("closing"),
+    message: "Thanks, you too!",
+    expectedReport: { closing: "achieved" },
+    expectedAskedBack: false,
+    note: "v2 ticket 5's first row, second variant: a thank-you plus a returned well-wish — off the whitelist, and still a goodbye. The thank-you does not make it a `response` attempt (nothing is asked back, so `learner_asked_back` is false), and per ADR-0013 a thank-you is not an ask-back at all.",
+  },
+  {
+    category: "whitelist",
+    goalProgress: goalsBefore("closing"),
+    message: "Have a nice day!",
+    expectedReport: { closing: "achieved" },
+    expectedAskedBack: false,
+    note: "both a whitelist entry and a Closing-pool line (issue #55's steer pool) — e.g. the same sentence is what Emily says to invite the goodbye and what the learner may say to give it.",
+  },
+  {
+    category: "whitelist",
+    goalProgress: goalsBefore("closing"),
+    message: "Goodbye.",
+    expectedReport: { closing: "achieved" },
+    expectedAskedBack: false,
+    note: "the whitelist's most explicit goodbye, and the only one that reads equally as an ending the learner chose rather than the one Emily steered toward (credited either way — ADR-0012).",
+  },
+  {
+    category: "natural-paraphrase",
+    goalProgress: goalsBefore("closing"),
+    message: "See u.",
+    expectedReport: { closing: "achieved" },
+    expectedAskedBack: false,
+    note: "issue #55's misspelling case: a text-message abbreviation of \"See you.\" The minor spelling error must not stop it being `achieved` — grammar alone never makes an attempt `failed` (docs/ai-configuration.md section 4, section 1's Global Conversation Rules).",
   },
 ];
 

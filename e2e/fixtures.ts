@@ -122,6 +122,31 @@ export type ScriptedTurnResponse = {
 };
 
 /**
+ * What `installScriptedPracticeApi` hands back: a live view of the stub, so a
+ * spec can assert on the *requests* it saw and not only on what the app did
+ * with their responses.
+ *
+ * Issue #55's "the client sends no additional AI message" (AC 3) is the case
+ * this exists for: reading the count before and after a wait is a direct
+ * assertion that no further `/api/practice/turn` request was made, where
+ * watching the transcript for an extra Emily line only *implies* it (that
+ * inference holds because this stub saturates on its last response, but it is
+ * an inference all the same). The count is a plain synchronous number — the
+ * route handler runs in this same process, and it increments on entry rather
+ * than on fulfilment, so the request is counted from the moment it arrives.
+ *
+ * Existing call sites `await` the installer and ignore the handle, which the
+ * return value leaves untouched.
+ */
+export type ScriptedPracticeApiHandle = {
+  /**
+   * How many requests the stub has answered (or is answering) so far — one per
+   * learner Turn the client actually submitted, saturated responses included.
+   */
+  turnRequestCount: () => number;
+};
+
+/**
  * Stubs the LLM proxy route with a scripted sequence of responses — one per
  * call, saturating on the last entry if more calls arrive than scripted.
  *
@@ -167,11 +192,11 @@ export async function installScriptedPracticeApi(
   page: Page,
   responses: ScriptedTurnResponse[],
   options: { delayMs?: number } = {},
-): Promise<void> {
+): Promise<ScriptedPracticeApiHandle> {
   let callIndex = 0;
   await page.route(TURN_ENDPOINT, async (route: Route) => {
-    const response = responses[Math.min(callIndex, responses.length - 1)];
     callIndex += 1;
+    const response = responses[Math.min(callIndex - 1, responses.length - 1)];
     if (options.delayMs) {
       await new Promise((resolve) => setTimeout(resolve, options.delayMs));
     }
@@ -186,6 +211,11 @@ export async function installScriptedPracticeApi(
       body: `data: ${JSON.stringify(finalEvent)}\n\n`,
     });
   });
+  return {
+    turnRequestCount() {
+      return callIndex;
+    },
+  };
 }
 
 // --- Scripted Chinese-explanation stub (issue #19) -----------------------
@@ -322,12 +352,25 @@ export async function persistedMessages(page: Page): Promise<PersistedPracticeMe
  */
 const AUDIO_PATH_BY_TEXT = new Map(AUDIO_MANIFEST.map(({ id, text }) => [text, `/audio/${id}.mp3`]));
 
-export function audioPathsFor(lines: readonly ScriptLine[]): string[] {
-  return lines.map((line) => {
-    const path = AUDIO_PATH_BY_TEXT.get(line.en);
-    if (!path) throw new Error(`no pre-generated audio in the manifest for "${line.en}"`);
+/**
+ * The manifest path for each of `texts`, looked up by exact text — the same
+ * resolution src/lib/speech-synthesis.ts does at runtime. Takes bare strings
+ * rather than `ScriptLine`s because the one pool that holds strings is the
+ * Completion pool, and since issue #55 its lines are shared with other pools
+ * (the Completion pool's "See you!" is Explore's `closing-see-you`), so a spec
+ * asserting on the final line has to derive its path from the pool instead of
+ * hard-coding a `/audio/completion-` prefix.
+ */
+export function audioPathsForTexts(texts: readonly string[]): string[] {
+  return texts.map((text) => {
+    const path = AUDIO_PATH_BY_TEXT.get(text);
+    if (!path) throw new Error(`no pre-generated audio in the manifest for "${text}"`);
     return path;
   });
+}
+
+export function audioPathsFor(lines: readonly ScriptLine[]): string[] {
+  return audioPathsForTexts(lines.map((line) => line.en));
 }
 
 /**

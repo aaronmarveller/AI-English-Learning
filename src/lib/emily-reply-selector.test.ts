@@ -51,6 +51,13 @@ function fixedRandom(value: number) {
  * not by named cases: the space is 2⁴ × at most 3⁴ = 256 pairs, cheap enough
  * that "we thought of every shape" is a proof rather than a claim.
  *
+ * Issue #55 re-authors the Closing and Completion pools (v2 ticket 5's table),
+ * which shrinks both: Closing 4 → 3, Completion still 3 but two of its lines
+ * are now shared with Explore's recordings. The counts below are recomputed
+ * from the pools, and one new named case pins the hazard the re-authoring
+ * introduces — both pools are farewells, so step 3's Farewell line and its
+ * Completion line could be the same text.
+ *
  * The helper below mirrors the call site, deriving the Verdict exactly as
  * production derives it (src/lib/goal-progress.ts's `deriveVerdict`).
  */
@@ -120,6 +127,28 @@ function sequencePools(lesson: Lesson): readonly { readonly length: number }[] {
     lesson.closingLines,
     lesson.completionMessages,
     ...ACTIVE_CONVERSATION_STATES.map((goal) => lesson.script[goal].needsRetryLines),
+  ];
+}
+
+/**
+ * The same pools' English texts, flattened — the *distinct* count of them is
+ * what the sweep's `spoken` set below has to reach, and since issue #55 that
+ * count is one lower than the number of pool entries: "See you!" is in both
+ * the Closing and the Completion pool (both are farewells now). Kept beside
+ * `sequencePools` rather than merged into it, because the pools above are
+ * typed by `length` alone (the Completion pool holds bare strings) and the
+ * sweep's width only ever needs sizes.
+ */
+function sequencePoolTexts(lesson: Lesson): string[] {
+  return [
+    ...lesson.checkinLines.map((line) => line.en),
+    ...lesson.responseLines.didNotAskBack.map((line) => line.en),
+    ...lesson.responseLines.askedBack.map((line) => line.en),
+    ...lesson.closingLines.map((line) => line.en),
+    ...lesson.completionMessages,
+    ...ACTIVE_CONVERSATION_STATES.flatMap((goal) =>
+      lesson.script[goal].needsRetryLines.map((line) => line.en),
+    ),
   ];
 }
 
@@ -492,13 +521,47 @@ describe("selectEmilyLinesForTurn", () => {
       // Turns ago, the check-in was answered, and this Turn's "Thanks" clears
       // the last Goal. Practice completes, but `closing` was *not* achieved
       // this Turn — so Emily says goodbye (a Closing-pool line) and only then
-      // the Completion line: "See you! Great job! Let's check your summary."
+      // the Completion line. Since issue #55 both of those are farewells, so
+      // the pair reads as two goodbyes, at this fixed random draw ("Have a
+      // nice day!" then "Thanks! See you!").
       const lines = selectLines(["greeting", "checkin", "closing"], { response: "achieved" });
 
       expect(lines).toHaveLength(2);
       expect(GREETING_SOMEBODY_LESSON.closingLines).toContainEqual(lines[0]);
       expect(GREETING_SOMEBODY_LESSON.completionMessages).toContain(lines[1].en);
       expect(lines[1].zh).toBe("");
+    });
+
+    it("never repeats the Farewell line as the Completion line (issue #55)", () => {
+      // Issue #55's re-authoring puts "See you!" in both pools, so step 3 —
+      // the one place two pools are drawn from in a row — can pick the same
+      // text twice. The random source below is chosen to do exactly that if
+      // the selector did not exclude: 0.9 into the Closing pool's 3 lines is
+      // "See you!" (index 2), and 0.5 into the Completion pool's 3 lines is
+      // also "See you!" (index 1). The invariant this pins is the file-wide
+      // one — a Turn never repeats a line — which the exhaustive sweep at the
+      // bottom of this file happens not to hit, because its spanning randoms
+      // draw the same *index* from pools of the same size.
+      const alternatingRandom = (() => {
+        const values = [0.9, 0.5];
+        let call = 0;
+        return () => values[call++ % values.length];
+      })();
+      const lines = selectEmilyLinesForTurn(
+        GREETING_SOMEBODY_LESSON,
+        {
+          verdict: "accepted",
+          progressBeforeTurn: ["greeting", "checkin", "closing"],
+          goalReport: { response: "achieved" },
+          learnerAskedBack: false,
+        },
+        alternatingRandom,
+      );
+
+      expect(lines).toHaveLength(2);
+      expect(lines[0].en).toBe("See you!");
+      expect(GREETING_SOMEBODY_LESSON.completionMessages).toContain(lines[1].en);
+      expect(lines[1].en).not.toBe(lines[0].en);
     });
 
     it("speaks only the Completion line when `closing` was achieved in this Turn (unchanged)", () => {
@@ -648,31 +711,40 @@ describe("selectEmilyLinesForTurn — every line it can produce already has audi
     // Every line in every pool the selector may speak from: Check-in (3), the
     // did-not-ask-back Response sub-pool (6 — v2 ticket 3's table), the
     // asked-back Response sub-pool (4 — the distinct first halves of v2 ticket
-    // 4's table), Closing (4), Completion (3), and the four `needs_retry` pools
-    // (4 × 3, which serve both retry Turns and the `greeting`/`response`
-    // steers) = 32. Pinned as the literal total so a pool quietly losing a line
-    // is never invisible, and cross-checked against the live pools so the sweep
-    // can never pass by producing too few lines to have checked anything; the
-    // per-pool sizes are asserted in their own `describe` below.
-    expect(pools.reduce((total, pool) => total + pool.length, 0)).toBe(32);
-    expect(spoken.size).toBe(32);
+    // 4's table), Closing (3 — issue #55 re-authored this from v2 ticket 5's
+    // table, which is one line shorter than before), Completion (3), and the
+    // four `needs_retry` pools (4 × 3, which serve both retry Turns and the
+    // `greeting`/`response` steers) = 31 entries. Pinned as the literal total so
+    // a pool quietly losing a line is never invisible, and cross-checked
+    // against the live pools so the sweep can never pass by producing too few
+    // lines to have checked anything; the per-pool sizes are asserted in their
+    // own `describe` below.
+    expect(pools.reduce((total, pool) => total + pool.length, 0)).toBe(31);
+    // Lines, not entries: 31 entries hold 30 distinct texts since issue #55,
+    // because "See you!" is in both the Closing and the Completion pool. The
+    // sweep reaches every entry — including both of those, from either side —
+    // so this is the count it has to reach, derived from the live pools rather
+    // than restated.
+    expect(spoken.size).toBe(new Set(sequencePoolTexts(GREETING_SOMEBODY_LESSON)).size);
+    expect(spoken.size).toBe(30);
   });
 });
 
 /**
  * The pool sizes every other count in this file is computed from (issue #54):
- * ADR-0013 re-authors five of these pools for v2 tickets 2/3/4/6, and the
- * audio pre-generation covers exactly these entries, so an unintended size
- * change should be visible here — as a named failure — rather than as a
- * smaller `spoken` sweep or a shorter `SPANNING_RANDOMS`.
+ * ADR-0013 re-authors five of these pools for v2 tickets 2/3/4/6, issue #55
+ * re-authors Closing and Completion for v2 ticket 5, and the audio
+ * pre-generation covers exactly these entries, so an unintended size change
+ * should be visible here — as a named failure — rather than as a smaller
+ * `spoken` sweep or a shorter `SPANNING_RANDOMS`.
  */
-describe("the Lesson's pool sizes — the composition's whole input space (issue #54)", () => {
+describe("the Lesson's pool sizes — the composition's whole input space (issues #54/#55)", () => {
   it("has the sizes this file's assertions are computed from", () => {
     const lesson = GREETING_SOMEBODY_LESSON;
     expect(lesson.checkinLines).toHaveLength(3);
     expect(lesson.responseLines.didNotAskBack).toHaveLength(6);
     expect(lesson.responseLines.askedBack).toHaveLength(4);
-    expect(lesson.closingLines).toHaveLength(4);
+    expect(lesson.closingLines).toHaveLength(3);
     expect(lesson.completionMessages).toHaveLength(3);
     for (const goal of ACTIVE_CONVERSATION_STATES) {
       expect(lesson.script[goal].needsRetryLines, `${goal}'s needs_retry pool`).toHaveLength(3);

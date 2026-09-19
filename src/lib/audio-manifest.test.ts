@@ -65,15 +65,38 @@ describe("Audio manifest — every scripted Lesson line has an entry", () => {
    * equivalent expressions used to differ only in punctuation ("See you!"
    * vs "See you.") — same words, two separate recordings. The fix
    * standardises on the AI Configuration form (exclamation marks) so exact
-   * text-match lookup resolves both surfaces to the same recording. This
-   * locks the punctuation in so it can't silently drift back apart.
+   * text-match lookup resolves both surfaces to the same recording. This is
+   * Explore's own content pin, and it locks the punctuation in so it can't
+   * silently drift back apart — from whichever side a future edit starts.
+   * (Since issue #55 the *dependency* runs Closing→Explore rather than the
+   * other way: the pool was re-authored to these three lines, and the test
+   * below pins that direction.)
    */
-  it("Explore's closing expressions use the Closing pool's exact punctuation (share one recording, not two)", () => {
+  it("Explore's closing expressions are exactly the three Closing-pool lines (one shared recording each)", () => {
     expect(CLOSING_EXPRESSIONS.map((expression) => expression.expression)).toEqual([
       "See you!",
       "Have a nice day!",
       "Take care!",
     ]);
+  });
+
+  /**
+   * Issue #55 re-authored the Closing pool to exactly Explore's three closing
+   * expressions, so the pool contributes no manifest entries of its own — all
+   * three steers are spoken from Explore's recordings (see
+   * src/lib/audio-manifest.ts's Closing comment). Without this pin, adding a
+   * line to the pool would quietly add a *second* recording of a phrase
+   * Explore already has, which is the duplication the manifest's duplicate-text
+   * guard exists to catch but which the filter would silently prevent it from
+   * seeing.
+   */
+  it("every Closing-pool line is one of Explore's closing expressions (the pool shares their recordings)", () => {
+    const exploreClosingExpressions = CLOSING_EXPRESSIONS.map(
+      (expression) => expression.expression,
+    );
+    for (const line of GREETING_SOMEBODY_LESSON.closingLines) {
+      expect(exploreClosingExpressions).toContain(line.en);
+    }
   });
 
   it("keeps every Chinese help line out of the pre-generated audio manifest", () => {

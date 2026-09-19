@@ -88,7 +88,10 @@ export const CHECKIN_EXPRESSIONS: ExpressionCard[] = [
 // this, these three expressions used a trailing "." where the Closing pool
 // used "!" — same words, two separate recordings. Standardising here on the
 // AI Configuration form's punctuation lets Explore reuse the Closing pool's
-// single recording instead of needing its own.
+// single recording instead of needing its own. Since issue #55 the sharing
+// runs this way round: the Closing pool was re-authored to exactly these three
+// expressions, so it contributes no audio-manifest entries of its own and every
+// Closing steer is spoken from these recordings.
 export const CLOSING_EXPRESSIONS: ExpressionCard[] = [
   {
     id: "closing-see-you",

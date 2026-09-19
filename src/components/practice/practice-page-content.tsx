@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { CourseProgressChip } from "@/components/course-progress";
 import { AskInChineseSheet } from "@/components/practice/ask-in-chinese-sheet";
@@ -18,7 +18,13 @@ import { selectEmilyLinesForTurn, selectSilenceNudge } from "@/lib/emily-reply-s
 import { deriveVerdict } from "@/lib/goal-progress";
 import { markStepComplete } from "@/lib/progress";
 import { getCurrentTurnEmilyMessages, usePractice } from "@/lib/practice-state";
-import { cancelSpeech, speakLinesAssertively } from "@/lib/speech-synthesis";
+import {
+  cancelSpeech,
+  getServerTurnTakingSnapshot,
+  getTurnTakingSnapshot,
+  speakLinesAssertively,
+  subscribeToTurnTaking,
+} from "@/lib/speech-synthesis";
 import { submitPracticeTurn } from "@/lib/submit-practice-turn";
 import { matchesAcceptedResponse } from "@/lib/turn-record";
 
@@ -111,6 +117,16 @@ export function PracticePageContent() {
   // Mirrors the id of the Emily message the "talking" beat was last started
   // for — see the render-time adjustment below.
   const [talkingForMessageId, setTalkingForMessageId] = useState<string | undefined>(undefined);
+
+  // Issue #55, acceptance criterion 4: Review unlocks once Emily has finished
+  // speaking her one final line, not the instant the last Turn is recorded.
+  // Same external-store read as practice-input-form.tsx /
+  // ask-in-chinese-sheet.tsx, whose mic gates are the other consumers.
+  const turnTakingState = useSyncExternalStore(
+    subscribeToTurnTaking,
+    getTurnTakingSnapshot,
+    getServerTurnTakingSnapshot,
+  );
 
   const openingPickedRef = useRef(false);
   // Tracks the in-flight submitPracticeTurn request, if any, so the cleanup
@@ -364,7 +380,10 @@ export function PracticePageContent() {
   }
 
   function handleViewSummary() {
-    if (!isComplete) return;
+    // Same two conditions the button's own `disabled` state expresses — the
+    // click guard is what makes AC 3/4 hold for a click that lands while she
+    // is still talking (a mouse press already in flight when she starts).
+    if (!isComplete || turnTakingState === "speaking") return;
     markStepComplete("practice");
     router.push("/review");
   }
@@ -475,7 +494,26 @@ export function PracticePageContent() {
         </button>
         <button
           type="button"
-          disabled={!isComplete}
+          // Issue #55, AC 4 (Turn-Taking): the summary action appears once
+          // Emily has *finished speaking* her final line, not the moment
+          // Practice is complete — `isComplete` flips as soon as the last Turn
+          // is recorded, which is while her audio is still playing.
+          //
+          // Gated on "speaking" ONLY, deliberately not on the 3s Handoff Gap:
+          // the Handoff Gap is a *microphone* rule (the learner waits briefly
+          // before their own turn, src/lib/speech-synthesis.ts's
+          // HANDOFF_GAP_MS), and Review is navigation rather than speech. The
+          // learner is not speaking to anyone by tapping it, so making them
+          // wait out a mic-gate they are not using would be the wrong pause.
+          //
+          // The boundary of what this gate promises: if every playback tier is
+          // refused — no pre-generated audio, no live TTS, no browser synthesis
+          // — then no line is delivered at all and the action appears
+          // immediately, because there is nothing Emily has said to wait for.
+          // A tap in that state that starts speakLinesAssertively's
+          // gesture-retry instead of navigating is equally correct: she has
+          // begun speaking, so the floor is hers again.
+          disabled={!isComplete || turnTakingState === "speaking"}
           onClick={handleViewSummary}
           data-testid="view-summary-button"
           className="btn-primary flex w-full items-center justify-center gap-2"

@@ -14,11 +14,13 @@ import {
  * 的固定台词能预生成成音频文件").
  *
  * Deliberately scoped to text that is genuinely FIXED — content authored
- * once in src/content/*.ts, not text the LLM generates fresh per turn.
- * Emily's Check-in/Response/Closing replies during Practice are generated
- * live by src/lib/practice-judge.ts and use browser-synthesis fallback.
- * Completion replies are the exception: AI Configuration defines a fixed
- * three-message pool, so those messages belong in this manifest too.
+ * once in src/content/*.ts, not text the LLM generates fresh per turn. That is
+ * every line Emily says: since issue #16 the model only *judges* the learner's
+ * message (src/lib/practice-judge.ts) and the client picks her reply from the
+ * Lesson's fixed pools, so the Check-in, Response, Closing, Completion and
+ * `needs_retry` pools below are all pre-generated here — only text with no
+ * fixed pool (a dynamic Chinese help follow-up) reaches live TTS or
+ * browser-synthesis fallback at runtime.
  *
  * Consumed by two places that must never drift apart:
  * - scripts/generate-audio.ts (build time): iterates this list and writes
@@ -45,11 +47,25 @@ export const AUDIO_MANIFEST: AudioManifestEntry[] = [
   // learner turn exists.
   ...GREETING_SOMEBODY_LESSON.openingLines.map((line) => ({ id: line.id, text: line.en })),
 
-  // The fixed post-Closing encouragement that unlocks Learning Summary.
-  ...GREETING_SOMEBODY_LESSON.completionMessages.map((text, index) => ({
-    id: `completion-${index + 1}`,
-    text,
-  })),
+  // The Completion pool: the ONE short final line Emily speaks once Practice
+  // is complete (issue #55 re-authored these from v2 ticket 5's Closing
+  // table — they used to be "Great job! Let's check your learning summary."-
+  // style congratulations). They are farewells now, so they overlap the
+  // Closing pool and Explore's closing expressions: "See you!" is
+  // verbatim-identical to Explore's closing-see-you expression, and the
+  // manifest throws at module load on duplicate text, so the survivors are
+  // filtered against CLOSING_EXPRESSIONS exactly as the Closing pool below is
+  // and renumbered by position among survivors. Their recordings are
+  // therefore SHARED with Explore's rather than duplicated, which is the same
+  // trade the check-in and closing pools already make. Because the ids are
+  // positional and the texts changed, `completion-1..3.mp3` had to be deleted
+  // before `npm run generate:audio` ran (see the check-in comment below for
+  // why leaving them would have been silently wrong).
+  ...GREETING_SOMEBODY_LESSON.completionMessages
+    .filter(
+      (text) => !CLOSING_EXPRESSIONS.some((expression) => expression.expression === text),
+    )
+    .map((text, index) => ({ id: `completion-${index + 1}`, text })),
 
   // Silence-timeout nudge pool (issue #16 expanded this from one fixed line
   // to 3 — src/content/lesson.ts's GREETING_SOMEBODY_LESSON.silenceNudgeLines).
@@ -91,12 +107,18 @@ export const AUDIO_MANIFEST: AudioManifestEntry[] = [
     text: line.en,
   })),
 
-  // Closing Conversation Script pool (4, issue #16/#17). Three of the four
-  // lines are verbatim-identical to Explore's closing expressions (after
-  // standardising Explore's punctuation to match — see explore.ts's
-  // CLOSING_EXPRESSIONS doc comment and issue #12's "Punctuation is
-  // load-bearing in the audio manifest"), so they're filtered out here and
-  // reuse those entries' recordings instead of getting a second one each.
+  // Closing Conversation Script pool (3, issue #16/#17; re-authored by issue
+  // #55 from v2 ticket 5's Closing table). Every line in the pool is
+  // verbatim-identical to an Explore closing expression (after standardising
+  // Explore's punctuation to match — see explore.ts's CLOSING_EXPRESSIONS doc
+  // comment and issue #12's "Punctuation is load-bearing in the audio
+  // manifest"), so the filter below leaves this pool contributing ZERO
+  // entries: Emily's Closing steers are all spoken from Explore's own
+  // recordings. That is intended, not an oversight — the runtime resolves a
+  // recording by exact text, so filtering the pool out here is exactly how
+  // the sharing is expressed. The filter stays even though nothing currently
+  // survives it, so a future line added to the pool gets its own entry
+  // instead of silently falling back to browser synthesis.
   ...GREETING_SOMEBODY_LESSON.closingLines
     .filter(
       (line) => !CLOSING_EXPRESSIONS.some((expression) => expression.expression === line.en),
