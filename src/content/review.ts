@@ -27,6 +27,11 @@ export const PRAISE_TEMPLATES = [
  * src/lib/feedback-selector.ts selects from: Greeting (the `greeting`
  * state), Check-in (the `checkin` state), Conversation (the `response` and
  * `closing` states combined), and Overall (the run as a whole).
+ *
+ * The Conversation group's quoted expression is an ask-back one: per
+ * docs/adr/0013-response-goal-means-asking-emily-back.md a thank-you no
+ * longer achieves the `response` Goal, so a "Thank you." template would
+ * quote an expression that isn't representative of what the group credits.
  */
 export const HIGHLIGHT_TEMPLATES: Record<"greeting" | "checkin" | "conversation" | "overall", string[]> = {
   greeting: [
@@ -40,14 +45,14 @@ export const HIGHLIGHT_TEMPLATES: Record<"greeting" | "checkin" | "conversation"
     '你顺利掌握了 "I\'m doing well." 这样的日常回答。',
   ],
   conversation: [
-    '你用 "Thank you." 礼貌地接住了对话。',
-    '你会用 "How about you?" 自然地把问题问回去。',
-    '你用 "See you." 给对话画上了友好的句号。',
+    '你用 "How about you?" 主动把问题问回给了 Emily。',
+    '你会用 "And you?" 自然地把话题接给对方。',
+    '你用 "See you!" 给对话画上了友好的句号。',
   ],
   overall: [
-    '你从 "Hello." 到 "See you." 完整走完了整段对话。',
+    '你从 "Hello." 到 "See you!" 完整走完了整段对话。',
     '你能用 "Hi." 开场，也能用 "Goodbye." 收尾。',
-    '你完成了从 "Good morning." 到 "Have a nice day." 的每一步。',
+    '你完成了从 "Good morning." 到 "Have a nice day!" 的每一步。',
   ],
 };
 

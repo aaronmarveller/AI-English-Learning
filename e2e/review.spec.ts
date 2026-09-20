@@ -23,20 +23,30 @@ import { installScriptedPracticeApi, PRACTICE_URL, resetStorage, submitReply } f
  * exact highlights a given run produces: the fixed 4-part shape (praise →
  * highlights → suggestion → closing), the reveal/disable mechanics, and
  * Retry's navigation + clean-slate guarantee.
+ *
+ * Issue #51 re-grained `StateTurnRecord` to one record per Goal achieved in a
+ * Turn, and the Learning Summary has to stay truthful when Goals arrive
+ * several at a time or out of order — so that run, and the Suggestion pool it
+ * switches to after a retry, has its own spec:
+ * e2e/review-goal-progress.spec.ts. The conversation below stays the
+ * one-Goal-per-Turn baseline, where the new grain is byte-for-byte the old
+ * one.
  */
 
 /**
- * Drives a full 4-turn Practice conversation to completion via a scripted
- * "accepted" response per active state, then clicks View Summary to land on
- * /review.
+ * Drives a full 4-turn Practice conversation to completion — one Goal
+ * achieved per Turn, in canonical order, each Turn's scripted Goal Report
+ * naming exactly the Goal the reply below communicates (issue #47: the wire
+ * carries a Goal Report, and the client derives the Verdict from it) — then
+ * clicks View Summary to land on /review.
  */
 async function completeConversation(page: Page): Promise<void> {
   await resetStorage(page);
   await installScriptedPracticeApi(page, [
-    { verdict: "accepted" },
-    { verdict: "accepted" },
-    { verdict: "accepted" },
-    { verdict: "accepted" },
+    { goalReport: { greeting: "achieved" } },
+    { goalReport: { checkin: "achieved" } },
+    { goalReport: { response: "achieved" } },
+    { goalReport: { closing: "achieved" } },
   ]);
   await page.goto(PRACTICE_URL);
 

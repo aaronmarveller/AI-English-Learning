@@ -174,4 +174,63 @@ describe("selectFeedback", () => {
       expect(GENERIC_GROWTH_SUGGESTION_TEMPLATES).toContain(suggestion?.text);
     });
   });
+
+  /**
+   * Issue #51 (ADR-0012): a Turn appends one `StateTurnRecord` per Goal it
+   * achieved, and Goals arrive out of order — the ticket's run records
+   * `closing` ("Bye!") while `checkin` is still open, so the accumulation is
+   * *closing before checkin*, not canonical order. Everything above already
+   * reads records as "one per Goal" because `buildGroupCandidates` keys them
+   * by `state` rather than by position; these tests pin that reading, since
+   * the truthful Learning Summary is the whole point of the new grain.
+   */
+  describe("non-contiguous accumulation (issue #51)", () => {
+    /** All four Goals recorded, in the order the ticket's run produces them. */
+    const closingBeforeCheckin = [
+      record("greeting"),
+      record("closing"),
+      record("checkin"),
+      record("response"),
+    ];
+
+    it("still contributes the Overall highlight when Goals were recorded out of order", () => {
+      for (let i = 0; i < 30; i++) {
+        const random = () => i / 30;
+        const groups = highlightTexts(selectFeedback(closingBeforeCheckin, random)).map(groupOfText);
+        expect(groups).toContain("overall");
+      }
+    });
+
+    it("still shows at most one highlight per group when Goals were recorded out of order", () => {
+      for (let i = 0; i < 30; i++) {
+        const random = () => i / 30;
+        const groups = highlightTexts(selectFeedback(closingBeforeCheckin, random)).map(groupOfText);
+        expect(new Set(groups).size).toBe(groups.length);
+      }
+    });
+
+    it("finds a Goal's group from its state, not from where its record sits", () => {
+      // Two Goals recorded, `closing` first: the Conversation group is fed by
+      // the record in position 0 and Check-in by the one in position 1, so
+      // both are eligible — and with exactly two highlight slots both must be
+      // shown, since the two are the only candidates there are.
+      const partial = [record("closing"), record("checkin")];
+      for (let i = 0; i < 20; i++) {
+        // The 2nd value pins highlightCount to HIGHLIGHT_COUNT_OPTIONS[0] = 2
+        // — see the first-try ranking test for the call-order convention.
+        const random = sequencedRandom([i / 20, 0, ((i + 5) % 20) / 20, ((i + 11) % 20) / 20]);
+        const groups = highlightTexts(selectFeedback(partial, random)).map(groupOfText);
+        expect([...groups].sort()).toEqual(["checkin", "conversation"]);
+      }
+    });
+
+    it("picks from the needs-more-practice pool when the retry was in a Goal recorded before another", () => {
+      const records = [record("closing", { passedFirstTry: false }), record("checkin")];
+      for (let i = 0; i < 10; i++) {
+        const lines = selectFeedback(records, () => i / 10);
+        const suggestion = lines.find((line) => line.kind === "suggestion");
+        expect(NEEDS_MORE_PRACTICE_SUGGESTION_TEMPLATES).toContain(suggestion?.text);
+      }
+    });
+  });
 });

@@ -44,7 +44,7 @@ async function recordLiveSpeechRequests(page: import("@playwright/test").Page): 
 test.describe("Practice page — Chinese help mode", () => {
   test("opening help does not synthesize the canned text until its manual play control is used", async ({ page }) => {
     await resetStorage(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }]);
     const spokenTexts = await recordLiveSpeechRequests(page);
     let explainCalls = 0;
     await installScriptedChineseExplanationApi(page, [{ answerZh: "不应该被调用" }]);
@@ -68,7 +68,7 @@ test.describe("Practice page — Chinese help mode", () => {
 
   test("a Chinese follow-up (typed) gets a model-generated Chinese answer", async ({ page }) => {
     await resetStorage(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }]);
     const answerZh = "这句话的意思是打招呼。";
     await installScriptedChineseExplanationApi(page, [{ answerZh }]);
     const spokenTexts = await recordLiveSpeechRequests(page);
@@ -89,7 +89,7 @@ test.describe("Practice page — Chinese help mode", () => {
 
   test("a failed explanation call degrades to the canned four-part text", async ({ page }) => {
     await resetStorage(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }]);
     await installScriptedChineseExplanationApi(page, [{ fail: true }]);
     const spokenTexts = await recordLiveSpeechRequests(page);
 
@@ -107,7 +107,7 @@ test.describe("Practice page — Chinese help mode", () => {
 
   test("speech recognition switches to Chinese in help mode and back to English on exit", async ({ page }) => {
     await resetStorage(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }]);
     await installScriptedChineseExplanationApi(page, [{ answerZh: "解释内容。" }]);
     await mockSpeechApis(page);
 
@@ -147,7 +147,7 @@ test.describe("Practice page — Chinese help mode", () => {
 
   test("tapping the Chinese listening mic again stops recognition", async ({ page }) => {
     await resetStorage(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }]);
     await mockSpeechApis(page);
     await page.goto(PRACTICE_URL);
 
@@ -161,16 +161,27 @@ test.describe("Practice page — Chinese help mode", () => {
 
     await micButton.click();
     await expect(micButton).toHaveAttribute("data-state", "listening");
-    await expect(micButton).toHaveAccessibleName("停止中文录音 Stop listening");
+    // The listening label is the shared "stop speaking" pair both microphones
+    // publish (src/components/practice/ask-in-chinese-sheet.tsx; commit 58bace9
+    // unified this surface with practice-input-form.tsx, retiring the older
+    // "停止中文录音 Stop listening" wording this assertion used to expect). What
+    // is Chinese-specific about this mic is its *idle* prompt and the language
+    // it listens in (see the zh-CN assertion above), not the stop label.
+    await expect(micButton).toHaveAccessibleName("停止说话 Stop listening");
     await micButton.click();
 
     await expect(micButton).toHaveAttribute("data-state", "idle");
-    await expect(micButton).toHaveAccessibleName("用中文提问 Ask in Chinese by voice");
+    await expect(micButton).toHaveAccessibleName("开始说话 Start speaking");
+    // Back to the sheet's own Chinese prompt: this is still the Ask-in-Chinese
+    // microphone, not the Practice one, once recognition has stopped.
+    await expect(page.getByTestId("ask-in-chinese-mic-status")).toHaveText(
+      "点击麦克风用中文提问 Tap the mic to ask in Chinese",
+    );
   });
 
   test("speaking/typing English while in help mode exits help mode and submits the turn", async ({ page }) => {
     await resetStorage(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }]);
     await installScriptedChineseExplanationApi(page, [{ answerZh: "解释内容。" }]);
 
     await page.goto(PRACTICE_URL);

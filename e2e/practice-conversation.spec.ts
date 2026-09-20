@@ -1,5 +1,14 @@
 import { test, expect } from "@playwright/test";
-import { installScriptedPracticeApi, PRACTICE_URL, resetStorage, submitReply } from "./fixtures";
+import {
+  emilyLines,
+  installScriptedPracticeApi,
+  persistedMessages,
+  PRACTICE_URL,
+  recoveryOffTopicNudgeLine,
+  recoveryQuestionLine,
+  resetStorage,
+  submitReply,
+} from "./fixtures";
 import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
 
 /**
@@ -7,15 +16,32 @@ import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
  * (ticket 08; spec.md "Testing Decisions" > "接缝一（主）：浏览器 E2E" — a real
  * browser drives the whole app, and the only stubbed boundary here is the
  * LLM proxy route's network response (`/api/practice/turn`); everything
- * else — the pure Conversation State Machine, the practice store, routing —
- * runs real code against a real `next build && next start` server.
+ * else — Goal Progress (src/lib/goal-progress.ts), the practice store,
+ * routing — runs real code against a real `next build && next start` server.
  *
- * Issue #16: the model no longer says what Emily says next — the mock only
- * ever supplies `verdict` (and, where relevant, `learner_asked_back`).
- * Emily's actual line is picked client-side at random from the current
- * Lesson's fixed Conversation Script pools (src/content/lesson.ts), so specs
- * below assert pool *membership* (`toContain`) instead of an exact scripted
- * string.
+ * Issue #16: the model no longer says what Emily says next — the mock
+ * supplies only the Judge's own output (a Goal Report, and where relevant
+ * `learner_asked_back`). Emily's actual line is picked client-side at random
+ * from the current Lesson's fixed Conversation Script pools
+ * (src/content/lesson.ts), so specs below assert pool *membership*
+ * (`toContain`) instead of an exact scripted string.
+ *
+ * Issue #47 (ADR-0012): that Judge output is a **Goal Report**, not a Verdict
+ * — see e2e/fixtures.ts's `ScriptedTurnResponse`. Each Turn in these specs
+ * achieves exactly one Goal, in canonical order, so the client derives
+ * `accepted` from a report naming that Goal, and `needs_retry` from a report
+ * that achieves nothing.
+ *
+ * Issue #56: a `needs_retry` Turn no longer speaks one line from a flat pool —
+ * it speaks the Goal's two-tier **Recovery**. A report that attempted nothing
+ * (every open Goal `untouched` — what off-topic input looks like) earns the
+ * first tier's *off-topic* variant: the Goal's off-topic nudge, then its
+ * question, as two lines (ADR-0014 decision 2: a sequence, never one composed
+ * sentence). The two tests that drive such a Turn below assert the sequence
+ * line by line, derived from `GREETING_SOMEBODY_LESSON.script.greeting.recovery`,
+ * and still assert the halves this file always asserted: Goal Progress does not
+ * move and the progress steps keep their states. The full tier-1/tier-2 and
+ * streak behaviour lives in e2e/practice-recovery.spec.ts.
  *
  * The scripted turn-endpoint stub (`installScriptedPracticeApi`) and the
  * text-reply helper (`submitReply`) originated in this file but now live in
@@ -29,7 +55,19 @@ const RESPONSE_DID_NOT_ASK_BACK_TEXTS = GREETING_SOMEBODY_LESSON.responseLines.d
 const RESPONSE_ASKED_BACK_TEXTS = GREETING_SOMEBODY_LESSON.responseLines.askedBack.map((line) => line.en);
 const CLOSING_TEXTS = GREETING_SOMEBODY_LESSON.closingLines.map((line) => line.en);
 const COMPLETION_TEXTS = [...GREETING_SOMEBODY_LESSON.completionMessages];
-const GREETING_NEEDS_RETRY_TEXTS = GREETING_SOMEBODY_LESSON.script.greeting.needsRetryLines.map((line) => line.en);
+
+/**
+ * The first-tier Recovery a Turn that attempted nothing earns at Greeting
+ * (issue #56; v2 ticket 10's `greeting` row): the Goal's own off-topic nudge,
+ * then its question — two lines, derived from the Lesson rather than copied, so
+ * the assertion fails loudly if the wording ever moves. The `unclear` variant
+ * (the shared "Sorry, I didn't quite get that.") is a different first line, and
+ * is covered in e2e/practice-recovery.spec.ts and practice-mixed-failure.spec.ts.
+ */
+const GREETING_OFF_TOPIC_RECOVERY_TEXTS = [
+  recoveryOffTopicNudgeLine("greeting").en,
+  recoveryQuestionLine("greeting").en,
+];
 
 test.describe("Practice page — conversation core", () => {
   test("Emily's opening line renders on load with zero calls to the turn endpoint", async ({
@@ -59,11 +97,11 @@ test.describe("Practice page — conversation core", () => {
     await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "upcoming");
   });
 
-  test("verdict accepted advances the conversation state and Emily's line comes from the checkin pool", async ({
+  test("an accepted Turn moves the Focus Goal on and Emily's line comes from the checkin pool", async ({
     page,
   }) => {
     await resetStorage(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }]);
     await page.goto(PRACTICE_URL);
 
     await expect(page.getByTestId("practice-step-greeting")).toHaveAttribute("data-state", "current");
@@ -80,7 +118,7 @@ test.describe("Practice page — conversation core", () => {
     page,
   }) => {
     await resetStorage(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }], { delayMs: 400 });
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }], { delayMs: 400 });
     await page.goto(PRACTICE_URL);
 
     await submitReply(page, "Hey Emily, good morning!");
@@ -98,51 +136,78 @@ test.describe("Practice page — conversation core", () => {
     expect(CHECKIN_TEXTS).toContain(replyText);
   });
 
-  test("verdict needs_retry keeps the learner on the same step and shows a line from that state's needs_retry pool", async ({
+  test("a Goal Report of nothing achieved leaves the Focus Goal where it was and speaks the Goal's first-tier Recovery", async ({
     page,
   }) => {
     await resetStorage(page);
-    await installScriptedPracticeApi(page, [{ verdict: "needs_retry" }]);
+    // Issue #47: the wire carries a Goal Report now — `greeting` is the first
+    // open Goal, and "untouched" (not "failed") is what an unrelated message
+    // looks like, so the client derives needs_retry from "nothing achieved".
+    // Issue #56: a report that attempted nothing speaks the *off-topic* variant
+    // of the Goal's first-tier Recovery.
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "untouched" } }]);
     await page.goto(PRACTICE_URL);
 
     await submitReply(page, "banana");
 
-    // needs_retry never advances state, so there's no step-attribute change
-    // to wait on the way accepted turns have — wait on the learner bubble
-    // clearing instead (recordTurnResult always clears it once the turn
-    // resolves, verdict either way), which still guarantees the reply text
-    // has landed before a one-shot innerText() read below.
+    // needs_retry never moves Goal Progress, so there's no step-attribute
+    // change to wait on the way an accepted Turn has — wait on the learner
+    // bubble clearing instead (recordTurnResult always clears it once the turn
+    // resolves, either Verdict), which still guarantees the reply has landed
+    // before the assertions below.
     await expect(page.getByTestId("learner-message-bubble")).toHaveCount(0);
-    const replyText = await page.getByTestId("emily-message-bubble").innerText();
-    expect(GREETING_NEEDS_RETRY_TEXTS).toContain(replyText);
+
+    // Two lines, in order — the Goal's off-topic nudge, then its question —
+    // shown as the one bubble a Turn's lines always share (joined with a
+    // single space, message-bubble-pair.tsx).
+    await expect(page.getByTestId("emily-message-bubble")).toHaveText(
+      GREETING_OFF_TOPIC_RECOVERY_TEXTS.join(" "),
+    );
+    // And line by line in the transcript, which is where "one message per
+    // Conversation Script line" is observable at all.
+    const turnLines = (await emilyLines(page)).slice(-GREETING_OFF_TOPIC_RECOVERY_TEXTS.length);
+    expect(turnLines).toEqual(GREETING_OFF_TOPIC_RECOVERY_TEXTS);
+
     await expect(page.getByTestId("practice-step-greeting")).toHaveAttribute("data-state", "current");
     await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "upcoming");
   });
 
-  test("off-topic input is judged needs_retry and keeps the learner on the same step", async ({ page }) => {
+  test("off-topic input yields an empty Goal Report, derived to needs_retry, and leaves the Focus Goal where it was", async ({
+    page,
+  }) => {
     // Issue #15: off-topic is not a Verdict of its own — a learner who
     // wanders off the lesson's topic is judged "needs_retry" like any other
-    // unsuccessful attempt.
+    // unsuccessful attempt. Issue #47: their Goal Report is empty (unrelated
+    // chatter touches no Goal, and is never reported "failed"), which is
+    // exactly the report below — and issue #56 makes it the difference between
+    // the Recovery's two first-tier variants: every open Goal `untouched` is
+    // the off-topic variant, not the shared `unclear` nudge.
     await resetStorage(page);
-    await installScriptedPracticeApi(page, [{ verdict: "needs_retry" }]);
+    await installScriptedPracticeApi(page, [{ goalReport: {} }]);
     await page.goto(PRACTICE_URL);
 
     await submitReply(page, "What's the weather like on Mars?");
 
     await expect(page.getByTestId("learner-message-bubble")).toHaveCount(0);
-    const replyText = await page.getByTestId("emily-message-bubble").innerText();
-    expect(GREETING_NEEDS_RETRY_TEXTS).toContain(replyText);
+    // The Goal's off-topic nudge, then its question — never the `unclear`
+    // nudge (nothing was attempted, so nothing failed to come through).
+    await expect(page.getByTestId("emily-message-bubble")).toHaveText(
+      GREETING_OFF_TOPIC_RECOVERY_TEXTS.join(" "),
+    );
+    const turnLines = (await emilyLines(page)).slice(-GREETING_OFF_TOPIC_RECOVERY_TEXTS.length);
+    expect(turnLines).toEqual(GREETING_OFF_TOPIC_RECOVERY_TEXTS);
+
     await expect(page.getByTestId("practice-step-greeting")).toHaveAttribute("data-state", "current");
     await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "upcoming");
   });
 
-  test("a learner who does not ask back during check-in never hears a 'thanks for asking' line", async ({
+  test("a learner who does not ask back during check-in is never answered — Emily acknowledges and waits", async ({
     page,
   }) => {
     await resetStorage(page);
     await installScriptedPracticeApi(page, [
-      { verdict: "accepted" },
-      { verdict: "accepted", learner_asked_back: false },
+      { goalReport: { greeting: "achieved" } },
+      { goalReport: { checkin: "achieved" }, learner_asked_back: false },
     ]);
     await page.goto(PRACTICE_URL);
 
@@ -159,8 +224,8 @@ test.describe("Practice page — conversation core", () => {
   test("a learner who asks back during check-in always hears an answer", async ({ page }) => {
     await resetStorage(page);
     await installScriptedPracticeApi(page, [
-      { verdict: "accepted" },
-      { verdict: "accepted", learner_asked_back: true },
+      { goalReport: { greeting: "achieved" } },
+      { goalReport: { checkin: "achieved" }, learner_asked_back: true },
     ]);
     await page.goto(PRACTICE_URL);
 
@@ -174,15 +239,120 @@ test.describe("Practice page — conversation core", () => {
     expect(RESPONSE_DID_NOT_ASK_BACK_TEXTS).not.toContain(replyText);
   });
 
-  test("driving all 4 steps to accepted unlocks View Summary, and clicking it marks practice complete and navigates to /review", async ({
+  /**
+   * Issue #54 (ADR-0013 decision 4, v2 tickets 3 and 4) — the two halves of
+   * the reaction rule:
+   *
+   * - **the wait** (ticket 3): a check-in acknowledged *without* an ask-back
+   *   gets exactly one line and no steer toward `response`, because `response`
+   *   is a question the learner has to decide to ask.
+   * - **the answer** (ticket 4's own four-Turn example): the check-in answered
+   *   on one Turn and "How about you?" on the next still gets Emily's answer
+   *   (her reaction is due whenever they asked), and only then a steer.
+   */
+  test("the wait: a check-in answered without an ask-back gets exactly one line, with no steer toward response", async ({
     page,
   }) => {
     await resetStorage(page);
     await installScriptedPracticeApi(page, [
-      { verdict: "accepted" },
-      { verdict: "accepted", learner_asked_back: true },
-      { verdict: "accepted" },
-      { verdict: "accepted" },
+      { goalReport: { greeting: "achieved" } },
+      { goalReport: { checkin: "achieved" }, learner_asked_back: false },
+    ]);
+    await page.goto(PRACTICE_URL);
+
+    await submitReply(page, "Hi there!");
+    await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "current");
+
+    const emilyMessagesBefore = (await persistedMessages(page)).filter(
+      (message) => message.role === "emily",
+    ).length;
+    await submitReply(page, "I'm good, thanks.");
+
+    // `response` is the Focus Goal now — the check-in cleared it — but nothing
+    // steers toward it: Emily acknowledges and waits for the learner to decide.
+    await expect(page.getByTestId("practice-step-response")).toHaveAttribute("data-state", "current");
+
+    // Exactly one line, and it is the did-not-ask-back acknowledgement: the
+    // count is what rules a steer line out, and the pool membership is what
+    // rules out her answering a question nobody asked.
+    const turnLines = (await persistedMessages(page))
+      .filter((message) => message.role === "emily")
+      .slice(emilyMessagesBefore);
+    expect(turnLines).toHaveLength(1);
+    expect(RESPONSE_DID_NOT_ASK_BACK_TEXTS).toContain(turnLines[0].textEn);
+    expect(RESPONSE_ASKED_BACK_TEXTS).not.toContain(turnLines[0].textEn);
+    // Never a Check-in-pool line: the learner just said how they were doing.
+    expect(CHECKIN_TEXTS).not.toContain(turnLines[0].textEn);
+    expect(turnLines[0].textZh.length).toBeGreaterThan(0);
+
+    // The learner-facing bubble is that one line, nothing appended to it.
+    await expect(page.getByTestId("emily-message-bubble")).toHaveText(turnLines[0].textEn);
+  });
+
+  test("ticket 4's four Turns: the later ask-back is answered first, then steered to Closing", async ({
+    page,
+  }) => {
+    await resetStorage(page);
+    // Ticket 4's own example, one Goal per Turn: "Hi!" (greeting), "I'm good."
+    // (check-in, no ask-back — Emily acknowledges and waits), "How about you?"
+    // (the ask-back that achieves `response`), "See you!" (closing, completing
+    // Practice).
+    await installScriptedPracticeApi(page, [
+      { goalReport: { greeting: "achieved" } },
+      { goalReport: { checkin: "achieved" }, learner_asked_back: false },
+      { goalReport: { response: "achieved" }, learner_asked_back: true },
+      { goalReport: { closing: "achieved" } },
+    ]);
+    await page.goto(PRACTICE_URL);
+
+    await submitReply(page, "Hi!");
+    await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "current");
+    await submitReply(page, "I'm good.");
+    await expect(page.getByTestId("practice-step-response")).toHaveAttribute("data-state", "current");
+
+    const emilyMessagesBefore = (await persistedMessages(page)).filter(
+      (message) => message.role === "emily",
+    ).length;
+    await submitReply(page, "How about you?");
+    await expect(page.getByTestId("practice-step-closing")).toHaveAttribute("data-state", "current");
+
+    // Two lines, in that order: her answer to the question put to her, then
+    // the Closing steer. The check-in landed a Turn earlier, so a reaction
+    // keyed to "checkin achieved in this Turn" would have left the question
+    // unanswered and steered on silently — the behaviour ADR-0013 changes.
+    const [answerLine, steerLine] = (await persistedMessages(page))
+      .filter((message) => message.role === "emily")
+      .slice(emilyMessagesBefore);
+    expect(RESPONSE_ASKED_BACK_TEXTS).toContain(answerLine.textEn);
+    expect(CLOSING_TEXTS).toContain(steerLine.textEn);
+    // Never a Check-in-only acknowledgement, in either slot: she is answering
+    // a question, not acknowledging a check-in this Turn never carried.
+    expect(RESPONSE_DID_NOT_ASK_BACK_TEXTS).not.toContain(answerLine.textEn);
+    expect(CHECKIN_TEXTS).not.toContain(answerLine.textEn);
+    expect(CHECKIN_TEXTS).not.toContain(steerLine.textEn);
+
+    const replyText = await page.getByTestId("emily-message-bubble").innerText();
+    expect(RESPONSE_ASKED_BACK_TEXTS.some((line) => replyText.startsWith(line))).toBe(true);
+    expect(CLOSING_TEXTS.some((line) => replyText.endsWith(line))).toBe(true);
+
+    // The conversation still ends the ordinary way.
+    await submitReply(page, "See you!");
+    await expect(page.getByTestId("practice-step-closing")).toHaveAttribute("data-state", "completed");
+    await expect(page.getByTestId("view-summary-button")).toBeEnabled();
+    expect(COMPLETION_TEXTS).toContain(await page.getByTestId("emily-message-bubble").innerText());
+  });
+
+  test("driving all 4 Goals to achieved unlocks View Summary, and clicking it marks practice complete and navigates to /review", async ({
+    page,
+  }) => {
+    await resetStorage(page);
+    // One Goal per Turn, in canonical order — the shape #47's conversations
+    // have, and the shape a learner following Emily's steer lines produces.
+    await installScriptedPracticeApi(page, [
+      { goalReport: { greeting: "achieved" } },
+      { goalReport: { checkin: "achieved" }, learner_asked_back: true },
+      { goalReport: { response: "achieved" } },
+      { goalReport: { closing: "achieved" } },
     ]);
     await page.goto(PRACTICE_URL);
 
@@ -222,7 +392,7 @@ test.describe("Practice page — conversation core", () => {
     await expect(page.getByTestId("progress-dot-practice")).toHaveAttribute("data-state", "completed");
   });
 
-  test("reloading mid-conversation keeps the same step and message history instead of resetting", async ({
+  test("reloading mid-conversation keeps the same Goal Progress and message history instead of resetting", async ({
     page,
   }) => {
     // Practice's persistence internals (src/lib/practice-state.ts) were
@@ -236,6 +406,64 @@ test.describe("Practice page — conversation core", () => {
     // script re-runs on the real reload below and would wipe the very
     // state this test is checking survives it — mirroring
     // navigation-spine.spec.ts's own reload test for exactly this reason.
+    //
+    // Issue #47: the seeded shape persists `goalProgress` (the set of Goals
+    // achieved) where it used to persist a `conversationState` pointer; the
+    // Conversation State on screen is derived from it. Issue #52's follow-up on
+    // #51 renamed the per-Goal bookkeeping to `retryCounts` — a snapshot must
+    // carry it (even empty) or `deserialize` discards it as a pre-change shape,
+    // so the seeded greeting reads as first-try exactly as its record says.
+    await page.goto("/");
+    await page.evaluate(() => {
+      window.localStorage.clear();
+      window.sessionStorage.clear();
+      window.localStorage.setItem(
+        "greeting-somebody:practice",
+        JSON.stringify({
+          goalProgress: ["greeting"],
+          messages: [
+            { id: "seed-1", role: "emily", textEn: "Hi there!", textZh: "嗨！", state: "greeting" },
+            { id: "seed-2", role: "learner", textEn: "Hi!", textZh: "", state: "greeting" },
+            {
+              id: "seed-3",
+              role: "emily",
+              textEn: "How are you today?",
+              textZh: "你今天怎么样？",
+              state: "checkin",
+            },
+          ],
+          turnRecords: [
+            { state: "greeting", passedFirstTry: true, matchedAcceptedResponse: true, learnerAskedBack: false },
+          ],
+          retryCounts: {},
+        }),
+      );
+    });
+
+    await page.goto(PRACTICE_URL);
+    await expect(page.getByTestId("practice-step-greeting")).toHaveAttribute("data-state", "completed");
+    await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "current");
+    await expect(page.getByTestId("emily-message-bubble")).toHaveText("How are you today?");
+
+    await page.reload();
+
+    // Same Goal Progress, same last message, same accumulated history — none
+    // of it silently reset back to a fresh "greeting" start.
+    await expect(page.getByTestId("practice-step-greeting")).toHaveAttribute("data-state", "completed");
+    await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "current");
+    await expect(page.getByTestId("emily-message-bubble")).toHaveText("How are you today?");
+  });
+
+  test("a snapshot persisted without goalProgress (the pre-#47 shape) is discarded on load", async ({
+    page,
+  }) => {
+    // ADR-0012: "snapshots without it are discarded on load" — the same
+    // in-flight-sessions-reset precedent as issue #20's shape change
+    // (src/lib/practice-state.ts's `deserialize`, and its unit test in
+    // src/lib/practice-state.test.ts for the non-browser half). Seeding the
+    // old shape must produce a clean restart, not a crash and not a
+    // half-restored conversation: `goalProgress` is missing, so the whole
+    // snapshot is thrown away and the page opens a brand-new Practice.
     await page.goto("/");
     await page.evaluate(() => {
       window.localStorage.clear();
@@ -264,16 +492,14 @@ test.describe("Practice page — conversation core", () => {
     });
 
     await page.goto(PRACTICE_URL);
-    await expect(page.getByTestId("practice-step-greeting")).toHaveAttribute("data-state", "completed");
-    await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "current");
-    await expect(page.getByTestId("emily-message-bubble")).toHaveText("How are you today?");
 
-    await page.reload();
-
-    // Same step, same last message, same accumulated history — none of it
-    // silently reset back to a fresh "greeting" start.
-    await expect(page.getByTestId("practice-step-greeting")).toHaveAttribute("data-state", "completed");
-    await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "current");
-    await expect(page.getByTestId("emily-message-bubble")).toHaveText("How are you today?");
+    // Back to the very start: greeting is the current step, no learner turn
+    // survives, and Emily's only line is a freshly-picked opening line — not
+    // the seeded mid-conversation one.
+    await expect(page.getByTestId("practice-step-greeting")).toHaveAttribute("data-state", "current");
+    await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "upcoming");
+    await expect(page.getByTestId("learner-message-bubble")).toHaveCount(0);
+    const emilyText = await page.getByTestId("emily-message-bubble").innerText();
+    expect(GREETING_SOMEBODY_LESSON.openingLines.map((line) => line.en)).toContain(emilyText);
   });
 });

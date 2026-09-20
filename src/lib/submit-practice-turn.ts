@@ -1,4 +1,4 @@
-import type { ActiveConversationState } from "@/lib/conversation-state-machine";
+import type { GoalProgress } from "@/lib/goal-progress";
 import {
   isPracticeTurnStreamEvent,
   type HistoryTurn,
@@ -17,9 +17,10 @@ import {
  * functions, not a component; Next.js only requires the directive on module
  * graphs that render.
  *
- * Only `@/lib/practice-turn-protocol` (zero-dependency) is imported here —
- * never `@/lib/practice-judge`, whose `@anthropic-ai/sdk` import must never
- * reach the browser bundle.
+ * Only `@/lib/practice-turn-protocol` (zero-dependency) and
+ * `@/lib/goal-progress` (likewise — see that module's own doc comment) are
+ * imported here — never `@/lib/practice-judge`, whose `@anthropic-ai/sdk`
+ * import must never reach the browser bundle.
  */
 
 const PRACTICE_TURN_ENDPOINT = "/api/practice/turn";
@@ -86,7 +87,8 @@ export async function parseTurnEventStream(
 // --- submitPracticeTurn ----------------------------------------------------
 
 export type SubmitTurnInput = {
-  priorState: ActiveConversationState;
+  /** The set of Conversation Goals achieved so far (ADR-0012) — what the Judge is given instead of the old single Conversation State. */
+  goalProgress: GoalProgress;
   message: string;
   history: HistoryTurn[];
 };
@@ -129,7 +131,7 @@ export async function submitPracticeTurn(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        state: input.priorState,
+        goalProgress: input.goalProgress,
         message: input.message,
         history: input.history,
       }),
@@ -158,7 +160,7 @@ export async function submitPracticeTurn(
       // Strip the `final` discriminant — SubmitTurnResult's own `ok: true`
       // already carries that role, so `data` is just the plain TurnResult.
       finalResult = {
-        verdict: event.verdict,
+        goal_report: event.goal_report,
         learner_asked_back: event.learner_asked_back,
       };
     } else if (event.type === "error") {

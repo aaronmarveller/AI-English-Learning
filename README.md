@@ -43,12 +43,16 @@ model calls. Run it by hand, and re-run it whenever
 ## Pre-generated audio (manual only)
 
 `npm run generate:audio` pre-generates `public/audio/*.mp3` for every fixed
-English line listed in `src/lib/audio-manifest.ts` — Emily's opening lines,
-the silence nudge, and Explore's 13 expressions/combo sentence — via a real
-TTS provider (OpenAI's `tts-1` by default). `src/lib/speech-synthesis.ts`
-plays a pre-generated file when one matches, falling back to browser speech
-synthesis otherwise — this covers Practice's live, model-generated
-conversation replies, which have no fixed pool to pre-generate audio for.
+English line listed in `src/lib/audio-manifest.ts` — Emily's opening line, the
+Check-in / Response / Closing / Completion pools, the `greeting` and `response`
+steer pools, every line of the per-Goal two-tier Recovery, the silence nudge,
+and Explore's 13 expressions/combo sentence — via a
+real TTS provider (OpenAI's `tts-1` by default). Since issue #16 the model only
+*judges* the learner's message; the client picks Emily's reply from those fixed
+pools, so every line she speaks is pre-generated. `src/lib/speech-synthesis.ts`
+plays the pre-generated file that matches, falling back to browser speech
+synthesis otherwise — the only text that needs the fallback is dynamic content
+with no fixed pool, such as a Chinese help follow-up.
 
 Requires `OPENAI_API_KEY` in `.env.local` (see `.env.example`; `TTS_PROVIDER`
 picks the provider — only `openai` is implemented so far). Not required to

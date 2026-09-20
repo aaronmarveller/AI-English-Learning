@@ -9,8 +9,8 @@ import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
  * Reuses the same two stubbed boundaries as practice-conversation.spec.ts
  * (ticket 08): the LLM proxy route's network response, and the Web Speech
  * API via e2e/fixtures.ts's `mockSpeechApis`. Everything else — routing,
- * the Conversation State Machine, the practice store — runs real code
- * against a real `next build && next start` server.
+ * Goal Progress (src/lib/goal-progress.ts), the practice store — runs real
+ * code against a real `next build && next start` server.
  *
  * The scripted LLM proxy stub helper (`installScriptedPracticeApi`) also
  * lives in e2e/fixtures.ts, shared with practice-conversation.spec.ts,
@@ -22,6 +22,10 @@ import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
  * Issue #16: the mock no longer supplies Emily's reply text, so assertions
  * on `emily-message-bubble` check pool membership (imported from
  * src/content/lesson.ts) instead of a scripted exact string.
+ *
+ * Issue #47 (ADR-0012): the mock supplies a Goal Report per Turn and the
+ * client derives the Verdict from it — see e2e/fixtures.ts's
+ * `ScriptedTurnResponse`.
  */
 
 const CHECKIN_TEXTS = GREETING_SOMEBODY_LESSON.checkinLines.map((line) => line.en);
@@ -45,7 +49,7 @@ test.describe("Practice page — voice input", () => {
   test("a final recognition result is echoed back as the learner's bubble", async ({ page }) => {
     await resetStorage(page);
     await mockSpeechApis(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }], { delayMs: 300 });
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }], { delayMs: 300 });
     await page.goto(PRACTICE_URL);
 
     // Mic is the default, primary input mode with a visible idle state.
@@ -92,9 +96,15 @@ test.describe("Practice page — voice input", () => {
     // turn fully completes — replacing the learner bubble with Emily's next
     // line — before the assertions on that transient bubble below even get
     // their first poll (see installScriptedPracticeApi's own doc comment).
+    // Issue #47: two Turns, each achieving the one Goal that Turn is about —
+    // `greeting`, then `checkin` (which the learner asked a question back
+    // during, selecting the Response pool's "asked back" half).
     await installScriptedPracticeApi(
       page,
-      [{ verdict: "accepted" }, { verdict: "accepted", learner_asked_back: true }],
+      [
+        { goalReport: { greeting: "achieved" } },
+        { goalReport: { checkin: "achieved" }, learner_asked_back: true },
+      ],
       { delayMs: 300 },
     );
     await page.goto(PRACTICE_URL);
@@ -134,7 +144,7 @@ test.describe("Practice page — voice input", () => {
   test("an interim result is shown live near the mic before the final result is submitted", async ({ page }) => {
     await resetStorage(page);
     await mockSpeechApis(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }], { delayMs: 300 });
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }], { delayMs: 300 });
     await page.goto(PRACTICE_URL);
 
     await startSpeaking(page);
@@ -151,7 +161,12 @@ test.describe("Practice page — voice input", () => {
   test("tapping the listening mic again submits the speech recognized so far", async ({ page }) => {
     await resetStorage(page);
     await mockSpeechApis(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    // delayMs for the same reason as the sibling tests above: this assertion is
+    // about the *transient* learner bubble, and without a delay the mocked route
+    // can resolve fast enough that the append and the graded reply land in one
+    // render, so the bubble this test looks for never reaches the DOM (see
+    // installScriptedPracticeApi's own doc comment).
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }], { delayMs: 300 });
     await page.goto(PRACTICE_URL);
 
     const micButton = page.getByTestId("practice-mic-button");
@@ -177,9 +192,15 @@ test.describe("Practice page — voice input", () => {
   test("the next iOS mic turn does not stop an already-ended recognizer", async ({ page }) => {
     await resetStorage(page);
     await mockSpeechApis(page);
+    // Issue #47: two Turns, each achieving the one Goal that Turn is about —
+    // `greeting`, then `checkin` (which the learner asked a question back
+    // during, selecting the Response pool's "asked back" half).
     await installScriptedPracticeApi(
       page,
-      [{ verdict: "accepted" }, { verdict: "accepted", learner_asked_back: true }],
+      [
+        { goalReport: { greeting: "achieved" } },
+        { goalReport: { checkin: "achieved" }, learner_asked_back: true },
+      ],
       { delayMs: 300 },
     );
     await page.goto(PRACTICE_URL);
@@ -216,7 +237,7 @@ test.describe("Practice page — voice input", () => {
   test("three consecutive no-speech errors warn once before falling back to working text input", async ({ page }) => {
     await resetStorage(page);
     await mockSpeechApis(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }], { delayMs: 300 });
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }], { delayMs: 300 });
     await page.goto(PRACTICE_URL);
 
     const micButton = page.getByTestId("practice-mic-button");
@@ -269,7 +290,7 @@ test.describe("Practice page — voice input", () => {
   test("a successful recognition resets the consecutive no-speech count", async ({ page }) => {
     await resetStorage(page);
     await mockSpeechApis(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }], { delayMs: 300 });
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }], { delayMs: 300 });
     await page.goto(PRACTICE_URL);
 
     const micButton = page.getByTestId("practice-mic-button");
@@ -307,7 +328,7 @@ test.describe("Practice page — voice input", () => {
   }) => {
     await resetStorage(page);
     await mockSpeechApis(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }]);
     await page.goto(PRACTICE_URL);
 
     await startSpeaking(page);
@@ -330,7 +351,7 @@ test.describe("Practice page — voice input", () => {
   }) => {
     await resetStorage(page);
     await mockSpeechApis(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }]);
     await page.goto(PRACTICE_URL);
 
     await startSpeaking(page);
@@ -357,7 +378,7 @@ test.describe("Practice page — voice input", () => {
   }) => {
     await resetStorage(page);
     await mockSpeechRecognitionUnsupported(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }], { delayMs: 300 });
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }], { delayMs: 300 });
     await page.goto(PRACTICE_URL);
 
     // No mic UI at all; text input is already the active mode with an
@@ -383,7 +404,7 @@ test.describe("Practice page — voice input", () => {
   test("the manual mode toggle switches between voice and text even when the mic works fine", async ({ page }) => {
     await resetStorage(page);
     await mockSpeechApis(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }]);
     await page.goto(PRACTICE_URL);
 
     await expect(page.getByTestId("practice-mic-button")).toBeVisible();

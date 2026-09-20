@@ -1,4 +1,8 @@
 import type { Page, Route } from "@playwright/test";
+import type { GoalReport } from "@/lib/practice-turn-protocol";
+import { AUDIO_MANIFEST } from "@/lib/audio-manifest";
+import { GREETING_SOMEBODY_LESSON, type ScriptLine } from "@/content/lesson";
+import type { ActiveConversationState } from "@/lib/conversation-state-machine";
 
 /**
  * Shared E2E helpers (ticket 03).
@@ -47,7 +51,7 @@ export async function resetStorage(page: Page): Promise<void> {
  *
  * Ticket 08 hasn't built the LLM proxy route yet, so there's no real path
  * to point this at today — this helper exists so that ticket's tests can
- * do `mockApiRoute(page, "/api/whatever-ticket-08-calls-it", { verdict: ... })`
+ * do `mockApiRoute(page, "/api/whatever-ticket-08-calls-it", { goalReport: ... })`
  * without inventing their own route-mocking plumbing. This is the pattern
  * tickets 08/09 should reuse for stubbing the LLM proxy route rather than
  * hitting the real Anthropic API in E2E.
@@ -82,20 +86,65 @@ export const PRACTICE_URL = "/practice?debug=1";
 export const TURN_ENDPOINT = "**/api/practice/turn";
 
 /**
- * Issue #16: the wire contract shrank to exactly two fields. `reply_en`,
- * `reply_zh`, and `highlight_key` are gone — Emily's line is now picked
- * client-side from the Lesson's fixed Conversation Script pools (see
- * src/content/lesson.ts / src/lib/emily-reply-selector.ts), so a spec can no
- * longer dictate Emily's exact reply text through this stub. Specs that used
- * to assert `emily-message-bubble` against a scripted `reply_en` now assert
- * membership in the relevant pool instead (imported straight from
- * src/content/lesson.ts, so the assertion can never silently drift from the
- * production content it's checking).
+ * Issue #16: the wire contract shrank to two fields. `reply_en`, `reply_zh`,
+ * and `highlight_key` are gone — Emily's line is now picked client-side from
+ * the Lesson's fixed Conversation Script pools (see src/content/lesson.ts /
+ * src/lib/emily-reply-selector.ts), so a spec can no longer dictate Emily's
+ * exact reply text through this stub. Specs that used to assert
+ * `emily-message-bubble` against a scripted `reply_en` now assert membership
+ * in the relevant pool instead (imported straight from src/content/lesson.ts,
+ * so the assertion can never silently drift from the production content it's
+ * checking).
+ *
+ * Issue #47 (ADR-0012): the contract is set-shaped, in its final form.
+ * `verdict` is gone from the wire entirely — the Judge returns a **Goal
+ * Report** keyed by Conversation Goal, and the client derives the Verdict from
+ * it (src/lib/goal-progress.ts's `deriveVerdict`, which an e2e run exercises
+ * for real). A scripted entry is therefore the report the Judge would return
+ * for that Turn:
+ *
+ *   - `{ greeting: "achieved" }` — the learner communicated the `greeting`
+ *     Goal: at least one `achieved` and no `failed`, so the client derives
+ *     `accepted`, `greeting` joins Goal Progress, and the Focus Goal moves on.
+ *   - `{}` — every open Goal untouched, so the client derives `needs_retry`
+ *     (what an off-topic Turn's report looks like: unrelated chatter is
+ *     `untouched`, never `failed`).
+ *   - a key outside the open Goals is dropped silently by the client, so a
+ *     spec only ever has to name the Goal it means.
+ *
+ * #47's conversations are one-Goal-per-Turn in canonical order, so a spec with
+ * one entry per Turn names `greeting`, then `checkin`, then `response`, then
+ * `closing`.
  */
 export type ScriptedTurnResponse = {
-  verdict: "accepted" | "needs_retry";
+  goalReport: GoalReport;
   /** Defaults to `false` when omitted — most scripted turns don't ask a question back. */
   learner_asked_back?: boolean;
+};
+
+/**
+ * What `installScriptedPracticeApi` hands back: a live view of the stub, so a
+ * spec can assert on the *requests* it saw and not only on what the app did
+ * with their responses.
+ *
+ * Issue #55's "the client sends no additional AI message" (AC 3) is the case
+ * this exists for: reading the count before and after a wait is a direct
+ * assertion that no further `/api/practice/turn` request was made, where
+ * watching the transcript for an extra Emily line only *implies* it (that
+ * inference holds because this stub saturates on its last response, but it is
+ * an inference all the same). The count is a plain synchronous number — the
+ * route handler runs in this same process, and it increments on entry rather
+ * than on fulfilment, so the request is counted from the moment it arrives.
+ *
+ * Existing call sites `await` the installer and ignore the handle, which the
+ * return value leaves untouched.
+ */
+export type ScriptedPracticeApiHandle = {
+  /**
+   * How many requests the stub has answered (or is answering) so far — one per
+   * learner Turn the client actually submitted, saturated responses included.
+   */
+  turnRequestCount: () => number;
 };
 
 /**
@@ -104,10 +153,10 @@ export type ScriptedTurnResponse = {
  *
  * A step up from this module's generic `mockApiRoute` above (which always
  * fulfills every matching request with the *same* fixed response): a
- * Practice conversation needs different verdicts at different points (a few
- * accepted turns, one needs_retry — including one for off-topic input, which
- * is judged needs_retry rather than a Verdict of its own, issue #15), so the
- * mock has to vary per call.
+ * Practice conversation needs a different outcome at different points (a few
+ * Turns that get their Goal right, one that gets nothing — including one for
+ * off-topic input, which touches no Goal and so is a `needs_retry` Verdict
+ * rather than one of its own, issue #15), so the mock has to vary per call.
  *
  * `delayMs` is optional and only needed by tests that assert on the
  * *transient* learner bubble mid-turn: without it, the mocked route
@@ -144,17 +193,17 @@ export async function installScriptedPracticeApi(
   page: Page,
   responses: ScriptedTurnResponse[],
   options: { delayMs?: number } = {},
-): Promise<void> {
+): Promise<ScriptedPracticeApiHandle> {
   let callIndex = 0;
   await page.route(TURN_ENDPOINT, async (route: Route) => {
-    const response = responses[Math.min(callIndex, responses.length - 1)];
     callIndex += 1;
+    const response = responses[Math.min(callIndex - 1, responses.length - 1)];
     if (options.delayMs) {
       await new Promise((resolve) => setTimeout(resolve, options.delayMs));
     }
     const finalEvent = {
       type: "final",
-      verdict: response.verdict,
+      goal_report: response.goalReport,
       learner_asked_back: response.learner_asked_back ?? false,
     };
     await route.fulfill({
@@ -163,6 +212,11 @@ export async function installScriptedPracticeApi(
       body: `data: ${JSON.stringify(finalEvent)}\n\n`,
     });
   });
+  return {
+    turnRequestCount() {
+      return callIndex;
+    },
+  };
 }
 
 // --- Scripted Chinese-explanation stub (issue #19) -----------------------
@@ -228,6 +282,201 @@ export async function submitReply(page: Page, text: string): Promise<void> {
 /** Starts a learner speech Turn through either Practice microphone. */
 export async function startSpeaking(page: Page, microphoneTestId = "practice-mic-button"): Promise<void> {
   await page.getByTestId(microphoneTestId).click();
+}
+
+// --- Persisted Practice snapshot readers (issues #47-#52) ----------------
+//
+// The practice store hands the page a hook, not a snapshot reader
+// (src/lib/practice-state.ts is `"use client"`), so every spec that asserts on
+// what a Turn actually *saved* reads the store's own localStorage key and
+// parses it. Consolidated here for the same reason issue #10 consolidated the
+// scripted-API stub: the specs covering #48-#52 had each grown their own copy
+// of the same localStorage read.
+
+/** The practice store's storage key (src/lib/practice-state.ts's `STORAGE_KEY`). */
+export const PRACTICE_STORAGE_KEY = "greeting-somebody:practice";
+
+/** One persisted `StateTurnRecord` (src/lib/turn-record.ts) — the Learning Summary's own input, one per Goal achieved. */
+export type PersistedTurnRecord = {
+  state: string;
+  passedFirstTry: boolean;
+  matchedAcceptedResponse: boolean;
+  learnerAskedBack: boolean;
+};
+
+/**
+ * One persisted `PracticeMessage` (src/lib/practice-state.ts) — one per
+ * Conversation Script line of a Turn.
+ */
+export type PersistedPracticeMessage = {
+  role: string;
+  textEn: string;
+  textZh: string;
+  /**
+   * Which write this message arrived in (issue #48): every line of one Turn
+   * shares a value, so two messages with the same `sequenceId` are one Turn —
+   * what a spec asserting "these two lines are one reminder, not two" reads.
+   * Optional because snapshots persisted before #48 have none.
+   */
+  sequenceId?: string;
+};
+
+/**
+ * The parsed persisted Practice snapshot (src/lib/practice-state.ts's
+ * `PracticeStoreState`) — the store's own account of what the Turns so far
+ * did. Every field is optional because this is raw persisted data read as
+ * data: whether an absent field is a failure is the assertion's business, not
+ * this reader's.
+ *
+ * Issue #56 added `retryStreak`. It is deliberately the one field whose
+ * absence is not a shape mismatch — `deserialize` accepts a snapshot without
+ * it (a pre-#56 session, whose streak is unknowable) and reads it as "no
+ * streak", so a spec seeding an old snapshot still loads — which is why it is
+ * optional here like every other field, and why a spec asserting on the
+ * streak must read it off a snapshot a Turn actually wrote.
+ *
+ * Throws when nothing is persisted at all, since every call site reads after a
+ * Turn has been recorded — a missing snapshot means the write under test never
+ * happened, and a clear error beats a confusing assertion diff.
+ */
+export type PersistedPracticeSnapshot = {
+  goalProgress?: string[];
+  retryCounts?: Record<string, number>;
+  /** The Retry Streak as persisted (issue #56): which Goal, and how many `needs_retry` Turns in a row it has had — `null` once an `accepted` Turn cleared it. */
+  retryStreak?: { goal: string; count: number } | null;
+  turnRecords?: PersistedTurnRecord[];
+  messages?: PersistedPracticeMessage[];
+};
+
+export async function persistedPracticeSnapshot(page: Page): Promise<PersistedPracticeSnapshot> {
+  return page.evaluate((storageKey) => {
+    const raw = window.localStorage.getItem(storageKey);
+    if (raw === null) throw new Error("no persisted Practice snapshot");
+    return JSON.parse(raw) as PersistedPracticeSnapshot;
+  }, PRACTICE_STORAGE_KEY);
+}
+
+/** The persisted transcript, in order. */
+export async function persistedMessages(page: Page): Promise<PersistedPracticeMessage[]> {
+  return (await persistedPracticeSnapshot(page)).messages ?? [];
+}
+
+/**
+ * Emily's spoken lines, in order — one entry per persisted Emily message,
+ * which is one per Conversation Script line (src/lib/practice-state.ts's
+ * `recordTurnResult`). The per-line counterpart of the bubble's joined text:
+ * `emily-message-bubble` shows a Turn's lines as one string (joined with a
+ * single space, message-bubble-pair.tsx), so a spec that needs to assert a
+ * Turn's *sequence* — a Recovery's two lines, for instance — reads it here.
+ */
+export async function emilyLines(page: Page): Promise<string[]> {
+  const messages = await persistedMessages(page);
+  return messages.filter((message) => message.role === "emily").map((message) => message.textEn);
+}
+
+// --- Lesson-content expectations (issue #56) ------------------------------
+//
+// The two-tier Recovery (src/content/lesson.ts's `RecoveryScript`) is content,
+// not a string a spec may copy by hand: a spec asserts against these readers so
+// an assertion can never drift from the Lesson it is checking, and so a Goal
+// that loses a half of its Recovery fails the spec loudly instead of reading as
+// an empty expectation. `RECOVERY_UNCLEAR_NUDGE` is exported by the Lesson and
+// imported directly where a spec needs the shared `unclear` nudge.
+
+/**
+ * A Goal's off-topic nudge — the first line of its first-tier Recovery when
+ * every open Goal was `untouched` (v2 ticket 10's "First Redirect" prefix).
+ *
+ * Throws for `response` and `closing`, whose rows in ticket 10's table have no
+ * prefix of their own: the question is those Goals' whole off-topic variant,
+ * deliberately (src/content/lesson.ts's `RecoveryScript.offTopicNudge`). A spec
+ * asserting a two-line off-topic Recovery for one of them would be asserting a
+ * line the Lesson does not have.
+ */
+export function recoveryOffTopicNudgeLine(goal: ActiveConversationState): ScriptLine {
+  const nudge = GREETING_SOMEBODY_LESSON.script[goal].recovery.offTopicNudge;
+  if (nudge === null) {
+    throw new Error(`recovery: ${goal}'s off-topic variant has no nudge of its own`);
+  }
+  return nudge;
+}
+
+/**
+ * The question a Goal's first-tier Recovery asks, and the second line of its
+ * silence reminder (one function serves both — issue #56; docs/ai-configuration.md
+ * section 3's "Recovery" and "Silence reminder"). Throws for `checkin`, whose
+ * question is its steer pool's ("How are you today?" — `CHECKIN_TEXTS`), so a
+ * spec asserts membership in that pool instead.
+ */
+export function recoveryQuestionLine(goal: ActiveConversationState): ScriptLine {
+  const question = GREETING_SOMEBODY_LESSON.script[goal].recovery.question;
+  if (question === null) {
+    throw new Error(`recovery: ${goal} has no question of its own — it steers from its pool`);
+  }
+  return question;
+}
+
+/**
+ * A Goal's borrowed steer pool, by text — the pool renamed `needsRetryLines` →
+ * `steerLines` by issue #56, now spoken only by an `accepted` Turn's steer
+ * toward an open Goal. Only `greeting` and `response` carry one (issue #50);
+ * asking for another Goal's throws rather than returning an empty list, which
+ * would make every `toContain` against it vacuously false and the spec's real
+ * subject untested.
+ */
+export function steerLineTexts(goal: ActiveConversationState): string[] {
+  const pool = GREETING_SOMEBODY_LESSON.script[goal].steerLines;
+  if (pool === undefined || pool.length === 0) {
+    throw new Error(`steerLines: ${goal} has no steer pool to borrow from`);
+  }
+  return pool.map((line) => line.en);
+}
+
+// --- Audio-path helpers (issues #48-#50) ---------------------------------
+
+/**
+ * The pre-generated file each Conversation Script line plays, from the same
+ * manifest src/lib/speech-synthesis.ts resolves against at runtime. Built by
+ * looking each line up rather than hard-coding ids, so a spec fails loudly if
+ * a pool line ever loses its audio — issue #48's "no new audio files are
+ * needed" criterion is that this map never misses.
+ */
+const AUDIO_PATH_BY_TEXT = new Map(AUDIO_MANIFEST.map(({ id, text }) => [text, `/audio/${id}.mp3`]));
+
+/**
+ * The manifest path for each of `texts`, looked up by exact text — the same
+ * resolution src/lib/speech-synthesis.ts does at runtime. Takes bare strings
+ * rather than `ScriptLine`s because the one pool that holds strings is the
+ * Completion pool, and since issue #55 its lines are shared with other pools
+ * (the Completion pool's "See you!" is Explore's `closing-see-you`), so a spec
+ * asserting on the final line has to derive its path from the pool instead of
+ * hard-coding a `/audio/completion-` prefix.
+ */
+export function audioPathsForTexts(texts: readonly string[]): string[] {
+  return texts.map((text) => {
+    const path = AUDIO_PATH_BY_TEXT.get(text);
+    if (!path) throw new Error(`no pre-generated audio in the manifest for "${text}"`);
+    return path;
+  });
+}
+
+export function audioPathsFor(lines: readonly ScriptLine[]): string[] {
+  return audioPathsForTexts(lines.map((line) => line.en));
+}
+
+/**
+ * The same paths as a real browser reports them: assigning a relative path to
+ * `HTMLMediaElement.src` resolves it against the document, and the `<audio>`
+ * stub records the resolved value, so every comparison has to be made on
+ * absolute URLs.
+ */
+export function absoluteAudioUrls(paths: readonly string[], pageUrl: string): string[] {
+  return paths.map((path) => new URL(path, pageUrl).toString());
+}
+
+/** Every audio source a successful `play()` has entered playback with, in order (see `mockSpeechApis`). */
+export async function playedSources(page: Page): Promise<string[]> {
+  return page.evaluate(() => window.__mockAudio?.getPlayedSources() ?? []);
 }
 
 // --- Web Speech API stub (for ticket 08/09+) ----------------------------

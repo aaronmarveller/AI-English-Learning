@@ -1,5 +1,15 @@
 import { test, expect, type Page } from "@playwright/test";
-import { installScriptedPracticeApi, mockSpeechApis, PRACTICE_URL, resetStorage, startSpeaking, submitReply } from "./fixtures";
+import {
+  emilyLines,
+  installScriptedPracticeApi,
+  mockSpeechApis,
+  persistedPracticeSnapshot,
+  PRACTICE_URL,
+  recoveryQuestionLine,
+  resetStorage,
+  startSpeaking,
+  submitReply,
+} from "./fixtures";
 import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
 
 /**
@@ -8,7 +18,7 @@ import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
  * per-message bilingual subtitle toggle (default-collapsed on every new
  * message), the replay button, the Ask-in-Chinese sheet, the
  * silence-timeout nudge, and the full-transcript drawer. All five must
- * never advance `conversationState` or call the LLM proxy route on their
+ * never move Goal Progress or call the LLM proxy route on their
  * own — that's the core constraint this whole ticket exists to protect.
  *
  * Same seam as e2e/practice-conversation.spec.ts (ticket 08): a real browser
@@ -39,6 +49,20 @@ import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
 const CHECKIN_TEXTS = GREETING_SOMEBODY_LESSON.checkinLines.map((line) => line.en);
 const CHECKIN_ZH_BY_EN = new Map(GREETING_SOMEBODY_LESSON.checkinLines.map((line) => [line.en, line.zh]));
 
+/**
+ * The silence-nudge pool, by text (issue #16's 3 lines; issue #56 kept the pool
+ * untouched and made it the *first* line of a two-line silence reminder).
+ */
+const SILENCE_NUDGE_TEXTS = GREETING_SOMEBODY_LESSON.silenceNudgeLines.map((line) => line.en);
+
+/**
+ * The reminder's second line at a fresh conversation: the question the Focus
+ * Goal's first-tier Recovery asks — Greeting's, since Greeting is the first
+ * open Goal at mount (issue #56; v2 ticket 9's "Take your time. How are you
+ * today?" is the Check-in case of this same rule).
+ */
+const GREETING_REMINDER_QUESTION_TEXT = recoveryQuestionLine("greeting").en;
+
 /** Collects every request URL matching `pattern`, in order, for later assertion. */
 function trackRequestsMatching(page: Page, pattern: RegExp): string[] {
   const matched: string[] = [];
@@ -57,7 +81,7 @@ test.describe("Practice page — support & recovery", () => {
     page,
   }) => {
     await resetStorage(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }]);
     await page.goto(PRACTICE_URL);
 
     // AI Configuration: every new AI message starts in English-only mode.
@@ -77,7 +101,7 @@ test.describe("Practice page — support & recovery", () => {
 
   test("toggling one message's subtitle doesn't carry over to the next message", async ({ page }) => {
     await resetStorage(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }]);
     await page.goto(PRACTICE_URL);
 
     // Opening line starts collapsed — expand it, proving the toggle is a
@@ -143,7 +167,7 @@ test.describe("Practice page — support & recovery", () => {
     expect(turnRequests).toHaveLength(0);
   });
 
-  test("learner silence produces exactly one gentle nudge, without advancing state or calling the turn endpoint", async ({
+  test("learner silence produces exactly one gentle reminder, without advancing state or calling the turn endpoint", async ({
     page,
   }) => {
     await resetStorage(page);
@@ -155,16 +179,41 @@ test.describe("Practice page — support & recovery", () => {
     await expect(page.getByTestId("practice-step-greeting")).toHaveAttribute("data-state", "current");
 
     // Fast-forward past the configured 18s silence window without the
-    // learner ever submitting anything.
+    // learner ever submitting anything. Emily has spoken her opening line and
+    // nothing else, so this Turn is the reminder's two messages.
     await page.clock.fastForward(19000);
+    await expect.poll(async () => (await emilyLines(page)).length).toBe(3);
 
-    // Emily's newest line is now one of the fixed silence-nudge pool's
-    // lines (issue #16 expanded this from one fixed line to three), not an
-    // LLM reply.
-    const nudgeTexts = GREETING_SOMEBODY_LESSON.silenceNudgeLines.map((line) => line.en);
-    const nudgeText = await page.getByTestId("emily-message-bubble").innerText();
-    expect(nudgeTexts).toContain(nudgeText);
+    // Emily's newest Turn is the silence reminder (issue #56; v2 ticket 9):
+    // the fixed silence-nudge pool's line — never an LLM reply — followed by
+    // the Focus Goal's question, as TWO lines in the one bubble a Turn's lines
+    // always share (joined with a single space; never one composed sentence,
+    // ADR-0014 decision 3).
+    const reminderLines = (await emilyLines(page)).slice(-2);
+    expect(SILENCE_NUDGE_TEXTS).toContain(reminderLines[0]);
+    expect(reminderLines[1]).toBe(GREETING_REMINDER_QUESTION_TEXT);
+    await expect(page.getByTestId("emily-message-bubble")).toHaveText(
+      `${reminderLines[0]} ${GREETING_REMINDER_QUESTION_TEXT}`,
+    );
+
+    // One Turn, not two: both lines were written in a single append (they
+    // share a `sequenceId`), which is what makes the bubble and the playback
+    // treat them as one reminder.
+    const messages = (await persistedPracticeSnapshot(page)).messages ?? [];
+    const reminderMessages = messages.slice(-2);
+    expect(reminderMessages[0].sequenceId).toBeTruthy();
+    expect(reminderMessages[0].sequenceId).toBe(reminderMessages[1].sequenceId);
+
+    // And nothing else moved: silence is not a Turn, so the Focus Goal, Goal
+    // Progress, the step states, the Retry Streak and the request count are all
+    // exactly where they were.
     await expect(page.getByTestId("practice-step-greeting")).toHaveAttribute("data-state", "current");
+    await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "upcoming");
+    const snapshot = await persistedPracticeSnapshot(page);
+    expect(snapshot.goalProgress).toEqual([]);
+    expect(snapshot.turnRecords).toEqual([]);
+    expect(snapshot.retryCounts).toEqual({});
+    expect(snapshot.retryStreak ?? null).toBeNull();
     expect(turnRequests).toHaveLength(0);
   });
 
@@ -212,7 +261,7 @@ test.describe("Practice page — support & recovery", () => {
 
     // A follow-up in real English still works normally afterward — this
     // Chinese Turn didn't leave the conversation in some broken state.
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }]);
     await submitReply(page, "Hi Emily!");
     await expect(page.getByTestId("practice-step-checkin")).toHaveAttribute("data-state", "current");
     const replyText = await page.getByTestId("emily-message-bubble").innerText();
@@ -234,7 +283,7 @@ test.describe("Practice page — support & recovery", () => {
     // models the same per-element gesture gate that makes this fallback
     // necessary on iOS.
     await mockSpeechApis(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }]);
 
     await page.goto(PRACTICE_URL);
     await expect(page.getByTestId("emily-message-bubble")).toBeVisible();
@@ -402,7 +451,7 @@ test.describe("Practice page — support & recovery", () => {
         return originalPause.apply(this);
       };
     });
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }]);
 
     await page.goto(PRACTICE_URL);
     // submitReply drives the always-available text path, switching away
@@ -436,7 +485,7 @@ test.describe("Practice page — support & recovery", () => {
 
   test("the restart button clears the conversation and starts over from a fresh opening line", async ({ page }) => {
     await resetStorage(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }]);
     await page.goto(PRACTICE_URL);
 
     await submitReply(page, "Hi Emily!");
@@ -462,7 +511,7 @@ test.describe("Practice page — support & recovery", () => {
     page,
   }) => {
     await resetStorage(page);
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }]);
     // Every scripted line now has a pre-generated file (issue #17), so force
     // that tier to fail — the pregenerated <audio> element's own "error"
     // event — to exercise the live-TTS fallback this test targets.
@@ -525,7 +574,11 @@ test.describe("Practice page — support & recovery", () => {
         return originalPause.apply(this);
       };
     });
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }, { verdict: "accepted" }], { delayMs: 300 });
+    await installScriptedPracticeApi(
+      page,
+      [{ goalReport: { greeting: "achieved" } }, { goalReport: { checkin: "achieved" } }],
+      { delayMs: 300 },
+    );
     await page.route("**/api/practice/speak**", async (route) => {
       await new Promise((resolve) => setTimeout(resolve, 500));
       await route.fulfill({ status: 200, contentType: "audio/mpeg", body: Buffer.from([0, 0, 0, 0]) });
@@ -592,7 +645,7 @@ test.describe("Practice page — support & recovery", () => {
         writable: true,
       });
     });
-    await installScriptedPracticeApi(page, [{ verdict: "accepted" }]);
+    await installScriptedPracticeApi(page, [{ goalReport: { greeting: "achieved" } }]);
     await page.route("**/api/practice/speak**", (route) =>
       route.fulfill({ status: 500, contentType: "application/json", body: "{}" }),
     );

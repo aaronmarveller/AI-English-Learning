@@ -20,7 +20,7 @@ describe("containsChineseText", () => {
 
   it("does not flag pure English input", () => {
     expect(containsChineseText("Hi Emily, good morning!")).toBe(false);
-    expect(containsChineseText("How are you doing today?")).toBe(false);
+    expect(containsChineseText("How are you today?")).toBe(false);
   });
 
   it("detects a single stray Chinese character among otherwise English text", () => {

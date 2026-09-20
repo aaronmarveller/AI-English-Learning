@@ -1,7 +1,0 @@
----
-status: accepted
----
-
-# Emily's lines become a verbatim Conversation Script, not model-generated text
-
-Every English sentence Emily spoke after her opening line was previously generated fresh by the model on each Turn, per `docs/adr/0004-practice-response-step-accepts-single-phrase-replies.md`'s "AI Configuration" doc and the original system-prompt design in `src/content/practice.ts`. That meant the same Lesson sounded different every run, replies arrived after a network round-trip, and audio quality switched mid-conversation — the opening line and Completion pool played pre-generated studio audio, everything else fell back to robotic browser speech synthesis. It also meant the AI Configuration doc's own "reference conversation, minor variations allowed" language was in permanent tension with the goal of predictable, pre-generatable copy. We're resolving that tension in favor of a **verbatim Conversation Script**: each Conversation State owns a fixed pool of hand-written lines (`docs/ai-configuration.md` section 3), Emily selects one at random on entering the state, and never paraphrases or composes. The model's job shrinks to judging the learner's Turn — the Verdict — and no longer touches what Emily says at all. Every scripted line, including the new per-state `needs_retry` and expanded silence-nudge pools, gets pre-generated audio, so the browser speech-synthesis fallback disappears from the happy path.

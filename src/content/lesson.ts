@@ -20,14 +20,26 @@
  * Every English sentence she speaks — on `accepted` and on `needs_retry` —
  * is now selected at random from a fixed pool that lives on this Lesson,
  * never paraphrased or composed. This file grew four new pools
- * (`checkinLines`, `responseLines`, `closingLines`, `needsRetryLines` per
- * state) and turned the old single silence-timeout line into a 3-line pool
+ * (`checkinLines`, `responseLines`, `closingLines`, per-Goal recovery lines
+ * since #56) and turned the old single silence-timeout line into a 3-line pool
  * (`silenceNudgeLines`) — every one of them copied verbatim from
  * docs/ai-configuration.md section 3, with Chinese translations authored
  * fresh here (the AI Configuration doc only specifies the English). The
- * opening-line and completion-message pools are unchanged (spec.md's own
- * table: "existing pool, unchanged"). Selection itself lives in
+ * opening-line pool is unchanged (spec.md's own table: "existing pool,
+ * unchanged"); the closing and completion pools are not — issue #55
+ * re-authored both from v2 ticket 5's Closing table, and their own doc
+ * comments below say what changed and why. Selection itself lives in
  * src/lib/emily-reply-selector.ts, not here — this file only owns content.
+ *
+ * Issue #56 (v2 tickets 8, 10 and 9; ADR-0014) splits the per-Goal
+ * `needsRetryLines` pool in two, because those tickets ask for *progressive*
+ * support rather than one repeated nudge: each Goal now carries a `recovery`
+ * (tier 1 = a nudge followed by that Goal's question, tier 2 = a direct
+ * example) and the old pool survives, unchanged in content, as `steerLines` —
+ * the line an `accepted` Turn uses to steer toward a Goal left open, which is
+ * the only job it has left. The silence nudge pool is unchanged; what changed
+ * is that it is now spoken as a sequence with that same Goal question (see
+ * src/lib/emily-reply-selector.ts's `selectSilenceReminder`).
  */
 
 import {
@@ -57,104 +69,217 @@ export type OpeningLine = {
 };
 
 /**
- * Fixed pool of 5 hand-written opening-greeting variants, one picked at
- * random client-side on page mount (see practice-state.ts's
- * `ensureOpeningMessage`). There is no learner input yet on page load to
- * send to the model, so this line is never LLM-generated — every other
- * Emily line (the reply after each learner turn) legitimately comes from
- * the LLM call instead.
+ * Fixed pool of opening lines, one picked at random client-side on page mount
+ * (see practice-state.ts's `ensureOpeningMessage`). There is no learner input
+ * yet on page load to send to the model, so this line is never LLM-generated —
+ * every other Emily line (the reply after each learner turn) legitimately comes
+ * from the LLM call instead.
  *
- * spec.md's "语音合成" section documents Emily's opening line as one of a
- * fixed pool of 5 (for ticket 13's audio-pregeneration work, not this
- * ticket's concern) — this pool is that same fixed set, authored here.
+ * Deliberately a SINGLE self-introduction line (v2 ticket 2; see
+ * docs/adr/0013-response-goal-means-asking-emily-back.md, "The opening line
+ * collapses to the ticket's single line"). spec.md's "语音合成" section and
+ * ticket 13's audio-pregeneration work once described a fixed pool of 5
+ * greeting variants — that pool existed to vary a bare "Hi!"/"Hello!", and a
+ * self-introduction has nothing to vary without inventing four more of them
+ * (#46 declared the choice out of scope for its PR; ADR-0013 takes the single
+ * line). The array shape is kept on purpose, and `pickRandomOpeningLine`
+ * below still picks from it, so a future Lesson can widen the pool again.
  */
 const OPENING_LINES: OpeningLine[] = [
   {
     id: "opening-1",
-    en: "Hi!",
-    zh: "嗨！",
-  },
-  {
-    id: "opening-2",
-    en: "Hello!",
-    zh: "你好！",
-  },
-  {
-    id: "opening-3",
-    en: "Good morning!",
-    zh: "早上好！",
-  },
-  {
-    id: "opening-4",
-    en: "Good afternoon!",
-    zh: "下午好！",
-  },
-  {
-    id: "opening-5",
-    en: "Good evening!",
-    zh: "晚上好！",
+    en: "Hi! I'm Emily. It's nice to meet you.",
+    zh: "嗨！我是 Emily，很高兴认识你。",
   },
 ];
 
 /**
- * The fixed completion-message library from AI Configuration section ②.
- * Emily selects one entry verbatim client-side (src/lib/emily-reply-selector.ts)
- * when an accepted Closing turn advances the conversation to "complete" —
- * unchanged by issue #16 (spec.md's own table: "existing completion pool,
- * unchanged"), just no longer selected by the model. English-only, same as
- * before ticket 16 — the model used to supply its own `reply_zh` translation
- * for whichever entry it picked; now that selection is client-side, there is
- * no accompanying Chinese translation authored for this pool specifically.
+ * The fixed Completion pool — Emily's ONE short final line, spoken when an
+ * accepted Closing turn advances the conversation to "complete"
+ * (src/lib/emily-reply-selector.ts). Selection is client-side and verbatim
+ * (issue #16); nothing here is model-generated.
+ *
+ * Issue #55 re-authored this pool from v2 ticket 5's Closing table, whose
+ * Emily Final Response column is a farewell — "Thanks! See you!",
+ * "See you!", "Thanks! Take care!" — so the pre-#55 claim that these lines
+ * were "unchanged"/"the existing completion pool" is false now. The pool is
+ * one list picked independently of which Closing line Emily herself spoke:
+ * ADR-0013 decision 2 settled that a Turn's reply is a *sequence* of
+ * existing pool lines rather than one composed line, and keying the final
+ * line to the steer that preceded it would reintroduce exactly that
+ * composition (see docs/adr/0013-response-goal-means-asking-emily-back.md's
+ * decision 5, "one Completion pool, picked independently of the Closing line
+ * Emily spoke"). Each line is written to fit every Closing-pool steer, so the
+ * pairing always reads naturally: "Have a nice day!" → "Thanks! See you!".
+ *
+ * No line invites the learner to Review, deliberately (v2 ticket 11): the
+ * Review action appearing IS the signal that Practice is complete, so a
+ * "let's check your summary" line would be Emily announcing a step she does
+ * not control. English-only, same as before issue #16 — the model used to
+ * supply its own `reply_zh` translation for whichever entry it picked; now
+ * that selection is client-side, there is no accompanying Chinese
+ * translation authored for this pool, and the selector gives each line
+ * `zh: ""` (see emily-reply-selector.ts's composition).
  */
-const COMPLETION_MESSAGES = [
-  "Great job! Let's check your learning summary.",
-  "Nice work! Let's see what you learned today.",
-  "Well done! Time to review today's lesson.",
-] as const;
+const COMPLETION_MESSAGES = ["Thanks! See you!", "See you!", "Thanks! Take care!"] as const;
 
 // --- Conversation Script pools added by issue #16 (docs/ai-configuration.md
 // section 3) — verbatim English from that document, Chinese translations
-// authored fresh here. Emily selects one line at random from the pool that
-// matches the Conversation State she's entering (see
+// authored fresh here. Emily picks lines at random from the pool the settled
+// Turn calls for — the reaction to `checkin` being achieved, then the steer
+// toward the new Focus Goal (issue #48; see
 // src/lib/emily-reply-selector.ts); she never paraphrases or composes. ------
 
-/** Check-in (3) — spoken entering the `checkin` state, after an accepted `greeting` turn. */
+/** Check-in (3) — the steer line toward the `checkin` Goal, spoken whenever `checkin` is the Focus Goal. */
 const CHECKIN_LINES: ScriptLine[] = [
-  { en: "How are you doing today?", zh: "你今天过得怎么样？" },
+  { en: "How are you today?", zh: "你今天过得怎么样？" },
+  { en: "Hi! How are you today?", zh: "嗨！你今天过得怎么样？" },
   { en: "How's it going?", zh: "最近怎么样？" },
-  { en: "How have you been?", zh: "你最近过得如何？" },
 ];
 
 /**
- * Response (6 total, split into two sub-pools) — spoken entering the
- * `response` state, after an accepted `checkin` turn. Which sub-pool Emily
- * draws from is decided by `learner_asked_back` (the Judge's boolean for
- * that same `checkin` turn) — never a random pick across both, since a plain
- * acknowledgement and a reply that answers a returned question aren't
- * interchangeable (issue #16 acceptance criteria: a learner who didn't ask
- * back must never hear "thanks for asking"; a learner who did must always
- * hear an answer).
+ * Response (10 total, split into two sub-pools) — the one reaction-type pool
+ * (docs/ai-configuration.md section 3's "Line composition"), spoken on every
+ * Turn where a reaction is due: the learner asked a question back, or `checkin`
+ * was achieved in that same Turn. Which sub-pool Emily draws from is decided by
+ * `learner_asked_back` (the Judge's boolean for that same Turn) — never a
+ * random pick across both, since a plain acknowledgement and an answer to a
+ * question put to her aren't interchangeable. It doubles as the steer toward
+ * `response`, so it is never spoken twice in one Turn.
+ *
+ * Per docs/adr/0013-response-goal-means-asking-emily-back.md decision 2, the
+ * two sub-pools are:
+ * - `didNotAskBack` — the brief acknowledgement for a check-in with no
+ *   ask-back (v2 ticket 3's "Check-in Pre-generated Responses" table,
+ *   de-duplicated).
+ * - `askedBack` — Emily's ANSWER to a question the learner asked her, chosen
+ *   whenever `learner_asked_back` is true. That is NOT only when the check-in
+ *   landed in the same Turn (ADR-0013 decision 4: the learner may answer on
+ *   one Turn and ask "How about you?" on the next, and Emily must still
+ *   answer), so these lines answer a question rather than acknowledge one.
+ *   The four entries are the distinct first halves of v2 ticket 4's Ask-back
+ *   table, in that table's order.
+ *
+ * Ticket 4/6's Emily lines fold her answer and the closing steer into a single
+ * utterance ("I'm good too, thanks! Have a nice day!"). ADR-0012 already
+ * rejected composed lines for multi-Goal Turns and every composed line would
+ * need its own recording, so the combined sentences are deliberately NOT
+ * authored as single lines: the first half is the pool line here, and Emily
+ * follows it with a line from the Closing pool — the same reaction-then-steer
+ * sequence she already speaks. The old pool's "thanks for asking"
+ * acknowledgements are gone with it (there is no check-in to acknowledge when
+ * the learner asked back in an earlier Turn).
  */
 const RESPONSE_LINES: { didNotAskBack: ScriptLine[]; askedBack: ScriptLine[] } = {
   didNotAskBack: [
+    { en: "That's good!", zh: "那真好！" },
     { en: "Glad to hear that!", zh: "很高兴听你这么说！" },
-    { en: "That's great to hear.", zh: "太好了，真为你高兴。" },
-    { en: "Nice, thanks for sharing!", zh: "真好，谢谢你告诉我！" },
+    { en: "Good to hear!", zh: "真为你高兴！" },
+    { en: "That's great!", zh: "太好了！" },
+    { en: "Nice!", zh: "不错呀！" },
+    { en: "Glad you're doing okay.", zh: "你还好就好。" },
   ],
   askedBack: [
-    { en: "I'm doing well too, thanks for asking!", zh: "我也过得不错，谢谢你问起！" },
-    { en: "I'm good too — thanks for asking!", zh: "我也挺好的——谢谢关心！" },
-    { en: "Pretty good, thank you!", zh: "我也很好，谢谢！" },
+    { en: "I'm good too, thanks!", zh: "我也挺好的，谢谢！" },
+    { en: "I'm good, thank you!", zh: "我很好，谢谢你！" },
+    { en: "I'm good, thanks!", zh: "我很好，谢谢！" },
+    { en: "I'm doing well, thanks!", zh: "我过得很好，谢谢！" },
   ],
 };
 
-/** Closing (4) — spoken entering the `closing` state, after an accepted `response` turn. */
+/**
+ * Closing (3) — the steer line toward the `closing` Goal, spoken whenever
+ * `closing` is the Focus Goal.
+ *
+ * Issue #55 re-authored this pool to ticket 5's table's "Emily Closing"
+ * column, de-duplicated and in first-appearance order: the table lists exactly
+ * "Have a nice day!", "Take care!" and "See you!", and "Bye for now!" — which
+ * the old pool had — is not in it. Every line here is now verbatim-identical to
+ * one of Explore's closing expressions, so the audio manifest contributes no
+ * entries for this pool at all — those lines reuse Explore's recordings (see
+ * src/lib/audio-manifest.ts). Every `zh` here is the translation already
+ * authored for that same English line in the old pool, and only the order
+ * changed; the one line that left ("Bye for now!") took its translation with
+ * it.
+ */
 const CLOSING_LINES: ScriptLine[] = [
-  { en: "See you!", zh: "再见啦！" },
   { en: "Have a nice day!", zh: "祝你今天愉快！" },
-  { en: "Bye for now!", zh: "先说再见啦！" },
   { en: "Take care!", zh: "保重！" },
+  { en: "See you!", zh: "再见啦！" },
 ];
+
+// --- Two-tier recovery (issue #56; docs/ai-configuration.md section 3) -----
+
+/**
+ * Emily's two-tier recovery for one Conversation Goal (issue #56; v2 tickets
+ * 8, 10 and 9; docs/ai-configuration.md section 3). What a `needs_retry` Turn
+ * speaks instead of the flat 3-line pool this used to be.
+ *
+ * Tier 1 is a *sequence* — a nudge, then the Goal's question — because the
+ * learner has not answered yet and the question is what asks them to. Which
+ * nudge opens it is the Goal Report's job to decide (section 3's "Recovery"):
+ * a `failed` Goal means a recognisable attempt that did not come through, so
+ * the learner hears `unclearNudge`; a Turn that attempted nothing at all
+ * (every open Goal `untouched` — what off-topic input looks like) hears
+ * `offTopicNudge` instead, or no nudge at all where that Goal's row in v2
+ * ticket 10's table has none.
+ *
+ * Tier 2 is one line and says what tier 1 would not: a direct example, spoken
+ * on the learner's second consecutive `needs_retry` Turn on the same Focus
+ * Goal (the Retry Streak — src/lib/practice-state.ts). Both of v2 tickets 8
+ * and 10 write the same sentence for this tier, so one line per Goal covers
+ * both variants.
+ *
+ * The tier-1/tier-2 split is also a *reveal* rule (docs/ai-configuration.md
+ * section 1's Global Constraints, ADR-0014 decision 1): tier 1 never names an
+ * Accepted Response, tier 2 hands one over on purpose.
+ */
+export type RecoveryScript = {
+  /**
+   * Tier 1's nudge when at least one open Goal's report is `failed` — v2
+   * ticket 8's "First Try" prefix. All four Goals carry the same one, because
+   * that table repeats this sentence in every one of its rows: the
+   * Goal-specific half of the line is the question that follows it, not this.
+   * Spelled per Goal anyway, so a Goal's recovery stays a complete account of
+   * what that Goal says and a Goal that ever needs its own wording has
+   * somewhere to put it. A divergence would be loud rather than silent:
+   * `audio-manifest.test.ts` covers every Goal's `unclearNudge`, and
+   * src/lib/audio-manifest.ts throws at module load on duplicate text.
+   */
+  unclearNudge: ScriptLine;
+  /**
+   * Tier 1's nudge when the Turn attempted nothing (off-topic) — v2 ticket
+   * 10's "First Redirect" prefix. `null` where that table's row has no prefix
+   * of its own (`response`, `closing`), so those Goals open straight onto
+   * their question; inventing one would be the combined line ADR-0014
+   * decision 2 rejects, one level down.
+   */
+  offTopicNudge: ScriptLine | null;
+  /**
+   * The question tier 1 steers with — v2 tickets 8 and 10 ask the same one in
+   * both of their rows for a Goal, so one line per Goal serves both variants.
+   *
+   * `null` for `checkin`, and only for `checkin`: that Goal's question already
+   * exists as its steer pool (`CHECKIN_LINES` — "How are you today?"), and the
+   * decision recorded in ADR-0014 keeps the steer pools the single source of
+   * the question wording rather than authoring a second copy of it here.
+   */
+  question: ScriptLine | null;
+  /** Tier 2 — v2 tickets 8 and 10's "If Still Unclear"/"If Still Off-topic" sentence, the same in both. */
+  directExample: ScriptLine;
+};
+
+/**
+ * Tier 1's `unclear` nudge (see `RecoveryScript.unclearNudge`). One shared
+ * value, because v2 ticket 8's table repeats this exact sentence in all four
+ * of its rows — the Goal-specific half of that line is the question that
+ * follows it, not this — and exported so the audio manifest can name it once
+ * rather than emitting the same text under four ids (src/lib/audio-manifest.ts).
+ */
+export const RECOVERY_UNCLEAR_NUDGE: ScriptLine = {
+  en: "Sorry, I didn't quite get that.",
+  zh: "抱歉，我好像没太听懂。",
+};
 
 // --- Per-state script: Learning Goal + Accepted Responses whitelist ------
 
@@ -165,38 +290,68 @@ export type PracticeStateScript = {
   /** English label for UI / system-prompt reference. */
   labelEn: string;
   /**
-   * Short instruction fed into the system prompt: what Emily's line into
-   * this state was doing, and what the learner's turn is expected to do.
+   * Short instruction fed into the system prompt (and into the Chinese
+   * explanation prompt, src/lib/chinese-explanation.ts): what this
+   * Conversation Goal asks the learner to communicate. Written for the Goal
+   * itself, never as "you just said X, judge the learner's reply to X" — an
+   * achieved Goal is credited whenever the learner communicated it, prompted
+   * or not (docs/ai-configuration.md section 1's Global Conversation Rules),
+   * and a single Turn may achieve several Goals at once, so a text that
+   * assumed Emily had just prompted for *this* one would mis-describe both.
    */
   learningGoal: string;
   /**
-   * Example correct answers for this turn. Per spec.md's single most
-   * load-bearing acceptance point ("判定以沟通意图为准，不以字面匹配为准"),
+   * Example correct answers for this Conversation Goal. Per spec.md's single
+   * most load-bearing acceptance point ("判定以沟通意图为准，不以字面匹配为准"),
    * natural equivalents outside this list must still be judged "accepted" —
    * this whitelist is guidance for the model, not an exhaustive match list.
    * Kept in sync with AI Configuration's Completion & Accepted Responses.
    */
   acceptedResponses: string[];
   /**
-   * Issue #16 (docs/ai-configuration.md section 3): the fixed 3-line pool
-   * Emily selects from, verbatim, when this state's turn is judged
-   * `needs_retry`. Per-state (not global) so the line can point the learner
-   * back at *this* step specifically, and — per the Global Constraints —
-   * never names or implies this state's `acceptedResponses`.
+   * Issue #16 (docs/ai-configuration.md section 3), as narrowed by issue #56:
+   * the fixed pool of "here's what to say next" lines, carried by the two
+   * Goals that have no steer pool of their own — `greeting` and `response`
+   * (issue #50). Optional because those are the only two: `checkin` steers
+   * from `CHECKIN_LINES` and `closing` from `CLOSING_LINES`, so a pool here
+   * would be content nothing can speak. #56 deleted the two pools that were
+   * in that position (`checkin`'s and `closing`'s) along with their audio,
+   * exactly as it replaced every Goal's `needs_retry` lines with `recovery`.
+   *
+   * It used to be the pool a `needs_retry` Turn spoke from — hence its old
+   * name, `needsRetryLines` — and it is now spoken on `accepted` Turns only,
+   * as the borrowed steer `selectSteerLineForFocusGoal`
+   * (src/lib/emily-reply-selector.ts) picks when the Focus Goal has no steer
+   * pool. The rename follows the pool's job, as CONTEXT.md's glossary
+   * discipline requires (ADR-0014 decision 5).
    */
-  needsRetryLines: ScriptLine[];
+  steerLines?: ScriptLine[];
+  /** Emily's two-tier recovery for this Goal — what a `needs_retry` Turn speaks (issue #56; see `RecoveryScript` above). */
+  recovery: RecoveryScript;
 };
 
 /**
  * The conversation's natural shape, beat by beat (spec.md "Practice 页交互模型"
- * + this ticket's explicit guidance): Emily opens with a greeting (the fixed
- * pool above) → learner greets back (`greeting`) → Emily asks how the
- * learner is doing → learner acknowledges and/or asks the check-in question
- * back (`checkin`) → Emily answers and reciprocates the question → learner
- * continues the conversation politely — a short reply or the fuller 3-part
- * combo both work (`response`) → Emily signals wrapping up → learner says
- * goodbye (`closing`) → Emily gives a brief closing
- * encouragement and invites the learner to view their summary.
+ * + this ticket's explicit guidance): Emily opens with her self-introduction
+ * (the fixed pool above) → learner greets back (`greeting`) → Emily asks how
+ * the learner is doing → learner answers (`checkin`) → Emily acknowledges and
+ * waits; the learner asks her how she is (`response`) → Emily answers and
+ * signals the conversation is wrapping up → learner says goodbye (`closing`) →
+ * Emily gives a brief closing encouragement and invites the learner to view
+ * their summary.
+ *
+ * Note the beat that has no steer line: after the check-in Emily waits rather
+ * than prompting for `response`, because a question back is the learner's move
+ * to make (v2 ticket 3's "Emily waits for the learner after the
+ * acknowledgement"; ADR-0013 decision 4). Every other beat is an ordinary
+ * steer toward the Goal named in brackets.
+ *
+ * That is the shape, not a gate: since #48 a single learner Turn may achieve
+ * several of these Goals and a later one may land before an earlier one, so
+ * the pools below are keyed to what a Goal *needs* — a steer toward it, or a
+ * reaction to `checkin` being achieved or to a question the learner asked —
+ * rather than to a position in this sequence (see
+ * src/lib/emily-reply-selector.ts's `selectEmilyLinesForTurn`).
  */
 const PRACTICE_SCRIPT: Record<ActiveConversationState, PracticeStateScript> = {
   greeting: {
@@ -204,7 +359,7 @@ const PRACTICE_SCRIPT: Record<ActiveConversationState, PracticeStateScript> = {
     labelZh: CONVERSATION_STAGE_LABELS.greeting.labelZh,
     labelEn: CONVERSATION_STAGE_LABELS.greeting.labelEn,
     learningGoal:
-      "You just greeted the learner as your opening line. The learner's job this turn is to greet you back in a natural, friendly way.",
+      "The learner greets Emily with a short, natural hello. Emily's opening line is usually what invites it, but the learner may greet first or greet again later in the conversation — the Goal is credited whenever the learner communicates a greeting, prompted or not.",
     acceptedResponses: [
       "Hi.",
       "Hello.",
@@ -213,7 +368,7 @@ const PRACTICE_SCRIPT: Record<ActiveConversationState, PracticeStateScript> = {
       "Good evening.",
       "Nice to meet you.",
     ],
-    needsRetryLines: [
+    steerLines: [
       {
         en: "I don't think I caught a greeting there — want to try saying hi?",
         zh: "我好像没听到你跟我打招呼呢——要不要试着说声嗨？",
@@ -227,102 +382,139 @@ const PRACTICE_SCRIPT: Record<ActiveConversationState, PracticeStateScript> = {
         zh: "就差一点啦！现在正是先说一声你好的时候。",
       },
     ],
+    recovery: {
+      unclearNudge: RECOVERY_UNCLEAR_NUDGE,
+      offTopicNudge: { en: "Let's start with a greeting.", zh: "我们先从打招呼开始吧。" },
+      question: {
+        en: "What would you say when you meet someone?",
+        zh: "遇到一个人时，你会怎么打招呼呢？",
+      },
+      directExample: { en: 'You can say "Hi" or "Hello."', zh: "你可以说 “Hi” 或者 “Hello.”" },
+    },
   },
   checkin: {
     state: "checkin",
     labelZh: CONVERSATION_STAGE_LABELS.checkin.labelZh,
     labelEn: CONVERSATION_STAGE_LABELS.checkin.labelEn,
     learningGoal:
-      "You just asked the learner how they are doing. The learner's job this turn is to answer that — saying how they're doing. Asking a question back to you too is a nice bonus but isn't required to complete this turn.",
-    // These are answers to "how are you?", not the question itself — fixed
-    // 2026-08 after cross-referencing the team's "AI Configuration" doc's
-    // Step 2 Accepted Responses. The prior whitelist here was
-    // CHECKIN_EXPRESSIONS (Explore's "how do you ask how someone's doing"
-    // category), which is what THIS state's Emily line already said, not
-    // what the learner is being judged on this turn.
+      "The learner says how they are doing. Emily usually asks how the learner is before they answer, but a learner who volunteers it (\"I'm good, thanks\") before being asked has achieved this Goal too — it is credited whenever the learner communicated how they are, prompted or not. Asking Emily how she is as well is a nice bonus, not a requirement.",
+    // These are answers to "how are you?", not the question itself — re-authored
+    // 2026-09 from the v2 tickets, de-duplicated: ticket 3's learner-response
+    // column, and ticket 6's multi-goal table (which adds no new phrasings).
+    // Kept as examples, not an exhaustive match list — a natural equivalent
+    // outside this list is still "accepted" (spec.md's 判定以沟通意图为准).
+    // The prior whitelist here was CHECKIN_EXPRESSIONS (Explore's "how do you
+    // ask how someone's doing" category), which is what THIS state's Emily line
+    // already says, not what the learner is being judged on this turn.
     acceptedResponses: [
       "I'm good.",
+      "Good.",
+      "I'm good, thanks.",
+      "I'm good, thank you.",
+      "Good, thanks.",
+      "Good, thank you.",
       "I'm fine.",
-      "I'm okay.",
+      "Fine.",
+      "I'm fine, thanks.",
+      "I'm doing well.",
+      "I'm well.",
       "Pretty good.",
       "Not bad.",
-      "I'm doing well.",
+      "I'm okay.",
+      "Okay.",
+      "I'm great.",
+      "Great!",
     ],
-    needsRetryLines: [
-      {
-        en: "I asked how you're doing — how would you answer that?",
-        zh: "我刚问你最近怎么样——你会怎么回答呢？",
+    recovery: {
+      unclearNudge: RECOVERY_UNCLEAR_NUDGE,
+      offTopicNudge: { en: "Let's keep going.", zh: "我们继续吧。" },
+      // No question of its own: the Check-in steer pool asks it ("How are you
+      // today?"), and ADR-0014 decision 2 keeps that pool the single source of
+      // the wording rather than authoring a second copy here.
+      question: null,
+      directExample: {
+        en: 'You can say "I\'m good" or "I\'m okay."',
+        zh: "你可以说 “I'm good” 或者 “I'm okay.”",
       },
-      {
-        en: "Let's try again — how are you feeling today?",
-        zh: "我们再试一次吧——你今天感觉怎么样？",
-      },
-      {
-        en: "That's not quite an answer to my question yet — how's your day going?",
-        zh: "这还不太算是回答我的问题哦——你今天过得怎么样？",
-      },
-    ],
+    },
   },
   response: {
     state: "response",
     labelZh: CONVERSATION_STAGE_LABELS.response.labelZh,
     labelEn: CONVERSATION_STAGE_LABELS.response.labelEn,
     learningGoal:
-      "You just responded to the learner's check-in. The learner's job this turn is to continue the conversation politely with a short acknowledgment or a question back.",
-    // Reversed 2026-08 (was: required all 3 parts — ack + question back +
-    // detail — combined in a single turn). The team's "AI Configuration"
-    // doc's Step 3 Accepted Responses are short standalone continuations
-    // ("Thanks.", "How about you?"), which conflicted with that stricter
-    // rule. See docs/adr/0004-practice-response-step-accepts-single-phrase-replies.md.
-    // Fuller replies remain accepted as natural equivalents under the
+      "The learner asks Emily how she is — a question back to her (\"How about you?\", \"How about yourself?\"). A bare thank-you is politeness, not this Goal: thanking Emily asks her nothing, so a message whose only move is a thank-you leaves this Goal untouched.",
+    // Per docs/adr/0013-response-goal-means-asking-emily-back.md, `response`
+    // means asking Emily back. The whitelist is the ask-back expressions from
+    // v2 tickets 4 and 6. A bare thank-you deliberately does NOT achieve this
+    // Goal — it leaves the Goal `untouched` rather than `failed`, exactly as
+    // any other message that attempted no Goal does — which is why
+    // "Thank you."/"Thanks." are gone and why `matchedAcceptedResponse`
+    // (src/lib/turn-record.ts) and Review's Conversation highlight follow.
+    // This refines ADR-0004's "one short phrase is enough" rule: one question
+    // back is enough, with no acknowledgement or added detail required.
+    // Natural equivalents outside this list are still accepted under the
     // Global Conversation Rules; they do not need separate whitelist rows.
     acceptedResponses: [
-      "Thank you.",
-      "Thanks.",
       "How about you?",
       "And you?",
+      "You?",
+      "What about you?",
+      "How are you?",
+      "How are you doing?",
+      "How about yourself?",
     ],
-    needsRetryLines: [
+    steerLines: [
       {
-        en: "Let's keep the conversation going — how would you respond to that?",
-        zh: "我们继续聊下去吧——你会怎么回应呢？",
+        en: "Let's keep the conversation going — what could you ask me?",
+        zh: "我们继续聊下去吧——你可以问我点什么呢？",
       },
       {
-        en: "Almost there — try a short, friendly reply to what I said.",
-        zh: "就快到了——试着简单友好地回应我一下吧。",
+        en: "Almost there — try a short, friendly question back to me.",
+        zh: "就快到了——试着简单友好地反问我一句。",
       },
       {
-        en: "This is the spot to acknowledge me, or ask me something back.",
-        zh: "这里正是回应我一下，或者反问我一句的好时机。",
+        en: "This is the spot to ask how I'm doing.",
+        zh: "这里正是问问我过得怎么样的好时机。",
       },
     ],
+    recovery: {
+      unclearNudge: RECOVERY_UNCLEAR_NUDGE,
+      // Ticket 10's row for this Goal has no redirect prefix of its own — the
+      // question is the whole first redirect, so this stays `null` rather than
+      // copying the Check-in nudge onto a Goal the table does not give one.
+      offTopicNudge: null,
+      question: { en: "What could you ask me back?", zh: "你可以反问我什么呢？" },
+      directExample: { en: 'You can say "How about you?"', zh: "你可以说 “How about you?”" },
+    },
   },
   closing: {
     state: "closing",
     labelZh: CONVERSATION_STAGE_LABELS.closing.labelZh,
     labelEn: CONVERSATION_STAGE_LABELS.closing.labelEn,
     learningGoal:
-      "You just signaled that the conversation is wrapping up. The learner's job this turn is to say goodbye in a natural, friendly way. If this turn is accepted, the conversation is complete and the learner can view the Learning Summary.",
+      "The learner says goodbye in a natural, friendly way. Emily usually signals that the conversation is wrapping up first, but a learner who says goodbye early has achieved this Goal too — it is credited whenever the learner communicates a goodbye, prompted or not. Once all four Goals are in Goal Progress, Practice is complete and the learner can view the Learning Summary.",
     acceptedResponses: [
       ...CLOSING_EXPRESSIONS.map((expression) => expression.expression),
       "Bye.",
       "Goodbye.",
       "You too.",
     ],
-    needsRetryLines: [
-      {
-        en: "We're wrapping up now — how would you say goodbye?",
-        zh: "我们现在要结束啦——你会怎么说再见呢？",
+    recovery: {
+      unclearNudge: RECOVERY_UNCLEAR_NUDGE,
+      // Ticket 10's row for this Goal has no redirect prefix of its own, same
+      // as `response` above.
+      offTopicNudge: null,
+      // The one Goal whose recovery question is *not* its steer line: the
+      // Closing steer pool says goodbye itself ("Have a nice day!"), which
+      // cannot ask the learner to. So the question is authored here, and the
+      // Closing steer stays what an `accepted` Turn picks from CLOSING_LINES.
+      question: { en: "What could you say before we go?", zh: "我们分开前，你可以说什么呢？" },
+      directExample: {
+        en: 'You can say "See you" or "Take care."',
+        zh: "你可以说 “See you” 或者 “Take care.”",
       },
-      {
-        en: "Let's try again — what would you say to end the conversation?",
-        zh: "我们再试一次吧——结束对话时你会说什么？",
-      },
-      {
-        en: "Almost! This is the moment to say your goodbyes.",
-        zh: "就差一点啦！现在正是说再见的时候。",
-      },
-    ],
+    },
   },
 };
 
@@ -350,16 +542,16 @@ export type AskInChineseHelp = {
 };
 
 /**
- * Fixed, per-state 4-part help content (spec.md user story 55: "中文帮助解释
+ * Fixed, per-Goal 4-part help content (spec.md user story 55: "中文帮助解释
  * 含义、说明什么时候用、给一个例子、再鼓励我用英语继续"; user story 56: "中文
  * 帮助不替我回答"). Grounded in this same file's `PRACTICE_SCRIPT` — each
- * entry explains the *current* Learning Goal, not generic filler — but never
+ * entry explains the *Focus Goal* (CONTEXT.md), not generic filler — but never
  * quotes an Accepted Response as a literal fill-in-the-blank answer (see
  * `AskInChineseHelp.example`'s doc comment above — e2e/practice-ask-in-chinese-content.spec.ts
  * fails the build if this invariant is ever violated again).
  *
  * No model call: read directly by src/components/practice/ask-in-chinese-sheet.tsx,
- * keyed by the live `conversationState` — zero latency, zero cost, fully
+ * keyed by the live Focus Goal — zero latency, zero cost, fully
  * predictable content.
  */
 const ASK_IN_CHINESE_HELP: Record<ActiveConversationState, AskInChineseHelp> = {
@@ -382,12 +574,12 @@ const ASK_IN_CHINESE_HELP: Record<ActiveConversationState, AskInChineseHelp> = {
   },
   response: {
     meaning:
-      "Emily 已经回应了你的问候。这一步只需要礼貌地把对话继续下去，可以简单道谢，也可以反问 Emily。",
+      "Emily 已经回应了你的问候。这一步要做的是把问题问回给她，主动关心一下她过得怎么样。",
     whenToUse:
-      "对方回应你的近况后，用一句简短的话表示感谢或继续提问，就能自然地接住对话。",
+      "聊天时对方回应了你的近况之后，用一句简短的问句问问对方「你呢？」，对话才不会在你这边停下来——英语里的寒暄正是靠这样互相反问延续下去的，只道谢的话话题就断了。",
     example:
-      "比如你可以说：\"That's kind of you.\"，用一句简短的英语礼貌回应。",
-    encouragement: "试着用英语礼貌地接一句吧——短短一句就可以！",
+      "比如你可以说：\"How's your day going?\"，把问题问回给 Emily。",
+    encouragement: "试着用英语反问 Emily 一句吧——问问她最近怎么样，短短一句就够了！",
   },
   closing: {
     meaning:
@@ -406,15 +598,23 @@ const ASK_IN_CHINESE_HELP: Record<ActiveConversationState, AskInChineseHelp> = {
 export type SupportNudge = ScriptLine;
 
 /**
- * Fixed bilingual 3-line pool Emily picks from when the learner has gone
- * quiet for a while — appended via practice-state.ts's
- * `appendSupportMessage`, which never touches `conversationState`. Issue #16
- * (docs/ai-configuration.md section 3) expanded this from a single fixed
- * line to a 3-line pool so a long pause doesn't produce the same sentence
- * over and over (user story 18) — selection (src/lib/emily-reply-selector.ts's
- * `selectSilenceNudge`) must never repeat the same line twice in a row.
+ * Fixed bilingual 3-line nudge pool — the *first half* of the silence
+ * reminder Emily speaks when the learner has gone quiet for a while (issue
+ * #56; docs/ai-configuration.md section 3's "Silence reminder"), appended via
+ * practice-state.ts's `appendSupportMessages`, which never touches Goal
+ * Progress. Issue #16 (that section) expanded this from a single fixed line to
+ * a 3-line pool so a long pause doesn't produce the same sentence over and
+ * over (user story 18) — selection (src/lib/emily-reply-selector.ts's
+ * `selectSilenceReminder`) must never repeat the same line twice in a row.
  * `nudge-0`'s text is kept identical to before so the already-generated
  * `public/audio/nudge-0.mp3` file still matches.
+ *
+ * The second half is the Focus Goal's question, which is a Goal's content and
+ * not this pool's (v2 ticket 9's own example is "Take your time. How are you
+ * today?" — a nudge plus the Check-in question Emily already asked). The pool
+ * is one for the whole Lesson rather than per Goal, deliberately: a nudge
+ * breaks a silence, it does not say anything about what the learner has or
+ * hasn't said.
  */
 const SILENCE_NUDGE_LINES: ScriptLine[] = [
   { en: "Take your time!", zh: "别着急，慢慢想。" },
@@ -427,9 +627,9 @@ const SILENCE_NUDGE_LINES: ScriptLine[] = [
 export type Lesson = {
   /** Editorial hero headline (UI draft, 2026-08-06 review). */
   headline: { en: string; zh: string };
-  /** Fixed pool of opening-greeting variants (see `OPENING_LINES` above). */
+  /** Fixed pool of opening lines (see `OPENING_LINES` above — one line since ADR-0013). */
   openingLines: OpeningLine[];
-  /** Fixed post-Closing completion-message library (see `COMPLETION_MESSAGES` above). */
+  /** The Completion pool: Emily's one final farewell line, picked from three (see `COMPLETION_MESSAGES` above). */
   completionMessages: readonly string[];
   /** Check-in Conversation Script pool (see `CHECKIN_LINES` above). */
   checkinLines: ScriptLine[];
