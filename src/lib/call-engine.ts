@@ -236,8 +236,9 @@ export class CallEngine {
     if (remaining <= WRAP_UP_SECONDS) this.maybeSayGoodbye();
     if (remaining === 0 && !this.timeUp) {
       this.timeUp = true;
-      if (this.emilyHasFloor()) {
-        // Never cut her off mid-line: end once she has finished.
+      if (this.emilyHasFloor() || this.turnPending) {
+        // Never cut her off mid-line, nor end before she has answered a Turn
+        // the learner just finished: end once she has finished.
         this.finishLineTimer = setTimeout(() => this.finish(), FINISH_LINE_TIMEOUT_MS);
       } else {
         this.finish();

@@ -244,6 +244,24 @@ describe("winding down", () => {
     expect(t.ended).not.toBeNull();
   });
 
+  it("does not end at zero before Emily has answered the learner's last Turn", () => {
+    const t = liveCall();
+    advanceToWrapUp(t, 1_000);
+    t.emilySays("e2", "Bye!");
+    vi.advanceTimersByTime(CALL_SECONDS * 1000 - (CALL_SECONDS - WRAP_UP_SECONDS) * 1000 - 3_000);
+    t.emit("input_audio_buffer.speech_started", { item_id: "u1" });
+    t.emit("input_audio_buffer.speech_stopped", { item_id: "u1" });
+    t.emit("input_audio_buffer.committed", { item_id: "u1" });
+    vi.advanceTimersByTime(4_000);
+    expect(t.ended).toBeNull();
+    t.emit("response.created");
+    t.emit("response.done");
+    t.emit("output_audio_buffer.stopped");
+    // Her reply is done; only the learner's transcript is still in flight.
+    vi.advanceTimersByTime(2_000);
+    expect(t.ended).not.toBeNull();
+  });
+
   it("ends immediately when the learner hangs up", () => {
     const t = liveCall();
     t.engine.hangUp();

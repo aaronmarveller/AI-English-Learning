@@ -81,6 +81,8 @@ export function useLiveCall(audioRef: RefObject<HTMLAudioElement | null>) {
         onDropped: () => engine.hangUp(),
       });
       connectionRef.current = connection;
+      // The floor is Emily's until she has greeted: nothing said before then is heard.
+      connection.setMicEnabled(false);
       if (pendingOpen) engine.begin();
     } catch (e) {
       release();
