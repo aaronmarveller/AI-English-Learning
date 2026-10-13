@@ -6,19 +6,19 @@
  *
  * The four `watchFor` beats below key into the same 4-stage taxonomy
  * ticket 06 (Explore) groups its Key Expressions under (打招呼/问候/回应/
- * 结束对话). Ticket 09 unified that taxonomy's labels into
- * src/content/conversation-stages.ts — this module only keeps the `key`
- * (from src/lib/conversation-state-machine.ts's `ActiveConversationState`)
- * plus its own Observe-specific `description` ("what to notice" copy);
+ * 结束对话). That taxonomy's labels live in
+ * src/content/lesson-stages.ts — this module only keeps the `key`
+ * (a `LessonStage`) plus its own Observe-specific `description`
+ * ("what to notice" copy);
  * the displayed Chinese/English labels are derived from the shared source
  * at render time (see src/components/observe/watch-for-list.tsx).
  */
 
-import type { ActiveConversationState } from "@/lib/conversation-state-machine";
+import type { LessonStage } from "@/content/lesson-stages";
 
 export type WatchForItem = {
   /** Which of the 4 canonical conversation stages this beat corresponds to. */
-  key: ActiveConversationState;
+  key: LessonStage;
   /** What to notice during this beat of the scene, in Chinese. */
   description: string;
 };

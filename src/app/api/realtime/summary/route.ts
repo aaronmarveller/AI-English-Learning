@@ -1,44 +1,35 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
-import { CHINESE_EXPLANATION_MODEL_ID } from "@/lib/chinese-explanation";
+import { buildSummaryTranscript, isSummaryRequest, parseLearningSummary } from "@/lib/learning-summary";
 
 /**
- * Realtime voice demo — post-call summary (see src/app/realtime-demo).
- *
- * Takes the call transcript the browser collected from the Realtime data
- * channel and returns a short Chinese summary of what the learner said.
- * Same small Claude model and server-only `ANTHROPIC_API_KEY` as the
- * practice routes.
+ * Learning Summary (CONTEXT.md): turns what the learner said across all of
+ * their Calls into a Praise, 2-3 Highlights, a Suggestion and a Closing, in
+ * Chinese. The Anthropic API key is read here only and never reaches the
+ * browser.
  */
 
 export const runtime = "nodejs";
 
-type Line = { role: "user" | "assistant"; text: string };
-
-function isLines(body: unknown): body is { lines: Line[] } {
-  if (typeof body !== "object" || body === null) return false;
-  const lines = (body as { lines?: unknown }).lines;
-  return (
-    Array.isArray(lines) &&
-    lines.every(
-      (l) =>
-        typeof l === "object" &&
-        l !== null &&
-        (l.role === "user" || l.role === "assistant") &&
-        typeof l.text === "string",
-    )
-  );
-}
+const SUMMARY_MODEL_ID = "claude-haiku-4-5-20251001";
 
 const SYSTEM_PROMPT = `
-You summarize a short English speaking practice between a Chinese-speaking beginner ("Learner") and their tutor Emily. The topic was greetings, "How are you today?", and goodbyes.
+You write the Learning Summary for a Chinese-speaking beginner who just practiced spoken English with their tutor Emily over up to three short phone calls. The topic was greetings, "How are you today?", and goodbyes.
 
-Write the summary in Chinese, focused on what the LEARNER said:
-1. 一句话概括学习者在这次对话里说了什么。
-2. 学习者说过的英文表达（逐条列出，保留原句；如有明显错误，在后面给出更自然的说法）。
-3. 一句鼓励 + 一个下次可以练习的点。
+You only see a speech-to-text transcript of what the Learner and Emily said. Write the summary in Chinese, grounded in the Learner's own lines (quote their English expressions where useful), as one JSON object with exactly these keys and nothing else:
+{
+  "praise": one warm sentence of praise for something the learner actually did,
+  "highlights": an array of 2 or 3 strings, each pointing at something specific the learner said (keep their English wording; if a line had a clear mistake, add a more natural way to say it),
+  "suggestion": one concrete, kind suggestion for what to practice next,
+  "closing": one short encouraging closing sentence
+}
 
-Only English and Chinese are supported in this practice: ignore any learner line in another language (do not list, translate or comment on it). You only see a speech-to-text transcript, so never comment on pronunciation, accent or fluency. Keep it short and plain text (no Markdown headings, simple numbered lines are fine). If the learner said almost nothing, say so kindly.
+Rules:
+- Chinese is the language of the summary; English appears only as the learner's own expressions and short better alternatives.
+- Only English and Chinese are supported in this practice: ignore any learner line in another language (do not quote, translate or comment on it).
+- NEVER comment on pronunciation, accent or fluency — you only see a transcript, not their voice.
+- If the learner said very little, still give 2 honest highlights from what they did say or do (e.g. that they picked up the call), and keep the tone kind.
+- Output the JSON object only: no Markdown, no code fence.
 `.trim();
 
 export async function POST(request: Request): Promise<Response> {
@@ -48,7 +39,7 @@ export async function POST(request: Request): Promise<Response> {
   } catch {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
-  if (!isLines(body)) {
+  if (!isSummaryRequest(body)) {
     return NextResponse.json({ error: "invalid_request" }, { status: 400 });
   }
 
@@ -57,22 +48,20 @@ export async function POST(request: Request): Promise<Response> {
     return NextResponse.json({ error: "missing_anthropic_api_key" }, { status: 500 });
   }
 
-  const transcript = body.lines
-    .filter((l) => l.text.trim())
-    .map((l) => `${l.role === "user" ? "Learner" : "Emily"}: ${l.text.trim()}`)
-    .join("\n");
+  const transcript = buildSummaryTranscript(body.calls);
 
   try {
     const response = await new Anthropic({ apiKey }).messages.create({
-      model: CHINESE_EXPLANATION_MODEL_ID,
-      max_tokens: 800,
+      model: SUMMARY_MODEL_ID,
+      max_tokens: 1000,
       system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: transcript || "(empty transcript)" }],
+      messages: [{ role: "user", content: transcript || "(the learner said nothing)" }],
     });
-    const text = response.content.find((b): b is Anthropic.TextBlock => b.type === "text")?.text.trim();
-    if (!text) return NextResponse.json({ error: "empty_summary" }, { status: 502 });
-    return NextResponse.json({ summary: text });
-  } catch (e) {
-    return NextResponse.json({ error: "upstream_error", detail: String(e) }, { status: 502 });
+    const text = response.content.find((b): b is Anthropic.TextBlock => b.type === "text")?.text ?? "";
+    const summary = parseLearningSummary(text);
+    if (!summary) return NextResponse.json({ error: "invalid_summary" }, { status: 502 });
+    return NextResponse.json({ summary });
+  } catch {
+    return NextResponse.json({ error: "upstream_error" }, { status: 502 });
   }
 }

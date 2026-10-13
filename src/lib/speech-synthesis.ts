@@ -1,28 +1,20 @@
 import { AUDIO_MANIFEST } from "@/lib/audio-manifest";
 
 /**
- * Speech-synthesis adapter (spec.md "三个适配层" > 语音合成).
+ * Pronunciation playback for Explore and Observe's English expressions.
+ * (Emily's voice in a Call is not played from here — it comes over the
+ * Realtime connection, see src/lib/realtime-call.ts.)
  *
- * Three playback paths behind one playback core (`speakLines`, reached through
- * `speak`, `speakLines` and their assertive siblings `speakAssertively` /
- * `speakLinesAssertively`), tried per line, in order — nothing outside this
- * module may touch `window.speechSynthesis` or an `<audio>` element directly:
+ * Two playback paths behind one function, tried in order — nothing outside
+ * this module may touch `window.speechSynthesis` or an `<audio>` element
+ * directly:
  *
- * 1. Pre-generated audio (ticket 13): if `text` exactly matches an entry in
- *    src/lib/audio-manifest.ts, play its `public/audio/<id>.mp3` file —
- *    zero latency, consistent quality, not dependent on the demo machine's
- *    system voice or a network round-trip.
- * 2. Live-generated audio (src/app/api/practice/speak/route.ts): for fixed
- *    Conversation Script lines whose pre-generated asset is unavailable,
- *    plus dynamic Chinese help follow-ups —
- *    synthesizes it on demand through the same OpenAI voice the
- *    pregenerated files use, so it sounds like the same speaker instead of
- *    dropping to a noticeably more robotic system voice.
- * 3. Browser synthesis (`window.speechSynthesis`, wired in ticket 09): the
- *    final fallback whenever neither of the above is available (no
- *    manifest match AND the live route is unreachable/unconfigured — ticket
- *    13 DoD: "文件缺失或模型输出偏离模板时降级到浏览器语音合成"), so the app
- *    still works with zero TTS provider configured.
+ * 1. Pre-generated audio: if `text` exactly matches an entry in
+ *    src/lib/audio-manifest.ts, play its `public/audio/<id>.mp3` file — zero
+ *    latency and the same voice every time.
+ * 2. Browser synthesis (`window.speechSynthesis`): the fallback whenever there
+ *    is no matching file or it can't be played, so the app still works with
+ *    no pre-generated audio at all.
  */
 
 export type SpeakOptions = {
@@ -38,6 +30,9 @@ const PREGENERATED_AUDIO_PATHS = new Map(
   AUDIO_MANIFEST.map((entry) => [entry.text, `/audio/${entry.id}.mp3`]),
 );
 
+/** Silence inserted between the segments of a "/"-delimited text (see `speak()`). */
+const SEGMENT_PAUSE_MS = 1000;
+
 /** True when the browser exposes a usable Web Speech synthesis API. */
 export function isSpeechSynthesisSupported(): boolean {
   return (
@@ -50,8 +45,8 @@ export function isSpeechSynthesisSupported(): boolean {
 /**
  * Known female voice names exposed by common Windows, Apple, and browser
  * speech engines. Emily should remain recognisably female even when the
- * OpenAI tiers are unavailable, so this allowlist is considered before the
- * engine-quality labels below. Keep matches token-boundary based: short
+ * pre-generated audio is unavailable, so this allowlist is considered before
+ * the engine-quality labels below. Keep matches token-boundary based: short
  * names such as "Ana" must not accidentally match "Natural".
  */
 const PREFERRED_FEMALE_VOICE_NAME_PATTERN =
@@ -62,19 +57,16 @@ const PREFERRED_FEMALE_VOICE_NAME_PATTERN =
  * alongside their plain default (Edge/Windows' "... Online (Natural)"
  * voices, Chrome's WaveNet-backed "Google ... English" voices, macOS/iOS's
  * "(Enhanced)"/"(Premium)" Siri voices) — checked in priority order. The
- * plain default voice on most platforms reads noticeably more robotic, which
- * is what browser-synthesis playback sounds like whenever there's no
- * pregenerated file for the text (for example, a missing Conversation
- * Script asset or a dynamic Chinese follow-up).
+ * plain default voice on most platforms reads noticeably more robotic.
  */
 const PREFERRED_VOICE_NAME_PATTERNS = [/natural/i, /neural/i, /premium/i, /enhanced/i, /google .*english/i, /samantha/i];
 
 /**
  * Picks the best available voice for `lang` out of `voices`, preferring a
- * known female voice name and then the existing engine-quality ordering.
- * Returns `undefined` if nothing in `lang` is available at all — callers
- * should fall back to the browser's own default voice in that case, not
- * force a wrong-language one.
+ * known female voice name and then the engine-quality ordering. Returns
+ * `undefined` if nothing in `lang` is available at all — callers should fall
+ * back to the browser's own default voice in that case, not force a
+ * wrong-language one.
  *
  * A plain function of its input (no `window`/`SpeechSynthesis` access), so
  * it's unit-testable without a browser — see speech-synthesis.test.ts.
@@ -101,19 +93,13 @@ export function pickBestVoiceFrom<V extends { name: string; lang: string }>(
 /**
  * Resolves once the browser's voice list is populated — most browsers load
  * it asynchronously and `getVoices()` returns empty until the `voiceschanged`
- * event fires, especially on the very first call in a session. Falls back to
- * whatever `getVoices()` reports after a short timeout if that event never
- * arrives (some browsers only ever expose a synchronous list and never fire
- * it), so this never hangs `speakSegment` indefinitely.
+ * event fires. Falls back to whatever `getVoices()` reports after a short
+ * timeout if that event never arrives, so this never hangs indefinitely.
  */
 function getVoicesOnceReady(): Promise<SpeechSynthesisVoice[]> {
   const synth = window.speechSynthesis;
   const existing = synth.getVoices();
   if (existing.length > 0) return Promise.resolve(existing);
-
-  // Some `speechSynthesis` implementations (and test doubles standing in for
-  // one) don't support `addEventListener` at all — nothing left to wait for
-  // in that case beyond whatever `getVoices()` already reported.
   if (typeof synth.addEventListener !== "function") return Promise.resolve(existing);
 
   return new Promise((resolve) => {
@@ -129,270 +115,26 @@ function getVoicesOnceReady(): Promise<SpeechSynthesisVoice[]> {
   });
 }
 
-/** User gestures recognized by both the reusable-element unlock and `speakLinesAssertively`'s retry path. */
-const FIRST_INTERACTION_EVENTS = ["pointerdown", "touchend", "click", "keydown"] as const;
-
 /**
- * One media element for every pre-generated and live-generated line. iOS
- * grants playback permission per element, so replacing this instance would
- * also throw away the permission established by `unlockReusableAudio`.
+ * One media element for every pre-generated line. iOS grants playback
+ * permission per element, so replacing this instance would throw away the
+ * permission a tap established.
  */
 let reusableAudio: HTMLAudioElement | null = null;
 let cancelCurrentAudioAttempt: (() => void) | null = null;
+/** Bumped on every `speak()`/`cancelSpeech()`; an older call sees it change and stops. */
+let generation = 0;
 
 function getReusableAudio(): HTMLAudioElement {
   reusableAudio ??= new Audio();
   return reusableAudio;
 }
 
-/** A real, local source played muted on the first gesture to unlock the singleton on iOS. */
-const AUDIO_UNLOCK_SOURCE = "/audio/opening-1.mp3";
-
-function unlockReusableAudio(): void {
-  const audio = getReusableAudio();
-  audio.muted = true;
-  audio.src = AUDIO_UNLOCK_SOURCE;
-  // `play()` must remain synchronous in this event stack. A later real line
-  // replaces the source and unmutes the same, now-authorized element.
-  void audio.play().catch(() => {});
-
-  for (const event of FIRST_INTERACTION_EVENTS) {
-    document.removeEventListener(event, unlockReusableAudio);
-  }
-}
-
-if (typeof document !== "undefined") {
-  for (const event of FIRST_INTERACTION_EVENTS) {
-    document.addEventListener(event, unlockReusableAudio);
-  }
-}
-
-/**
- * Owners whose speech recognition sessions currently capture the learner's
- * mic. Multiple UI surfaces can briefly coexist, so each may release only
- * the token it acquired.
- */
-export type MicListeningOwner = symbol;
-const micListeningOwners = new Set<MicListeningOwner>();
-
-function isMicListening(): boolean {
-  return micListeningOwners.size > 0;
-}
-
-/**
- * Public external-store state for Turn-Taking consumers. Each `speak()` owns
- * the state it acquired, so an older cancelled call cannot release a newer
- * call when its promise eventually settles.
- */
-let activeSpeechOwner: symbol | null = null;
-let activePlaybackHasStarted = false;
-
-/**
- * Which part of turn-taking currently owns the microphone gate. The Handoff
- * Gap is a conversation rule, rather than an iOS workaround: after Emily has
- * audibly spoken, the learner waits briefly for her voice to settle before
- * starting their own turn.
- */
-export type TurnTakingState = "speaking" | "handoff-gap" | "idle";
-
-/** The deliberate pause between audible playback ending and learner capture. */
-export const HANDOFF_GAP_MS = 3_000;
-
-let turnTakingState: TurnTakingState = "idle";
-let handoffGapTimeout: ReturnType<typeof setTimeout> | null = null;
-const turnTakingListeners = new Set<() => void>();
-
-function publishTurnTakingState(next: TurnTakingState): void {
-  if (turnTakingState === next) return;
-  turnTakingState = next;
-  turnTakingListeners.forEach((listener) => listener());
-}
-
-function clearHandoffGap(): void {
-  if (handoffGapTimeout !== null) {
-    clearTimeout(handoffGapTimeout);
-    handoffGapTimeout = null;
-  }
-}
-
-function beginHandoffGap(): void {
-  clearHandoffGap();
-  publishTurnTakingState("handoff-gap");
-  handoffGapTimeout = setTimeout(() => {
-    handoffGapTimeout = null;
-    publishTurnTakingState("idle");
-  }, HANDOFF_GAP_MS);
-}
-
-/** Three-valued public store used by every microphone surface. */
-export function getTurnTakingSnapshot(): TurnTakingState {
-  return turnTakingState;
-}
-
-export function getServerTurnTakingSnapshot(): TurnTakingState {
-  return "idle";
-}
-
-export function subscribeToTurnTaking(listener: () => void): () => void {
-  turnTakingListeners.add(listener);
-  return () => turnTakingListeners.delete(listener);
-}
-
-/** @deprecated Use the three-state Turn-Taking store above for mic gating. */
-export function getSpeakingSnapshot(): boolean {
-  return turnTakingState === "speaking";
-}
-
-/** @deprecated Use getServerTurnTakingSnapshot. */
-export function getServerSpeakingSnapshot(): boolean {
-  return false;
-}
-
-/** @deprecated Use subscribeToTurnTaking. */
-export function subscribeToSpeaking(listener: () => void): () => void {
-  return subscribeToTurnTaking(listener);
-}
-
-function acquireSpeaking(): symbol {
-  const owner = Symbol("speech-playback");
-  clearHandoffGap();
-  activeSpeechOwner = owner;
-  activePlaybackHasStarted = false;
-  publishTurnTakingState("speaking");
-  return owner;
-}
-
-function releaseSpeaking(owner: symbol, didAudiblyStart = false): void {
-  if (activeSpeechOwner !== owner) return;
-  activeSpeechOwner = null;
-  activePlaybackHasStarted = false;
-  if (didAudiblyStart) beginHandoffGap();
-  else publishTurnTakingState("idle");
-}
-
-function ownsSpeaking(owner: symbol): boolean {
-  return activeSpeechOwner === owner;
-}
-
-/**
- * Acquires microphone ownership while speech recognition is listening, so
- * every playback tier in `speakSegment` can refuse to start audio that would
- * play back through the speaker and bleed into that same microphone. Called
- * by each microphone surface at the same points it tracks its local state.
- *
- * This guards two different orderings of the same speaker-into-microphone
- * collision (see `AUDIO_UNLOCK_EXEMPT_SELECTOR`'s doc comment below for the
- * underlying hardware reason this matters):
- *
- * - Audio already playing, or requested but not yet audible, when the mic
- *   starts: handled immediately here, by `cancelSpeech()`. `currentAudio` is
- *   assigned synchronously by every tier before it ever calls `play()` (see
- *   `playPregeneratedAudio`/`playLiveGeneratedAudio`), including the
- *   live-generated tier's own network fetch — which now happens *inside* the
- *   `<audio>` element itself (the browser fetches `/api/practice/speak`
- *   directly; see that function's doc comment) rather than as a JS-visible
- *   `fetch()` this module awaits — so `cancelSpeech()`'s `currentAudio?.pause()`
- *   correctly reaches it regardless of how far into loading it is.
- * - The mic is already listening when a *new* `speak()` call is made (e.g.
- *   the 🔊 replay button while still mid-turn): nothing transitions at that
- *   moment for `cancelSpeech()` above to react to, so each tier in
- *   `speakSegment` separately checks microphone ownership before starting, right
- *   next to its own `play()`/`speak()` call.
- */
-export function acquireMicListening(): MicListeningOwner {
-  const owner = Symbol("mic-listening");
-  micListeningOwners.add(owner);
-  publishMicListening();
-  cancelSpeech();
-  return owner;
-}
-
-export function releaseMicListening(owner: MicListeningOwner): void {
-  micListeningOwners.delete(owner);
-  publishMicListening();
-}
-
-/**
- * Public read of "a speech-recognition session currently holds the
- * microphone", as an external store — same shape as the Turn-Taking snapshot
- * above, added by issue #56 for its one consumer: the Practice page's silence
- * timer, which must not run while the learner has the microphone open
- * (docs/ai-configuration.md section 3's "Silence reminder"). The mic is the
- * learner's to hold; a reminder fired into it would be Emily talking over an
- * already-open turn.
- *
- * A page-level subscriber cannot see the private owner set, and should not:
- * which surfaces own the microphone changes over time (the reply box, the
- * Ask-in-Chinese sheet), and each acquires and releases its own token. This
- * reports whether *anyone* holds it.
- */
-let lastPublishedMicListening = false;
-const micListeningListeners = new Set<() => void>();
-
-function publishMicListening(): void {
-  const listening = isMicListening();
-  if (listening === lastPublishedMicListening) return;
-  lastPublishedMicListening = listening;
-  micListeningListeners.forEach((listener) => listener());
-}
-
-export function getMicListeningSnapshot(): boolean {
-  return isMicListening();
-}
-
-/** Server render and the first hydration pass agree on "nobody is listening" — no microphone exists before hydration. */
-export function getServerMicListeningSnapshot(): boolean {
-  return false;
-}
-
-export function subscribeToMicListening(listener: () => void): () => void {
-  micListeningListeners.add(listener);
-  return () => micListeningListeners.delete(listener);
-}
-
-/**
- * `playPregeneratedAudio`'s outcome — deliberately distinguishes "the
- * browser is refusing any unmuted audio right now" from "this specific file
- * isn't a usable source", because `speakSegment` needs to treat them very
- * differently: a genuinely missing/broken file should fall through to the
- * next tier (live-generated audio, then browser synthesis), but neither an
- * autoplay-policy block NOR being superseded by a newer `speak()` call
- * should — every tier plays through an `<audio>` element or an equally
- * gesture-gated API, so a policy block would just recur, and for the
- * live-generated tier that "again" costs a real, wasted API call for audio
- * this function already has a free file for. A superseded attempt isn't a
- * problem with this file at all: `cancelSpeech()` (called at the top of
- * every `speakLines()`) stops whatever's currently playing before starting the
- * new request, and pausing a still-pending `play()` rejects it with
- * `AbortError` — a race that's especially live for the opening line, whose
- * `speakLinesAssertively` immediate-attempt-plus-listener design (see that
- * function's own doc comment) can have a second `speakLines()` call for the
- * same line land while the first is still resolving. Either way,
- * `speakLinesAssertively`'s gesture-triggered retry (or the newer call that
- * superseded this one) is what actually gets audio playing — see
- * practice-page-content.tsx.
- */
-type PregeneratedAudioOutcome = "played" | "interrupted" | "unavailable";
-
-/** DOMException names from a rejected `play()` that mean "don't fall through to another tier" — see `PregeneratedAudioOutcome`. */
-const INTERRUPTED_PLAY_ERROR_NAMES = new Set(["NotAllowedError", "AbortError"]);
-
-/**
- * Plays the pre-generated file for `text`, if the manifest has one. Never
- * rejects, same contract as `speak()` itself.
- */
-function playPregeneratedAudio(
-  text: string,
-  rate: number | undefined,
-  onPlaybackStarted: () => void,
-): Promise<PregeneratedAudioOutcome> {
-  if (typeof window === "undefined") return Promise.resolve("unavailable");
+/** Plays the pre-generated file for `text`, if the manifest has one. Resolves `true` only if it played to the end. Never rejects. */
+function playPregeneratedAudio(text: string, rate: number | undefined): Promise<boolean> {
+  if (typeof window === "undefined") return Promise.resolve(false);
   const path = PREGENERATED_AUDIO_PATHS.get(text);
-  if (!path) return Promise.resolve("unavailable");
-  // See acquireMicListening's doc comment: never start audio the mic would pick
-  // back up. "interrupted" (not "unavailable") so speakSegment doesn't fall
-  // through to the live/browser tiers below — same as an autoplay block.
-  if (isMicListening()) return Promise.resolve("interrupted");
+  if (!path) return Promise.resolve(false);
 
   return new Promise((resolve) => {
     const audio = getReusableAudio();
@@ -400,137 +142,40 @@ function playPregeneratedAudio(
     audio.src = path;
     audio.playbackRate = rate ?? 1;
 
-    const settle = (outcome: PregeneratedAudioOutcome) => {
-      audio.removeEventListener("ended", onEnded);
-      audio.removeEventListener("error", onError);
-      if (cancelCurrentAudioAttempt === onInterrupted) cancelCurrentAudioAttempt = null;
-      resolve(outcome);
-    };
-    const onEnded = () => settle("played");
-    const onError = () => settle("unavailable");
-    const onInterrupted = () => settle("interrupted");
-    cancelCurrentAudioAttempt = onInterrupted;
-
-    audio.addEventListener("ended", onEnded, { once: true });
-    audio.addEventListener("error", onError, { once: true });
-    audio.play().then(onPlaybackStarted).catch((error: unknown) => {
-      const interrupted = error instanceof DOMException && INTERRUPTED_PLAY_ERROR_NAMES.has(error.name);
-      settle(interrupted ? "interrupted" : "unavailable");
-    });
-  });
-}
-
-/**
- * Synthesizes `text` on demand through src/app/api/practice/speak/route.ts
- * (the same OpenAI voice the pregenerated files use) and plays the result —
- * the middle rung of the pregenerated → live-generated → browser-synthesis
- * ladder, for text with no fixed pool to pre-generate from ahead of time
- * (a missing fixed asset or a dynamic Chinese help follow-up).
- * Resolves `true` on successful playback, `false` on any failure (no server
- * key configured, upstream error, playback error) — the caller falls back
- * to browser synthesis in that case, same contract as
- * `playPregeneratedAudio`. Never rejects.
- *
- * Points `<audio src>` straight at the route — a GET, with `text` as a query
- * param — instead of fetch()-ing it in JS and wrapping the resulting `Blob`
- * in an object URL first. That used to be how this worked, until it turned
- * out WebKit's `<audio>` element reliably refuses to play a `blob:` (or even
- * `data:`) URL built from an in-JS fetch of this exact same audio, with a
- * `NotSupportedError`, on real iOS/iPadOS Safari — even though the identical
- * bytes play fine from a plain URL (see the route's own doc comment for how
- * this was diagnosed). Letting the browser fetch the audio itself, the same
- * way the pregenerated-file tier already does, sidesteps that entirely. A
- * repeat request for the same text (the 🔊 replay button,
- * message-bubble-pair.tsx) is now covered by the route's own Cache-Control
- * instead of a hand-rolled in-memory cache.
- */
-function playLiveGeneratedAudio(
-  text: string,
-  rate: number | undefined,
-  onPlaybackStarted: () => void,
-): Promise<boolean> {
-  if (typeof window === "undefined") return Promise.resolve(false);
-  // See acquireMicListening's doc comment: never start audio the mic would pick
-  // back up.
-  if (isMicListening()) return Promise.resolve(false);
-
-  return new Promise((resolve) => {
-    const audio = getReusableAudio();
-    audio.muted = false;
-    audio.src = `/api/practice/speak?text=${encodeURIComponent(text)}`;
-    audio.playbackRate = rate ?? 1;
-
     const settle = (played: boolean) => {
       audio.removeEventListener("ended", onEnded);
       audio.removeEventListener("error", onError);
-      if (cancelCurrentAudioAttempt === onInterrupted) cancelCurrentAudioAttempt = null;
+      if (cancelCurrentAudioAttempt === onCancelled) cancelCurrentAudioAttempt = null;
       resolve(played);
     };
     const onEnded = () => settle(true);
     const onError = () => settle(false);
-    const onInterrupted = () => settle(false);
-    cancelCurrentAudioAttempt = onInterrupted;
+    const onCancelled = () => settle(false);
+    cancelCurrentAudioAttempt = onCancelled;
 
     audio.addEventListener("ended", onEnded, { once: true });
     audio.addEventListener("error", onError, { once: true });
-    audio.play().then(onPlaybackStarted).catch(() => settle(false));
+    audio.play().catch(() => settle(false));
   });
 }
 
-/** Silence inserted between two spoken pieces — the segments of a "/"-delimited text (see `speak()`), or two consecutive Conversation Script lines of one Turn's sequence (see `speakLines`). */
-const SEGMENT_PAUSE_MS = 1000;
-
-/** Maximum time allowed for a playback attempt to actually start. */
-export const PLAYBACK_START_TIMEOUT_MS = 30_000;
-
-/**
- * Speaks one segment through the pregenerated-audio → live-generated-audio →
- * browser-synthesis pipeline. Never rejects. Resolves `true` if audio
- * actually started through any of the three, `false` if all three were
- * unavailable or blocked — `speakLines` below uses this to know whether it
- * needs to fall back to the next user interaction.
- */
-async function speakSegment(
-  text: string,
-  options: SpeakOptions,
-  owner: symbol,
-  onPlaybackStarted: () => void,
-): Promise<boolean> {
-  if (!ownsSpeaking(owner)) return false;
-  const pregenerated = await playPregeneratedAudio(text, options.rate, onPlaybackStarted);
-  if (pregenerated === "played") return true;
-  // Neither an autoplay-policy block nor being superseded by a newer
-  // `speak()` call is a reason to fall through — see
-  // `PregeneratedAudioOutcome`'s doc comment.
-  if (pregenerated === "interrupted") return false;
-  if (!ownsSpeaking(owner)) return false;
-
-  const playedLive = await playLiveGeneratedAudio(text, options.rate, onPlaybackStarted);
-  if (playedLive) return true;
-  if (!ownsSpeaking(owner)) return false;
-
-  if (!isSpeechSynthesisSupported()) {
-    return false;
-  }
+/** Speaks `text` through the browser's own synthesiser. Resolves `true` if it was spoken. Never rejects. */
+async function speakWithBrowser(text: string, options: SpeakOptions, myGeneration: number): Promise<boolean> {
+  if (!isSpeechSynthesisSupported()) return false;
 
   const synth = window.speechSynthesis;
   const lang = options.lang ?? "en-US";
   const voices = await getVoicesOnceReady();
+  if (myGeneration !== generation) return false;
   const voice = pickBestVoiceFrom(voices, lang);
-  // getVoicesOnceReady can take up to 500ms (see its own doc comment) — the
-  // same re-check as playLiveGeneratedAudio's, for the same reason.
-  if (isMicListening() || !ownsSpeaking(owner)) return false;
 
   return new Promise((resolve) => {
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = lang;
     if (voice) utterance.voice = voice;
     if (options.rate) utterance.rate = options.rate;
-
-    utterance.onstart = onPlaybackStarted;
     utterance.onend = () => resolve(true);
     utterance.onerror = () => resolve(false);
-
     synth.speak(utterance);
   });
 }
@@ -540,81 +185,15 @@ function pause(ms: number): Promise<void> {
 }
 
 /**
- * Speaks several lines aloud, in order, and resolves once the last one ends
- * (or immediately, as a no-op, if no playback path is available — callers
- * don't need to feature-detect first). Never rejects: a synthesis error
- * resolves the same as a normal end, since a failed pronunciation playback
- * shouldn't surface as an app error. Resolves `true` if audio actually started
- * at any point, `false` if every line was blocked/unavailable (e.g. the
- * browser's autoplay-without-a-user-gesture restriction) — see
- * `speakLinesAssertively`, which is what most callers that care about this
- * want, and which retries the whole sequence on the learner's next gesture.
+ * Speaks `text` aloud and resolves once playback ends (or immediately, as a
+ * no-op, if no playback path is available — callers don't need to
+ * feature-detect first). Never rejects: a synthesis error resolves the same
+ * as a normal end, since a failed pronunciation playback shouldn't surface as
+ * an app error. Resolves `true` if audio actually played.
  *
- * This is the one playback core. `speak()` is it for a single line (or a
- * "/"-delimited one), and Emily's per-Turn sequence reaches it through here
- * too — the 🔊 replay button re-speaks a Turn's several lines through their own
- * pre-generated files rather than handing the joined text to a synthesiser
- * that has never heard of it (and would fall through to a paid live-TTS call).
- *
- * One speaking owner is held across the whole sequence, so Turn-Taking (the
- * microphone gate) stays closed until the *last* line has finished and
- * releases it exactly once, into a single Handoff Gap. That is the point of
- * this being the one playback mechanism: playing a sequence as a sequence of
- * separate `speak()` calls would hand the floor back to the learner in the
- * middle of what Emily is saying.
- *
- * Cancels any utterance/audio already in flight (from EITHER playback path)
- * before starting, so repeat clicks (including on a different card, or a
- * click that lands mid-fallback) always restart cleanly instead of
+ * Cancels any audio already in flight before starting, so repeat clicks
+ * (including on a different card) always restart cleanly instead of
  * overlapping.
- */
-export async function speakLines(texts: readonly string[], options: SpeakOptions = {}): Promise<boolean> {
-  cancelSpeech();
-
-  if (texts.length === 0) return false;
-  if (isMicListening()) return false;
-  const owner = acquireSpeaking();
-  let didAudiblyStart = false;
-
-  let timeoutId: ReturnType<typeof setTimeout>;
-  const onPlaybackStarted = () => {
-    didAudiblyStart = true;
-    if (ownsSpeaking(owner)) activePlaybackHasStarted = true;
-    if (ownsSpeaking(owner)) clearTimeout(timeoutId);
-  };
-
-  const playback = async () => {
-    let playedAny = false;
-    for (let i = 0; i < texts.length && ownsSpeaking(owner); i++) {
-      const played = await speakSegment(texts[i], options, owner, onPlaybackStarted);
-      playedAny = playedAny || played;
-      if (i < texts.length - 1 && ownsSpeaking(owner)) await pause(SEGMENT_PAUSE_MS);
-    }
-    return playedAny;
-  };
-
-  const timedOut = new Promise<false>((resolve) => {
-    timeoutId = setTimeout(() => {
-      if (ownsSpeaking(owner)) {
-        stopActivePlayback();
-        releaseSpeaking(owner, didAudiblyStart);
-      }
-      resolve(false);
-    }, PLAYBACK_START_TIMEOUT_MS);
-  });
-
-  try {
-    return await Promise.race([playback(), timedOut]);
-  } finally {
-    clearTimeout(timeoutId!);
-    releaseSpeaking(owner, didAudiblyStart);
-  }
-}
-
-/**
- * Speaks one line aloud and resolves once playback ends — `speakLines` with a
- * single piece, so this is the whole of the old `speak()` behaviour, plus the
- * empty-text no-op.
  *
  * Slash splitting is opt-in for teaching-card callers. Ordinary text keeps
  * "/" intact because Chinese prose can naturally use it (for example,
@@ -622,173 +201,32 @@ export async function speakLines(texts: readonly string[], options: SpeakOptions
  * goes through the normal playback ladder independently.
  */
 export async function speak(text: string, options: SpeakOptions = {}): Promise<boolean> {
-  const texts = options.splitOnSlash
+  cancelSpeech();
+  const myGeneration = generation;
+
+  const segments = options.splitOnSlash
     ? text
         .split("/")
         .map((segment) => segment.trim())
         .filter(Boolean)
     : [text];
-  return speakLines(texts, options);
+
+  let playedAny = false;
+  for (let i = 0; i < segments.length && myGeneration === generation; i++) {
+    const played =
+      (await playPregeneratedAudio(segments[i], options.rate)) ||
+      (myGeneration === generation && (await speakWithBrowser(segments[i], options, myGeneration)));
+    playedAny = playedAny || played;
+    if (i < segments.length - 1 && myGeneration === generation) await pause(SEGMENT_PAUSE_MS);
+  }
+  return playedAny;
 }
 
-/**
- * User-gesture events that count as "the learner interacted with the page"
- * for `speakLinesAssertively`'s fallback below. Deliberately more than just
- * `pointerdown` — real devices vary in which of these a given browser
- * recognizes as satisfying its autoplay-unlock gesture requirement (e.g.
- * older/embedded mobile browsers lean on `touchend` or plain `click` more
- * reliably than `pointerdown`), so every one of them is armed and whichever
- * fires first wins.
- */
-/**
- * A control marked with this attribute never counts as the "first
- * interaction" `speakLinesAssertively` is listening for — see the mic button in
- * practice-input-form.tsx, marked for exactly this reason: starting speech
- * *recognition* at the same instant this function starts speech *synthesis*
- * plays Emily's audio back through the speaker at the exact moment the
- * microphone starts listening, and on real devices that reliably drowns out
- * or echo-cancels the learner's own voice out of the recognized transcript.
- * An excluded interaction is simply ignored (not consumed) — the listeners
- * stay armed for a later, non-excluded one instead.
- */
-const AUDIO_UNLOCK_EXEMPT_SELECTOR = "[data-audio-unlock-exempt]";
-
-function isAudioUnlockExempt(event: Event): boolean {
-  return event.target instanceof Element && event.target.closest(AUDIO_UNLOCK_EXEMPT_SELECTOR) !== null;
-}
-
-/**
- * Speaks several lines "as soon as possible" despite browsers blocking
- * unmuted audio that isn't triggered by a user gesture: tries `speakLines`
- * immediately (succeeds outright wherever the browser already grants autoplay
- * — e.g. the user has interacted with this origin before) while
- * *simultaneously* listening for the learner's very next interaction anywhere
- * on the page, and speaks again then if the immediate attempt turns out to
- * have been blocked — that interaction is a genuine user gesture the browser
- * will always honor.
- *
- * Issue #48: this is what the Practice page speaks Emily's replies with, and
- * it takes the whole sequence because her reply to one learner Turn can be
- * more than one line (docs/ai-configuration.md section 3's "Line
- * composition"). The lines go through `speakLines` — one owner, one Handoff
- * Gap at the end — and the gesture retry re-arms the *whole* sequence, exactly
- * as it re-spoke the one line before.
- *
- * The listeners are armed synchronously, up front, rather than only after
- * learning the immediate attempt was blocked: on a real device the browser's
- * own block-vs-allow decision isn't necessarily instant (e.g. it may need to
- * start fetching the file first), so waiting for that outcome before arming
- * anything left a real window where an eager learner's very first tap — the
- * one thing this function exists to catch — could land before any listener
- * existed and be silently lost, with nothing left to prompt a second one.
- * Arming immediately closes that window at the cost of a rare, harmless
- * double-attempt (handled below): if the immediate attempt actually
- * succeeds around the same moment as a stray early tap, the second call
- * simply cancels and restarts the same sequence (see `speakLines`'s own
- * cancel-before-starting behavior) rather than overlapping it.
- *
- * For call sites that want a line spoken "on load" (Practice's opening line
- * — see practice-page-content.tsx) rather than in direct response to a
- * click, since a bare `speak()` there silently does nothing on browsers that
- * require a gesture first (most mobile browsers, on a fresh page/session).
- *
- * Fire-and-forget for playback (no returned promise) — the eventual
- * playback may happen anywhere from immediately to whenever the learner
- * first taps the page, so there's nothing meaningful for a caller to await.
- * DOES return a cleanup function, though: since exempt interactions (the mic
- * button) are ignored rather than consumed, the listeners can otherwise
- * outlive their usefulness (e.g. a learner who only ever taps the mic across
- * several restarted conversations, each arming its own fresh set) — a
- * caller driven by a React effect should return this from the effect so it
- * runs on cleanup, same as any other effect subscription.
- */
-export function speakLinesAssertively(texts: readonly string[], options: SpeakOptions = {}): () => void {
-  // Emily never ends a Turn silent (every accepted Turn yields at least one
-  // line — src/lib/emily-reply-selector.ts), so an empty sequence is a caller
-  // bug rather than a case to handle; do nothing rather than reject, same
-  // contract as everything else here.
-  if (texts.length === 0) return () => {};
-
-  if (typeof document === "undefined") {
-    void speakLines(texts, options);
-    return () => {};
-  }
-
-  let outcomeKnown = false;
-  let succeeded = false;
-  let interactionHandled = false;
-
-  function removeListeners(): void {
-    for (const event of FIRST_INTERACTION_EVENTS) {
-      document.removeEventListener(event, onFirstInteraction);
-    }
-  }
-
-  function onFirstInteraction(event: Event): void {
-    if (interactionHandled) return;
-    // An exempt interaction (the mic button — see AUDIO_UNLOCK_EXEMPT_SELECTOR's
-    // doc comment) isn't consumed: every listener stays armed for a later,
-    // non-exempt one, deliberately not using the DOM's own `{ once: true }`
-    // (which would've auto-removed this listener regardless of the check
-    // below, the exact thing this branch exists to avoid).
-    if (isAudioUnlockExempt(event)) return;
-    // Likewise not consumed if the mic is still listening at the moment this
-    // otherwise-qualifying interaction fires (e.g. the learner taps
-    // something else while still mid-turn): speaking now would collide with
-    // the mic exactly like any other tier `acquireMicListening`'s doc comment
-    // describes, but burning the one-shot retry on an attempt that's just
-    // going to be suppressed would leave this text silent for the rest of
-    // the session. Stay armed for a later interaction instead — typically
-    // the very next tap after the mic session ends.
-    if (isMicListening()) return;
-    interactionHandled = true;
-    removeListeners();
-    // If the immediate attempt already succeeded, there's nothing left to
-    // do; otherwise (blocked, or its outcome isn't known yet) this gesture
-    // is the cue to speak now.
-    if (outcomeKnown && succeeded) return;
-    void speakLines(texts, options);
-  }
-
-  for (const event of FIRST_INTERACTION_EVENTS) {
-    document.addEventListener(event, onFirstInteraction);
-  }
-
-  void speakLines(texts, options).then((played) => {
-    outcomeKnown = true;
-    succeeded = played;
-    if (played) removeListeners();
-  });
-
-  return removeListeners;
-}
-
-/**
- * The single-line case of `speakLinesAssertively` — "speak this line as soon
- * as possible". Kept as its own name because most call sites really do have
- * one line (Explore's pronunciation cards, the Ask-in-Chinese sheet), and it
- * reads better than `speakLinesAssertively([text])` there; there is no second
- * playback mechanism behind it.
- */
-export function speakAssertively(text: string, options: SpeakOptions = {}): () => void {
-  return speakLinesAssertively([text], options);
-}
-
-function stopActivePlayback(): void {
+/** Stops any in-flight playback. */
+export function cancelSpeech(): void {
+  generation += 1;
   reusableAudio?.pause();
   cancelCurrentAudioAttempt?.();
   cancelCurrentAudioAttempt = null;
-  if (!isSpeechSynthesisSupported()) return;
-  window.speechSynthesis.cancel();
-}
-
-/** Stops any in-flight playback and synchronously releases its speaking state. */
-export function cancelSpeech(): void {
-  const owner = activeSpeechOwner;
-  stopActivePlayback();
-  // A cancelled line still earns the Handoff Gap if its audio had begun.
-  // The owner-local flag lives in `speakLines`; expose it here through a
-  // marker on the active call so cancellation can preserve the same
-  // invariant.
-  if (owner) releaseSpeaking(owner, activePlaybackHasStarted);
+  if (isSpeechSynthesisSupported()) window.speechSynthesis.cancel();
 }

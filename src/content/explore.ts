@@ -9,7 +9,7 @@
  * conversation scenario.
  */
 
-import { CONVERSATION_STAGE_LABELS } from "@/content/conversation-stages";
+import { LESSON_STAGE_LABELS } from "@/content/lesson-stages";
 
 /** Editorial hero headline (UI draft, 2026-08-06 review). */
 export const EXPLORE_HEADLINE = {
@@ -80,18 +80,9 @@ export const CHECKIN_EXPRESSIONS: ExpressionCard[] = [
   },
 ];
 
-// Punctuation deliberately matches GREETING_SOMEBODY_LESSON.closingLines
-// (src/content/lesson.ts) verbatim, exclamation marks and all — issue #17
-// (issue #12's Further Notes: "Punctuation is load-bearing in the audio
-// manifest"). Audio lookup (src/lib/audio-manifest.ts) is exact text
-// matching with a duplicate-text guard that throws at module load; before
-// this, these three expressions used a trailing "." where the Closing pool
-// used "!" — same words, two separate recordings. Standardising here on the
-// AI Configuration form's punctuation lets Explore reuse the Closing pool's
-// single recording instead of needing its own. Since issue #55 the sharing
-// runs this way round: the Closing pool was re-authored to exactly these three
-// expressions, so it contributes no audio-manifest entries of its own and every
-// Closing steer is spoken from these recordings.
+// Audio lookup (src/lib/audio-manifest.ts) is exact text matching with a
+// duplicate-text guard that throws at module load, so each expression is
+// authored once with its final punctuation.
 export const CLOSING_EXPRESSIONS: ExpressionCard[] = [
   {
     id: "closing-see-you",
@@ -157,7 +148,7 @@ export const RESPONSE_COMBO = {
 
 /**
  * The 4 Conversation Chunk Sections, in fixed display order. `title`/
- * `subtitle` are read from the shared src/content/conversation-stages.ts
+ * `subtitle` are read from the shared src/content/lesson-stages.ts
  * labels (the descriptive long-form Chinese label + the English label) —
  * not hardcoded here. `response` intentionally has no `expressions` array:
  * its content shape is a 3-step ladder + combo sentence (see
@@ -171,28 +162,28 @@ export const EXPLORE_SECTIONS = {
   greeting: {
     key: "greeting",
     icon: "👋",
-    title: CONVERSATION_STAGE_LABELS.greeting.labelZhLong,
-    subtitle: CONVERSATION_STAGE_LABELS.greeting.labelEn,
+    title: LESSON_STAGE_LABELS.greeting.labelZhLong,
+    subtitle: LESSON_STAGE_LABELS.greeting.labelEn,
     expressions: GREETING_EXPRESSIONS,
   },
   checkin: {
     key: "checkin",
     icon: "😊",
-    title: CONVERSATION_STAGE_LABELS.checkin.labelZhLong,
-    subtitle: CONVERSATION_STAGE_LABELS.checkin.labelEn,
+    title: LESSON_STAGE_LABELS.checkin.labelZhLong,
+    subtitle: LESSON_STAGE_LABELS.checkin.labelEn,
     expressions: CHECKIN_EXPRESSIONS,
   },
   response: {
     key: "response",
     icon: "🗣️",
-    title: CONVERSATION_STAGE_LABELS.response.labelZhLong,
-    subtitle: CONVERSATION_STAGE_LABELS.response.labelEn,
+    title: LESSON_STAGE_LABELS.response.labelZhLong,
+    subtitle: LESSON_STAGE_LABELS.response.labelEn,
   },
   closing: {
     key: "closing",
     icon: "🙌",
-    title: CONVERSATION_STAGE_LABELS.closing.labelZhLong,
-    subtitle: CONVERSATION_STAGE_LABELS.closing.labelEn,
+    title: LESSON_STAGE_LABELS.closing.labelZhLong,
+    subtitle: LESSON_STAGE_LABELS.closing.labelEn,
     expressions: CLOSING_EXPRESSIONS,
   },
 } as const;

@@ -4,9 +4,8 @@ import { resolve } from "node:path";
 /**
  * Loads `.env.local` into `process.env` for standalone scripts run via
  * `tsx` (Next's own automatic `.env.local` loading only applies to the
- * `next` CLI, not scripts run outside it). Shared by scripts/eval-judgment.ts
- * (ticket 12) and scripts/generate-audio.ts (ticket 13) — both need
- * server-only API keys that live in `.env.local`, never in the repo.
+ * `next` CLI, not scripts run outside it). Used by scripts/generate-audio.ts, which needs
+ * a server-only API key that lives in `.env.local`, never in the repo.
  *
  * No-op if `.env.local` doesn't exist. Existing `process.env` values win
  * over the file, matching dotenv's usual precedence.

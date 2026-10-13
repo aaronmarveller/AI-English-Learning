@@ -6,62 +6,58 @@ import { CourseProgressChip } from "@/components/course-progress";
 import { ReviewTypingIndicator } from "@/components/review/review-typing-indicator";
 import { StageTag } from "@/components/stage-tag";
 import { LEARNING_SUMMARY_HEADLINE } from "@/content/review";
-import { selectFeedback, type FeedbackLine } from "@/lib/feedback-selector";
-import { usePractice } from "@/lib/practice-state";
+import { loadSummaryLines } from "@/lib/load-summary-lines";
+import type { SummaryLine } from "@/lib/learning-summary";
+import { resetPractice, usePractice } from "@/lib/practice-state";
 import { markStepComplete } from "@/lib/progress";
 
 /**
  * Learning Summary body for the internal Review stage. Split out from
- * page.tsx (a
- * Server Component, so it can keep exporting `metadata`) for the same
- * reason as every other learning page's split — everything here is
- * client-only state (the practice store, the sequential-reveal timer).
+ * page.tsx (a Server Component, so it can keep exporting `metadata`) because
+ * everything here is client-only state (the Practice store, the summary
+ * request, the sequential-reveal timer).
  *
- * Sequential "chat" reveal: `selectFeedback` runs once per mount against the
- * practice store's accumulated `turnRecords` snapshot at that moment (issue
- * #20 — one per-state record per accepted state, replacing the old
- * model-reported `highlightKeys`), then the resulting lines are revealed
- * one at a time with a short pause + a typing indicator between each (user
- * story 76). Retry and Continue both start disabled and only unlock once
- * every line has been revealed (user story 77) — enforced here, not just
- * visually, via the `disabled` prop.
+ * The summary is written by Claude from everything the learner said across
+ * all of their Calls (src/app/api/realtime/summary/route.ts); if that fails,
+ * the learner's own English and Chinese lines are shown instead of an error.
+ * Once the lines are in, they are revealed one at a time with a short pause
+ * and a typing indicator between each. Retry and Continue both stay disabled
+ * until the whole summary has been revealed.
  */
 export function ReviewPageContent() {
   const router = useRouter();
-  const { turnRecords, resetPractice } = usePractice();
+  const { calls } = usePractice();
 
-  // Computed exactly once, from the turnRecords snapshot at mount time —
-  // this is what makes the highlights reflect *this* practice run rather
-  // than reshuffling mid-reveal as the timer below triggers re-renders.
-  const [feedbackLines] = useState<FeedbackLine[]>(() => selectFeedback(turnRecords));
+  // Requested exactly once, from the Calls as they stand at mount time.
+  const [callsAtMount] = useState(calls);
+  const [summaryLines, setSummaryLines] = useState<SummaryLine[] | null>(null);
   const [revealedCount, setRevealedCount] = useState(0);
 
-  const isRevealing = revealedCount < feedbackLines.length;
+  const isRevealing = summaryLines === null || revealedCount < summaryLines.length;
 
   useEffect(() => {
-    // Deliberately keyed on `revealedCount` (not the derived `isRevealing`
-    // boolean) — `isRevealing` stays `true` across many consecutive
-    // increments, so an effect keyed on it alone would only ever fire once
-    // (React skips effects whose dependencies are unchanged by Object.is).
-    // Keying on the actual counter guarantees a fresh timer after every
-    // reveal.
-    if (revealedCount >= feedbackLines.length) return;
+    const controller = new AbortController();
+    void loadSummaryLines(callsAtMount, controller.signal).then((lines) => {
+      if (!controller.signal.aborted) setSummaryLines(lines);
+    });
+    return () => controller.abort();
+  }, [callsAtMount]);
+
+  useEffect(() => {
+    // Keyed on `revealedCount` so every reveal re-arms a fresh timer.
+    if (summaryLines === null || revealedCount >= summaryLines.length) return;
     // A few hundred ms per line reads as "conversational" without making
-    // learners (or E2E tests) wait long — see this ticket's own guidance:
-    // total reveal for ~5-6 lines stays comfortably under Playwright's
-    // default 5s auto-wait, no fake-clock machinery needed.
+    // learners (or E2E tests) wait long.
     const delayMs = 500 + Math.random() * 400;
     const timeoutId = setTimeout(() => {
-      setRevealedCount((count) => Math.min(count + 1, feedbackLines.length));
+      setRevealedCount((count) => Math.min(count + 1, summaryLines.length));
     }, delayMs);
     return () => clearTimeout(timeoutId);
-  }, [revealedCount, feedbackLines.length]);
+  }, [revealedCount, summaryLines]);
 
   function handleRetry() {
     if (isRevealing) return;
-    // Clean slate: conversation state back to "greeting", messages and
-    // turnRecords cleared (spec.md user story 79: "重练时对话是干净的重新
-    // 开始，上次的记录不会串进来").
+    // Three Calls again, no transcripts (CONTEXT.md "Practice").
     resetPractice();
     router.push("/practice");
   }
@@ -113,7 +109,7 @@ export function ReviewPageContent() {
         data-testid="review-feedback-list"
         className="flex flex-1 flex-col gap-3 rounded-card border border-border bg-card p-4"
       >
-        {feedbackLines.slice(0, revealedCount).map((line) => (
+        {(summaryLines ?? []).slice(0, revealedCount).map((line) => (
           <div
             key={line.id}
             data-testid="review-line"
