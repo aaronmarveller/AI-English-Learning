@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ContinueButton } from "@/components/continue-button";
 import { CourseProgressChip } from "@/components/course-progress";
 import { ChunkSection } from "@/components/explore/chunk-section";
+import { ConversationFormula } from "@/components/explore/conversation-formula";
 import { ExploreMore } from "@/components/explore/explore-more";
 import { ExpressionCard, TINT_CYCLE, type ExpressionTint } from "@/components/explore/expression-card";
 import { StageTag } from "@/components/stage-tag";
@@ -98,6 +99,7 @@ export function ExplorePageContent() {
                 testId={`section-${key}`}
               >
                 <div className="flex flex-col gap-3">
+                  {key === "response" && <ConversationFormula />}
                   {renderCards(key, "main")}
                   <ExploreMore
                     open={openMore[key]}

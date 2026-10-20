@@ -331,6 +331,56 @@ test.describe("Explore page", () => {
     await expect(first).toHaveAttribute("data-state", "idle");
   });
 
+  test("Response opens with the Conversation Formula above its cards, steps 1 → 2 → 3 word for word", async ({
+    page,
+  }) => {
+    await resetStorage(page);
+    await page.goto(EXPLORE_URL);
+    await page.getByTestId("section-response-header").click();
+
+    const panel = page.getByTestId("conversation-formula");
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText("Conversation Formula 交流公式");
+
+    const panelBox = await panel.boundingBox();
+    const firstCardBox = await page.getByTestId("expression-card-response-good-thanks").boundingBox();
+    expect(panelBox!.y + panelBox!.height).toBeLessThanOrEqual(firstCardBox!.y);
+
+    const expected = [
+      ["1", "Respond", "回应", "先回应"],
+      ["2", "Add More", "补充近况", "想多说时"],
+      ["3", "Ask Back", "回问", "想继续聊时"],
+    ];
+    const steps = panel.locator('[data-testid^="formula-step-"]');
+    await expect(steps).toHaveCount(3);
+    for (let i = 0; i < 3; i++) {
+      const step = steps.nth(i);
+      await expect(step).toHaveAttribute("data-testid", `formula-step-${i + 1}`);
+      const [num, en, zh, hint] = expected[i];
+      await expect(step.getByTestId("formula-number")).toHaveText(num);
+      await expect(step.getByTestId("formula-en")).toHaveText(en);
+      await expect(step.getByTestId("formula-zh")).toHaveText(zh);
+      await expect(step.getByTestId("formula-hint")).toHaveText(hint);
+    }
+    await expect(panel.locator("button, a")).toHaveCount(0);
+  });
+
+  test("at 375px the Conversation Formula fits with no horizontal scroll", async ({ page }) => {
+    await resetStorage(page);
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto(EXPLORE_URL);
+    await page.getByTestId("section-response-header").click();
+
+    const panel = page.getByTestId("conversation-formula");
+    await expect(panel).toBeVisible();
+    const box = await panel.boundingBox();
+    expect(box!.x + box!.width).toBeLessThanOrEqual(375);
+    const hasHorizontalScroll = await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    );
+    expect(hasHorizontalScroll).toBe(false);
+  });
+
   test("at 375px with every section open there is no horizontal scroll", async ({ page }) => {
     await resetStorage(page);
     await page.setViewportSize({ width: 375, height: 812 });
