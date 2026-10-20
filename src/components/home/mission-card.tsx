@@ -53,7 +53,7 @@ export function MissionCard() {
       aria-label={`开始今日课程 ${course.nameEn} ${course.nameZh}`}
       onClick={start}
       onKeyDown={handleKeyDown}
-      className="flex cursor-pointer items-stretch gap-4 text-left active:scale-[0.98] active:brightness-95"
+      className="flex cursor-pointer items-center gap-3 text-left active:scale-[0.98] active:brightness-95"
     >
       {/* eslint-disable-next-line @next/next/no-img-element -- fixed-aspect
           decorative crop; next/image's layout machinery buys nothing here. */}
@@ -61,28 +61,29 @@ export function MissionCard() {
         src="/assets/home/mission-thumb.jpg"
         alt=""
         aria-hidden
-        className="aspect-[3/4] w-1/2 shrink-0 rounded-card object-cover"
+        className="aspect-[4/3] w-2/5 shrink-0 rounded-card object-cover object-center"
       />
 
-      <div className="flex min-w-0 flex-1 flex-col gap-2">
-        <span
-          aria-hidden
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent-soft text-lg"
-        >
-          👋
-        </span>
-        <h2 className="text-h2">{course.nameEn}</h2>
-        <p className="text-body-sm text-muted">{course.objectivesIntro}</p>
-        <ul className="flex flex-col gap-1.5 text-body-sm text-muted">
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <div className="flex items-center gap-1">
+          <span
+            aria-hidden
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent-soft text-xs"
+          >
+            👋
+          </span>
+          <h2 className="text-body font-semibold whitespace-nowrap">{course.nameEn}</h2>
+        </div>
+        <p className="text-caption text-muted">{course.objectivesIntro}</p>
+        <ul className="flex flex-col gap-0.5 text-caption text-muted">
           {course.objectives.map((objective) => (
-            <li key={objective.text} className="flex items-start gap-1.5">
-              <CheckIcon className="mt-0.5 h-4 w-4 shrink-0" />
+            <li key={objective.text} className="flex items-start gap-1">
+              <CheckIcon className="mt-px h-3.5 w-3.5 shrink-0" />
               <span>{objective.text}</span>
             </li>
           ))}
         </ul>
       </div>
-
     </div>
   );
 }

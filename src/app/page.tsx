@@ -45,7 +45,7 @@ export default function Home() {
             MissionCard's photo/text row + the Start button all live inside
             one bordered/shadowed card, rather than MissionCard carrying its
             own chrome and the button floating separately at page-bottom. */}
-        <div className="flex flex-col gap-4 rounded-card border border-border bg-card p-5 shadow-sm">
+        <div className="-mx-3 flex flex-col gap-2.5 rounded-card border border-border bg-card px-4 py-3 shadow-sm">
           <div className="flex items-center justify-between">
             <span className="text-caption font-semibold tracking-wide text-accent uppercase">
               Today&apos;s Mission
