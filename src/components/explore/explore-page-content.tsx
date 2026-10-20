@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ContinueButton } from "@/components/continue-button";
 import { CourseProgressChip } from "@/components/course-progress";
 import { ChunkSection } from "@/components/explore/chunk-section";
+import { ExploreMore } from "@/components/explore/explore-more";
 import { ExpressionCard, TINT_CYCLE, type ExpressionTint } from "@/components/explore/expression-card";
 import { StageTag } from "@/components/stage-tag";
 import {
@@ -52,6 +53,18 @@ export function ExplorePageContent() {
     closing: false,
   });
 
+  // Lifted here (not inside ChunkSection) so it survives the section's body unmounting.
+  const [openMore, setOpenMore] = useState<Record<ExploreSectionKey, boolean>>({
+    greeting: false,
+    checkin: false,
+    response: false,
+    closing: false,
+  });
+
+  function toggleMore(key: ExploreSectionKey) {
+    setOpenMore((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
+
   function toggleSection(key: ExploreSectionKey) {
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
   }
@@ -85,27 +98,15 @@ export function ExplorePageContent() {
                 testId={`section-${key}`}
               >
                 <div className="flex flex-col gap-3">
-                  {key === "response"
-                    ? EXPLORE_SECTIONS.response.main.map((item) => (
-                        <ExpressionCard
-                          key={item.id}
-                          id={item.id}
-                          lines={item.lines}
-                          zh={item.zh}
-                          pill={ROLE_LABEL[item.role]}
-                          tint={ROLE_TINT[item.role]}
-                        />
-                      ))
-                    : EXPLORE_SECTIONS[key].main.map((item, index) => (
-                        <ExpressionCard
-                          key={item.id}
-                          id={item.id}
-                          lines={item.lines}
-                          zh={item.zh}
-                          pill={item.tag}
-                          tint={TINT_CYCLE[index % TINT_CYCLE.length]}
-                        />
-                      ))}
+                  {renderCards(key, "main")}
+                  <ExploreMore
+                    open={openMore[key]}
+                    onToggle={() => toggleMore(key)}
+                    subtitle={EXPLORE_SECTIONS[key].moreSubtitle}
+                    testId={`explore-more-${key}`}
+                  >
+                    {renderCards(key, "more")}
+                  </ExploreMore>
                 </div>
               </ChunkSection>
             );
@@ -120,4 +121,30 @@ export function ExplorePageContent() {
       </div>
     </div>
   );
+}
+
+/** Cards for one list; tint restarts from green per list (or follows the role in Response). */
+function renderCards(key: ExploreSectionKey, list: "main" | "more") {
+  if (key === "response") {
+    return EXPLORE_SECTIONS.response[list].map((item) => (
+      <ExpressionCard
+        key={item.id}
+        id={item.id}
+        lines={item.lines}
+        zh={item.zh}
+        pill={ROLE_LABEL[item.role]}
+        tint={ROLE_TINT[item.role]}
+      />
+    ));
+  }
+  return EXPLORE_SECTIONS[key][list].map((item, index) => (
+    <ExpressionCard
+      key={item.id}
+      id={item.id}
+      lines={item.lines}
+      zh={item.zh}
+      pill={item.tag}
+      tint={TINT_CYCLE[index % TINT_CYCLE.length]}
+    />
+  ));
 }

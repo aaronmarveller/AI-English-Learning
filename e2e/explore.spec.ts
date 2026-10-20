@@ -112,6 +112,56 @@ const MAIN: Record<string, Row[]> = {
   ],
 };
 
+/** Explore More expressions, word for word from issue #81's tables. Tint restarts from green. */
+const MORE: Record<string, Row[]> = {
+  greeting: [
+    { id: "greeting-hey", en: ["Hey!"], zh: "嗨！", pill: "更随意", tint: "green" },
+    { id: "greeting-good-to-see-you", en: ["Good to see you!"], zh: "见到你真高兴！", pill: "再次见面", tint: "blue" },
+  ],
+  checkin: [
+    { id: "checkin-how-are-you-doing", en: ["How are you doing?"], zh: "你怎么样？", pill: "日常口语", tint: "green" },
+    {
+      id: "checkin-hows-your-day-going",
+      en: ["How's your day going?"],
+      zh: "今天过得怎么样？",
+      pill: "询问今天",
+      tint: "blue",
+    },
+    { id: "checkin-how-have-you-been", en: ["How have you been?"], zh: "最近过得怎么样？", pill: "久别问候", tint: "yellow" },
+  ],
+  response: [
+    { id: "response-pretty-good", en: ["Pretty good!"], zh: "挺不错的！", pill: "Respond · 回应", tint: "green" },
+    { id: "response-not-bad", en: ["Not bad!"], zh: "还不错！", pill: "Respond · 回应", tint: "green" },
+    {
+      id: "response-enjoying-the-weather",
+      en: ["Just enjoying the weather."],
+      zh: "正享受这好天气呢。",
+      pill: "Add More · 补充近况",
+      tint: "blue",
+    },
+    {
+      id: "response-busy-week",
+      en: ["It's been a busy week."],
+      zh: "这周一直挺忙的。",
+      pill: "Add More · 补充近况",
+      tint: "blue",
+    },
+    { id: "response-what-about-you", en: ["What about you?"], zh: "你呢？", pill: "Ask Back · 回问", tint: "yellow" },
+  ],
+  closing: [
+    { id: "closing-take-care", en: ["Take care!"], zh: "保重！", pill: "表达关心", tint: "green" },
+    { id: "closing-have-a-good-one", en: ["Have a good one!"], zh: "祝你今天愉快！", pill: "日常口语", tint: "blue" },
+    { id: "closing-catch-you-later", en: ["Catch you later!"], zh: "回头见！", pill: "熟人之间", tint: "yellow" },
+  ],
+};
+
+const MORE_SUBTITLES: Record<string, string> = {
+  greeting: "想了解更多打招呼的表达",
+  checkin: "想了解更多问候近况的表达",
+  response: "想了解更多回应与继续交流的表达",
+  closing: "想了解更多结束交流的表达",
+};
+
 const HEADERS: Record<string, string> = {
   greeting: "Greeting · 打招呼",
   checkin: "Check-in · 问候近况",
@@ -120,6 +170,12 @@ const HEADERS: Record<string, string> = {
 };
 
 const SECTIONS = ["greeting", "checkin", "response", "closing"] as const;
+
+async function openAllMore(page: Page): Promise<void> {
+  for (const key of SECTIONS) {
+    await page.getByTestId(`explore-more-${key}-toggle`).click();
+  }
+}
 
 /** Greeting starts open; this opens the other three. */
 async function openAll(page: Page): Promise<void> {
@@ -195,7 +251,7 @@ test.describe("Explore page", () => {
         await expect(card.getByText(row.zh, { exact: true })).toBeVisible();
         await expect(card.getByText(row.pill, { exact: true })).toBeVisible();
       }
-      // Explore More is not rendered yet: only the main list appears.
+      // Explore More starts collapsed: only the main list appears.
       await expect(page.getByTestId(`section-${key}-body`).locator('[data-testid^="expression-card-"]')).toHaveCount(
         MAIN[key].length,
       );
@@ -291,7 +347,145 @@ test.describe("Explore page", () => {
     expect(hasHorizontalScroll).toBe(false);
   });
 
-  test("Continue reads \"Continue 继续学习 →\" and is reachable without opening anything", async ({ page }) => {
+  test("all four Explore More groups start collapsed, showing 更多表达 and their own subtitle", async ({ page }) => {
+    await resetStorage(page);
+    await page.goto(EXPLORE_URL);
+    await openAll(page);
+
+    for (const key of SECTIONS) {
+      const more = page.getByTestId(`explore-more-${key}`);
+      await expect(more).toHaveAttribute("data-state", "collapsed");
+      await expect(more).toContainText("更多表达");
+      await expect(more).toContainText(MORE_SUBTITLES[key]);
+      await expect(page.getByTestId(`explore-more-${key}-icon`)).toHaveText("+");
+      await expect(page.getByTestId(`explore-more-${key}-chevron`)).toHaveText("⌄");
+      await expect(page.getByTestId(`explore-more-${key}-chevron`)).toHaveCSS("color", "rgb(47, 174, 96)");
+      await expect(page.getByTestId(`explore-more-${key}-body`)).toHaveCount(0);
+    }
+  });
+
+  test("opening Greeting's Explore More shows Hey! and Good to see you! with translations and tags", async ({
+    page,
+  }) => {
+    await resetStorage(page);
+    await page.goto(EXPLORE_URL);
+
+    await page.getByTestId("explore-more-greeting-toggle").click();
+    await expect(page.getByTestId("explore-more-greeting")).toHaveAttribute("data-state", "expanded");
+    await expect(page.getByTestId("explore-more-greeting-icon")).toHaveText("−");
+    await expect(page.getByTestId("explore-more-greeting-chevron")).toHaveText("⌃");
+    // Subtitle is unchanged while expanded.
+    await expect(page.getByTestId("explore-more-greeting")).toContainText(MORE_SUBTITLES.greeting);
+    const hey = page.getByTestId("expression-card-greeting-hey");
+    const seeYou = page.getByTestId("expression-card-greeting-good-to-see-you");
+    await expect(hey).toContainText("Hey!");
+    await expect(hey).toContainText("嗨！");
+    await expect(hey).toContainText("更随意");
+    await expect(seeYou).toContainText("Good to see you!");
+    await expect(seeYou).toContainText("见到你真高兴！");
+    await expect(seeYou).toContainText("再次见面");
+  });
+
+  test("every Explore More expression shows word for word, with the right tint, under its section", async ({
+    page,
+  }) => {
+    await resetStorage(page);
+    await page.goto(EXPLORE_URL);
+    await openAll(page);
+    await openAllMore(page);
+
+    for (const key of SECTIONS) {
+      const more = page.getByTestId(`explore-more-${key}-body`);
+      await expect(more.locator('[data-testid^="expression-card-"]')).toHaveCount(MORE[key].length);
+      for (const row of MORE[key]) {
+        const card = more.getByTestId(`expression-card-${row.id}`);
+        for (const line of row.en) await expect(card.getByText(line, { exact: true })).toBeVisible();
+        await expect(card.getByText(row.zh, { exact: true })).toBeVisible();
+        await expect(card.getByText(row.pill, { exact: true })).toBeVisible();
+        await expect(card).toHaveAttribute("data-tint", row.tint);
+      }
+    }
+  });
+
+  test("collapsing and reopening a section keeps its Explore More state", async ({ page }) => {
+    await resetStorage(page);
+    await page.goto(EXPLORE_URL);
+
+    await page.getByTestId("explore-more-greeting-toggle").click();
+    await page.getByTestId("section-greeting-header").click();
+    await expect(page.getByTestId("section-greeting")).toHaveAttribute("data-state", "collapsed");
+    await page.getByTestId("section-greeting-header").click();
+    await expect(page.getByTestId("explore-more-greeting")).toHaveAttribute("data-state", "expanded");
+    await expect(page.getByTestId("expression-card-greeting-hey")).toBeVisible();
+
+    // A collapsed Explore More also stays collapsed across a section toggle.
+    await page.getByTestId("explore-more-greeting-toggle").click();
+    await page.getByTestId("section-greeting-header").click();
+    await page.getByTestId("section-greeting-header").click();
+    await expect(page.getByTestId("explore-more-greeting")).toHaveAttribute("data-state", "collapsed");
+  });
+
+  test("each Explore More opens and closes independently of the others", async ({ page }) => {
+    await resetStorage(page);
+    await page.goto(EXPLORE_URL);
+    await openAll(page);
+
+    await page.getByTestId("explore-more-checkin-toggle").click();
+    await expect(page.getByTestId("explore-more-checkin")).toHaveAttribute("data-state", "expanded");
+    for (const key of ["greeting", "response", "closing"]) {
+      await expect(page.getByTestId(`explore-more-${key}`)).toHaveAttribute("data-state", "collapsed");
+    }
+
+    await page.getByTestId("explore-more-closing-toggle").click();
+    await page.getByTestId("explore-more-checkin-toggle").click();
+    await expect(page.getByTestId("explore-more-checkin")).toHaveAttribute("data-state", "collapsed");
+    await expect(page.getByTestId("explore-more-closing")).toHaveAttribute("data-state", "expanded");
+    await expect(page.getByTestId("explore-more-greeting")).toHaveAttribute("data-state", "collapsed");
+  });
+
+  test("every Explore More expression has a working pronunciation button", async ({ page }) => {
+    await resetStorage(page);
+    await installControllableSpeechStub(page);
+    await page.goto(EXPLORE_URL);
+    await openAll(page);
+    await openAllMore(page);
+
+    for (const key of SECTIONS) {
+      for (const row of MORE[key]) {
+        const card = page.getByTestId(`expression-card-${row.id}`);
+        await expect(card.getByRole("button")).toHaveCount(row.en.length);
+        await expect(card.getByRole("button", { name: `播放发音 Play pronunciation: ${row.en[0]}` })).toHaveCount(1);
+      }
+    }
+
+    const first = page.getByTestId("pronounce-greeting-hey");
+    const second = page.getByTestId("pronounce-closing-catch-you-later");
+    await first.click();
+    await expect(first).toHaveAttribute("data-state", "playing");
+    await second.click();
+    await expect(second).toHaveAttribute("data-state", "playing");
+    await expect(first).toHaveAttribute("data-state", "idle");
+    await page.evaluate(() => window.__resolveSpeech?.());
+    await expect(second).toHaveAttribute("data-state", "idle");
+  });
+
+  test("at 375px with every section and Explore More open there is no horizontal scroll", async ({ page }) => {
+    await resetStorage(page);
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto(EXPLORE_URL);
+    await openAll(page);
+    await openAllMore(page);
+
+    for (const key of SECTIONS) {
+      await expect(page.getByTestId(`explore-more-${key}-body`)).toBeVisible();
+    }
+    const hasHorizontalScroll = await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    );
+    expect(hasHorizontalScroll).toBe(false);
+  });
+
+  test("Continue reads\"Continue 继续学习 →\" and is reachable without opening anything", async ({ page }) => {
     await resetStorage(page);
     await page.goto(EXPLORE_URL);
 
