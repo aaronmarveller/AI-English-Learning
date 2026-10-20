@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { PlayIcon } from "@/components/icons";
 import { STEP_ROUTES } from "@/lib/progress";
 
 /**
@@ -28,9 +29,10 @@ export function StartLessonButton() {
       type="button"
       data-testid="start-lesson-button"
       onClick={() => router.push(STEP_ROUTES.observe)}
-      className="btn-primary w-full"
+      className="btn-primary flex w-full items-center justify-center gap-2"
     >
-      Start Lesson 开始学习
+      <PlayIcon className="h-5 w-5" />
+      开始学习
     </button>
   );
 }

@@ -106,6 +106,58 @@ test.describe("Home page", () => {
     });
   });
 
+  test.describe("Today's Mission", () => {
+    test("shows the 10-minute duration and no 5-minute copy anywhere on Home", async ({ page }) => {
+      await resetStorage(page);
+      await page.goto("/");
+
+      await expect(page.getByText("10 min", { exact: true })).toBeVisible();
+      await expect(page.getByText("5 分钟")).toHaveCount(0);
+      await expect(page.getByText("5–10 分钟")).toHaveCount(0);
+    });
+
+    test("lists the intro line and the three Learning Objectives in order", async ({ page }) => {
+      await resetStorage(page);
+      await page.goto("/");
+
+      const card = page.getByTestId("mission-card");
+      const expected = [
+        "学完这节课，你将能够：",
+        "回应日常问候",
+        "简单分享自己的近况（可选）",
+        "自然地继续或结束交流",
+      ];
+      for (const text of expected) {
+        await expect(card.getByText(text, { exact: true })).toBeVisible();
+      }
+      const body = await card.innerText();
+      const positions = expected.map((t) => body.indexOf(t));
+      expect(positions.every((p) => p >= 0)).toBe(true);
+      expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+    });
+
+    test("drops the Chinese subtitle, category and globe", async ({ page }) => {
+      await resetStorage(page);
+      await page.goto("/");
+
+      const card = page.getByTestId("mission-card");
+      await expect(card.getByText("邻里问候", { exact: true })).toHaveCount(0);
+      await expect(card.getByText("日常社交")).toHaveCount(0);
+      await expect(card.getByText("🌐")).toHaveCount(0);
+      await expect(card.getByText("👋")).toBeVisible();
+    });
+
+    test("keeps the card's accessible name and names the button 开始学习", async ({ page }) => {
+      await resetStorage(page);
+      await page.goto("/");
+
+      await expect(
+        page.getByRole("button", { name: "开始今日课程 Greeting Someone 邻里问候" }),
+      ).toBeVisible();
+      await expect(page.getByRole("button", { name: "开始学习", exact: true })).toBeVisible();
+    });
+  });
+
   test("clicking anywhere on the Mission card starts the lesson, same as the primary button", async ({
     page,
   }) => {

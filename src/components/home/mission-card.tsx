@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import type { KeyboardEvent } from "react";
+import { CheckIcon } from "@/components/icons";
 import { HOME_CONTENT } from "@/content/home";
 import { STEP_ROUTES } from "@/lib/progress";
 
@@ -52,7 +53,7 @@ export function MissionCard() {
       aria-label={`开始今日课程 ${course.nameEn} ${course.nameZh}`}
       onClick={start}
       onKeyDown={handleKeyDown}
-      className="flex cursor-pointer items-center gap-4 text-left active:scale-[0.98] active:brightness-95"
+      className="flex cursor-pointer items-stretch gap-4 text-left active:scale-[0.98] active:brightness-95"
     >
       {/* eslint-disable-next-line @next/next/no-img-element -- fixed-aspect
           decorative crop; next/image's layout machinery buys nothing here. */}
@@ -60,30 +61,28 @@ export function MissionCard() {
         src="/assets/home/mission-thumb.jpg"
         alt=""
         aria-hidden
-        className="aspect-square w-28 shrink-0 rounded-card object-cover"
+        className="aspect-[3/4] w-1/2 shrink-0 rounded-card object-cover"
       />
 
-      <div className="flex min-w-0 flex-1 flex-col gap-3">
-        <div className="flex items-center gap-3">
-          <span
-            aria-hidden
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent-soft text-lg"
-          >
-            👋
-          </span>
-          <div className="flex min-w-0 flex-col">
-            <h2 className="text-h2">{course.nameEn}</h2>
-            <p className="text-body text-muted">{course.nameZh}</p>
-          </div>
-        </div>
-
-        <hr className="border-border" />
-
-        <div className="flex items-center gap-1.5 text-body-sm text-muted">
-          <span aria-hidden>🌐</span>
-          <span>{course.category}</span>
-        </div>
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <span
+          aria-hidden
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent-soft text-lg"
+        >
+          👋
+        </span>
+        <h2 className="text-h2">{course.nameEn}</h2>
+        <p className="text-body-sm text-muted">{course.objectivesIntro}</p>
+        <ul className="flex flex-col gap-1.5 text-body-sm text-muted">
+          {course.objectives.map((objective) => (
+            <li key={objective.text} className="flex items-start gap-1.5">
+              <CheckIcon className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{objective.text}</span>
+            </li>
+          ))}
+        </ul>
       </div>
+
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { ClockIcon } from "@/components/icons";
 import { DebugJumpBar } from "@/components/debug-jump-bar";
 import { ComingNextList } from "@/components/home/coming-next-list";
 import { GreetingBanner } from "@/components/home/greeting-banner";
@@ -50,7 +51,7 @@ export default function Home() {
               Today&apos;s Mission
             </span>
             <span className="flex items-center gap-1 text-body-sm text-muted">
-              <span aria-hidden>🕐</span>
+              <ClockIcon className="h-4 w-4" />
               {HOME_CONTENT.course.duration}
             </span>
           </div>

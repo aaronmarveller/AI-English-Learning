@@ -27,8 +27,15 @@ export const HOME_CONTENT = {
   course: {
     nameEn: "Greeting Someone",
     nameZh: "邻里问候",
-    duration: "5–10 分钟",
-    category: "日常社交",
+    duration: "10 min",
+    /** Intro line above the Learning Objectives (see CONTEXT.md). */
+    objectivesIntro: "学完这节课，你将能够：",
+    /** Ordered Learning Objectives; "（可选）" is part of the displayed text. */
+    objectives: [
+      { text: "回应日常问候", optional: false },
+      { text: "简单分享自己的近况（可选）", optional: true },
+      { text: "自然地继续或结束交流", optional: false },
+    ],
   },
   tagline: {
     /** Big bilingual hero headline (UI draft, 2026-08-06 review). */

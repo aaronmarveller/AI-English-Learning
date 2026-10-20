@@ -70,3 +70,29 @@ export function PinIcon(props: SVGProps<SVGSVGElement>) {
     </IconBase>
   );
 }
+
+export function CheckIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <IconBase {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="m8 12.5 2.8 2.8L16 9.5" />
+    </IconBase>
+  );
+}
+
+export function PlayIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <IconBase {...props}>
+      <path d="M8 5.5v13l11-6.5-11-6.5Z" />
+    </IconBase>
+  );
+}
+
+export function ClockIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <IconBase {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </IconBase>
+  );
+}
