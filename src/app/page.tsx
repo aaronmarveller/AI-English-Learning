@@ -11,34 +11,33 @@ export default function Home() {
   return (
     <>
       <DebugJumpBar />
-      <main className="flex flex-1 flex-col gap-6 px-5 py-6">
+      <main className="relative flex flex-1 flex-col gap-6 overflow-x-clip px-5 py-6 [&>*:not(img)]:relative">
+        {/* Decorative backdrop: top-right, bleeding to the edges and running
+            up behind the header. Its light left side sits under the hero text,
+            and a left-to-right fade keeps that text readable. */}
+        {/* eslint-disable-next-line @next/next/no-img-element -- decorative
+            backdrop; next/image's layout machinery buys nothing here. */}
+        <img
+          src="/assets/home/hero.jpg"
+          alt=""
+          aria-hidden
+          className="pointer-events-none absolute top-0 right-0 h-[19rem] w-[85%] object-cover object-right [mask-image:linear-gradient(to_right,transparent,black_55%)]"
+        />
+
         <TopNav />
 
-        <div className="flex items-center gap-4">
-          <div className="flex min-w-0 flex-1 flex-col gap-3">
-            <span className="flex items-center gap-1.5 text-body-sm font-medium text-muted">
-              <span aria-hidden>☀️</span>
-              Good Morning
-            </span>
-            <GreetingBanner />
-            <h1 className="text-display text-foreground">{HOME_CONTENT.tagline.headlineEn}</h1>
-            {/* Product tagline + the "every day just 5 minutes" promise —
-                both above the fold (spec.md user story 12). */}
-            <p className="text-body-lg text-foreground">{HOME_CONTENT.tagline.zh}</p>
-            <p className="text-body text-muted">{HOME_CONTENT.tagline.promiseZh}</p>
-          </div>
-
-          {/* eslint-disable-next-line @next/next/no-img-element -- fixed-aspect
-              decorative crop; next/image's layout machinery buys nothing here.
-              aspect-[3/2] matches hero.jpg's native 349x230 (~1.52) ratio —
-              a portrait crop (previously 3/4) was cutting off most of the
-              photo (UI draft review 2026-08-07 feedback). */}
-          <img
-            src="/assets/home/hero.jpg"
-            alt=""
-            aria-hidden
-            className="aspect-[3/2] w-2/5 shrink-0 rounded-card object-cover"
-          />
+        <div className="flex flex-col gap-3">
+          <GreetingBanner />
+          <h1
+            className="text-display whitespace-nowrap text-foreground"
+            style={{ fontSize: "clamp(1.5rem, 8vw, 2rem)" }}
+          >
+            {HOME_CONTENT.tagline.headlineEn}
+          </h1>
+          {/* Product proposition + the "10 minutes a day" promise — both
+              above the fold (spec.md user story 12). */}
+          <p className="text-body-lg text-foreground">{HOME_CONTENT.tagline.zh}</p>
+          <p className="text-body font-medium text-foreground">{HOME_CONTENT.tagline.promiseZh}</p>
         </div>
 
         {/* Shared card shell (UI draft, 2026-08-07 review): header row +

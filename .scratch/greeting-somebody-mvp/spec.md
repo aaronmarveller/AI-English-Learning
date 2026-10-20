@@ -55,7 +55,7 @@ Home → Observe → Explore → Notice → Practice → Review
 ### Page 1 — Home
 
 11. As a 学习者, I want 打开就看到按我当地时间变化的问候语, so that 产品感觉是为此刻的我准备的
-12. As a 学习者, I want 首屏看到一句清楚的产品主张和每天只要 5 分钟的承诺, so that 我知道这不是又一个要投入大量时间的东西
+12. As a 学习者, I want 首屏看到一句清楚的产品主张和每天只要 10 分钟的承诺, so that 我知道这不是又一个要投入大量时间的东西
 13. As a 学习者, I want 看到 Today's Mission 卡片展示今天要学什么、要花多久, so that 我在开始前就知道要付出什么、得到什么
 14. As a 学习者, I want 点卡片任意位置都能开始, so that 我不用精确瞄准那个按钮
 15. As a 学习者, I want 点 Start Lesson 直接进入课程, so that 中间没有加载页或二次确认拖慢我

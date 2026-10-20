@@ -35,8 +35,8 @@ export const HOME_CONTENT = {
     headlineEn: "Learn Real English.",
     /** Product proposition, shown above the fold per spec.md user story 12. */
     zh: "学习真实生活中的英语交流。",
-    /** The "every day just 5 minutes" promise (spec.md: "每天只要 5 分钟"). */
-    promiseZh: "每天 5 分钟，轻松开口说英语。",
+    /** The "10 minutes a day" promise (spec.md user story 12). */
+    promiseZh: "每天 10 分钟，轻松开口说英语。",
   },
   comingNext: [
     {

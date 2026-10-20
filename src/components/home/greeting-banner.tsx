@@ -33,10 +33,10 @@ function periodForHour(hour: number): GreetingPeriod {
   return "evening";
 }
 
-const GREETINGS: Record<GreetingPeriod, { zh: string; en: string }> = {
-  morning: { zh: "早上好", en: "Good morning" },
-  afternoon: { zh: "下午好", en: "Good afternoon" },
-  evening: { zh: "晚上好", en: "Good evening" },
+const GREETINGS: Record<GreetingPeriod, string> = {
+  morning: "Good Morning",
+  afternoon: "Good Afternoon",
+  evening: "Good Evening",
 };
 
 let cachedPeriod: GreetingPeriod | null = null;
@@ -67,8 +67,11 @@ export function GreetingBanner() {
   const greeting = period ? GREETINGS[period] : null;
 
   return (
-    <p data-testid="greeting" aria-live="polite" className="text-body-lg text-muted">
-      {greeting ? greeting.zh : " "}
-    </p>
+    <div className="flex items-center gap-1.5 text-body-sm font-medium text-muted">
+      <span aria-hidden>☀️</span>
+      <p data-testid="greeting" aria-live="polite">
+        {greeting ?? " "}
+      </p>
+    </div>
   );
 }

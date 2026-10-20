@@ -48,9 +48,9 @@ async function mockLocalHour(page: Page, hour: number): Promise<void> {
 test.describe("Home page", () => {
   test.describe("time-of-day greeting", () => {
     for (const { label, hour, expectedText } of [
-      { label: "morning", hour: 8, expectedText: "早上好" },
-      { label: "afternoon", hour: 14, expectedText: "下午好" },
-      { label: "evening", hour: 20, expectedText: "晚上好" },
+      { label: "morning", hour: 8, expectedText: "Good Morning" },
+      { label: "afternoon", hour: 14, expectedText: "Good Afternoon" },
+      { label: "evening", hour: 20, expectedText: "Good Evening" },
     ]) {
       test(`shows the ${label} greeting when local time is ${hour}:00`, async ({ page }) => {
         await resetStorage(page);
@@ -60,6 +60,50 @@ test.describe("Home page", () => {
         await expect(page.getByTestId("greeting")).toHaveText(expectedText);
       });
     }
+  });
+
+  test.describe("hero", () => {
+    test("shows exactly one greeting, in English", async ({ page }) => {
+      await resetStorage(page);
+      await mockLocalHour(page, 8);
+      await page.goto("/");
+
+      await expect(page.getByText("Good Morning")).toHaveCount(1);
+      for (const zh of ["早上好", "下午好", "晚上好"]) {
+        await expect(page.getByText(zh)).toHaveCount(0);
+      }
+    });
+
+    for (const width of [375, 390]) {
+      test(`renders "Learn Real English." on a single line at ${width}px with no horizontal scroll`, async ({
+        page,
+      }) => {
+        await page.setViewportSize({ width, height: 800 });
+        await resetStorage(page);
+        await page.goto("/");
+
+        const heading = page.getByRole("heading", { name: "Learn Real English." });
+        await expect(heading).toBeVisible();
+        const { height, lineHeight } = await heading.evaluate((el) => ({
+          height: el.getBoundingClientRect().height,
+          lineHeight: parseFloat(getComputedStyle(el).lineHeight),
+        }));
+        expect(height).toBeCloseTo(lineHeight, 0);
+
+        const overflow = await page.evaluate(
+          () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        );
+        expect(overflow).toBeLessThanOrEqual(0);
+      });
+    }
+
+    test("promises ten minutes a day and no longer mentions five", async ({ page }) => {
+      await resetStorage(page);
+      await page.goto("/");
+
+      await expect(page.getByText("每天 10 分钟，轻松开口说英语。")).toBeVisible();
+      await expect(page.getByText("每天 5 分钟")).toHaveCount(0);
+    });
   });
 
   test("clicking anywhere on the Mission card starts the lesson, same as the primary button", async ({
