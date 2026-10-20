@@ -31,7 +31,7 @@ const TONE = {
 
 function PhotoCircle({ side, tone }: { side: NoticeSide; tone: Tone }) {
   return (
-    <span className="relative block h-16 w-16 shrink-0">
+    <span className="relative block h-[74px] w-[74px] shrink-0">
       {/* eslint-disable-next-line @next/next/no-img-element -- placeholder photos; a missing file must show an empty circle, not a broken layout. */}
       <img
         src={side.photo.src}
@@ -140,9 +140,9 @@ export function NoticeCard({ index, card, open, onToggle }: NoticeCardProps) {
         <span className="flex min-w-0 flex-1 flex-col gap-3">
           <span className="text-h3 text-foreground">{card.question}</span>
           {!open ? (
-            <span aria-hidden className="flex w-full items-center justify-center gap-4">
+            <span aria-hidden className="flex w-full items-center justify-center gap-3">
               <PhotoCircle side={card.left} tone="left" />
-              <span className="flex items-center gap-3 text-caption text-muted">
+              <span className="flex items-center gap-2 text-caption text-muted">
                 <span className="h-8 w-px bg-border" />
                 VS
                 <span className="h-8 w-px bg-border" />
