@@ -10,6 +10,11 @@ export const metadata: Metadata = {
   title: "Observe — Greeting Someone",
 };
 
+const TAG_TONE = {
+  green: "bg-accent-soft text-accent",
+  blue: "bg-blue-100 text-blue-700",
+} as const;
+
 // No task here, just watching: the thinking prompts tell the learner what
 // to notice, and the scene videos build context for what's coming in
 // Explore (spec.md User Stories 18-23).
@@ -30,12 +35,34 @@ export default function ObservePage() {
 
       <ThinkingPrompts />
 
-      <SceneVideoPlayer
-        src={OBSERVE_CONTENT.video.src}
-        captionsSrc={OBSERVE_CONTENT.video.captionsSrc}
-        sceneName={OBSERVE_CONTENT.sceneName}
-        poster="/assets/home/mission-thumb.jpg"
-      />
+      <div className="flex flex-col gap-6">
+        {OBSERVE_CONTENT.scenes.map((scene) => (
+          <section
+            key={scene.id}
+            data-testid={`observe-scene-${scene.id}`}
+            className="flex flex-col gap-3"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="flex min-w-0 items-center gap-2 text-body-lg font-semibold text-foreground">
+                <span aria-hidden>{scene.emoji}</span>
+                {scene.nameEn}
+              </h3>
+              <span
+                className={`shrink-0 rounded-button px-3 py-1 text-body-sm font-medium ${TAG_TONE[scene.tag.tone]}`}
+              >
+                {scene.tag.en} {scene.tag.zh}
+              </span>
+            </div>
+            <SceneVideoPlayer
+              id={scene.id}
+              src={scene.video.src}
+              captionsSrc={scene.video.captionsSrc}
+              sceneName={scene.nameZh}
+              poster={scene.video.poster}
+            />
+          </section>
+        ))}
+      </div>
 
       <div className="mt-auto pt-6">
         <ContinueButton next="/explore" markStepComplete="observe">

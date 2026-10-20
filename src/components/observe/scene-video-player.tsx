@@ -3,6 +3,8 @@
 import { useRef, useState, type KeyboardEvent } from "react";
 
 type SceneVideoPlayerProps = {
+  /** Scene id; suffixes the test ids so multiple players can coexist. */
+  id: string;
   src: string;
   captionsSrc: string;
   sceneName: string;
@@ -30,7 +32,7 @@ type SceneVideoPlayerProps = {
  * DOM entirely and native `<video controls>` (a real, standard control
  * surface) takes over for everything else.
  */
-export function SceneVideoPlayer({ src, captionsSrc, sceneName, poster }: SceneVideoPlayerProps) {
+export function SceneVideoPlayer({ id, src, captionsSrc, sceneName, poster }: SceneVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [hasStarted, setHasStarted] = useState(false);
 
@@ -59,7 +61,7 @@ export function SceneVideoPlayer({ src, captionsSrc, sceneName, poster }: SceneV
     >
       <video
         ref={videoRef}
-        data-testid="observe-video"
+        data-testid={`observe-video-${id}`}
         className="h-full w-full max-w-full object-cover"
         controls
         playsInline
@@ -104,7 +106,7 @@ export function SceneVideoPlayer({ src, captionsSrc, sceneName, poster }: SceneV
       */}
       {!hasStarted && (
         <div
-          data-testid="video-poster-overlay"
+          data-testid={`video-poster-overlay-${id}`}
           tabIndex={0}
           aria-label={`播放视频 Play video: ${sceneName}`}
           onClick={startPlayback}
@@ -112,7 +114,7 @@ export function SceneVideoPlayer({ src, captionsSrc, sceneName, poster }: SceneV
           className="group absolute inset-0 flex cursor-pointer items-center justify-center active:brightness-90"
         >
           <span
-            data-testid="video-play-button"
+            data-testid={`video-play-button-${id}`}
             aria-hidden
             className="flex h-16 w-16 items-center justify-center rounded-full bg-card/90 text-2xl text-primary shadow-lg transition-transform group-active:scale-95"
           >

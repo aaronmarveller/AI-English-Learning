@@ -12,20 +12,51 @@ import { resetStorage } from "./fixtures";
  * relies on.
  */
 
+const SCENE_IDS = ["coffee-shop", "neighbor"] as const;
+
 test.describe("observe page", () => {
-  test("video does not autoplay and shows its poster on load", async ({ page }) => {
+  test("renders two scenes in order, each with emoji, name and bilingual tag", async ({
+    page,
+  }) => {
     await resetStorage(page);
     await page.goto("/observe?debug=1");
 
-    const video = page.getByTestId("observe-video");
-    await expect(video).toBeVisible();
+    const scenes = page.getByTestId(/^observe-scene-/);
+    await expect(scenes).toHaveCount(2);
+    await expect(scenes.nth(0)).toHaveAttribute("data-testid", "observe-scene-coffee-shop");
+    await expect(scenes.nth(1)).toHaveAttribute("data-testid", "observe-scene-neighbor");
 
-    // Not autoplaying: no autoplay attribute, and paused is true.
-    await expect(video).not.toHaveAttribute("autoplay");
-    expect(await video.evaluate((el: HTMLVideoElement) => el.paused)).toBe(true);
+    await expect(scenes.nth(0)).toContainText("☕");
+    await expect(scenes.nth(0)).toContainText("At a Coffee Shop");
+    await expect(scenes.nth(0)).toContainText("Quick Greeting 简短问候");
+    await expect(scenes.nth(1)).toContainText("🏠");
+    await expect(scenes.nth(1)).toContainText("Meeting a Neighbor");
+    await expect(scenes.nth(1)).toContainText("Casual Small Talk 日常寒暄");
+  });
 
-    // Poster/cover showing.
-    await expect(page.getByTestId("video-poster-overlay")).toBeVisible();
+  test("neither video autoplays and each shows its poster overlay on load", async ({ page }) => {
+    await resetStorage(page);
+    await page.goto("/observe?debug=1");
+
+    for (const id of SCENE_IDS) {
+      const video = page.getByTestId(`observe-video-${id}`);
+      await expect(video).toBeVisible();
+      await expect(video).not.toHaveAttribute("autoplay");
+      expect(await video.evaluate((el: HTMLVideoElement) => el.paused)).toBe(true);
+      await expect(page.getByTestId(`video-poster-overlay-${id}`)).toBeVisible();
+    }
+  });
+
+  test("each video has an English captions track marked default", async ({ page }) => {
+    await resetStorage(page);
+    await page.goto("/observe?debug=1");
+
+    for (const id of SCENE_IDS) {
+      const track = page.getByTestId(`observe-video-${id}`).locator("track");
+      await expect(track).toHaveAttribute("srclang", "en");
+      await expect(track).toHaveAttribute("kind", "captions");
+      await expect(track).toHaveAttribute("default", "");
+    }
   });
 
   test("clicking Continue navigates to /explore without ever touching the video", async ({
@@ -45,17 +76,45 @@ test.describe("observe page", () => {
     await expect(page).toHaveURL(/\/explore(\?|$)/);
   });
 
-  test("clicking the poster overlay starts playback and hides the overlay", async ({ page }) => {
+  test("clicking one overlay starts only that video and hides only its overlay", async ({
+    page,
+  }) => {
     await resetStorage(page);
     await page.goto("/observe?debug=1");
 
-    const overlay = page.getByTestId("video-poster-overlay");
-    const video = page.getByTestId("observe-video");
+    await page.getByTestId("video-poster-overlay-neighbor").click();
 
-    await overlay.click();
+    await expect(page.getByTestId("video-poster-overlay-neighbor")).toBeHidden();
+    expect(
+      await page.getByTestId("observe-video-neighbor").evaluate((el: HTMLVideoElement) => el.paused),
+    ).toBe(false);
 
-    await expect(overlay).toBeHidden();
-    expect(await video.evaluate((el: HTMLVideoElement) => el.paused)).toBe(false);
+    await expect(page.getByTestId("video-poster-overlay-coffee-shop")).toBeVisible();
+    expect(
+      await page
+        .getByTestId("observe-video-coffee-shop")
+        .evaluate((el: HTMLVideoElement) => el.paused),
+    ).toBe(true);
+  });
+
+  test("each overlay announces its own scene and starts playback on Enter/Space", async ({
+    page,
+  }) => {
+    await resetStorage(page);
+    await page.goto("/observe?debug=1");
+
+    const coffee = page.getByTestId("video-poster-overlay-coffee-shop");
+    const neighbor = page.getByTestId("video-poster-overlay-neighbor");
+    await expect(coffee).toHaveAttribute("aria-label", /咖啡店/);
+    await expect(neighbor).toHaveAttribute("aria-label", /邻里/);
+
+    await coffee.focus();
+    await page.keyboard.press("Enter");
+    await expect(coffee).toBeHidden();
+
+    await neighbor.focus();
+    await page.keyboard.press("Space");
+    await expect(neighbor).toBeHidden();
   });
 
   test("shows the new two-line headline and drops the old copy", async ({ page }) => {
@@ -94,7 +153,7 @@ test.describe("observe page", () => {
     await expect(prompts.getByRole("link")).toHaveCount(0);
 
     const promptsBox = await prompts.boundingBox();
-    const videoBox = await page.getByTestId("observe-video").first().boundingBox();
+    const videoBox = await page.getByTestId("observe-scene-coffee-shop").boundingBox();
     expect(promptsBox!.y + promptsBox!.height).toBeLessThanOrEqual(videoBox!.y);
   });
 
