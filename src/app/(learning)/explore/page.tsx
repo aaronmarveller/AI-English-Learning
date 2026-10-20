@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { ExplorePageContent } from "@/components/explore/explore-page-content";
 
 export const metadata: Metadata = {
-  title: "Explore — Greeting Somebody",
+  title: "Explore — Greeting Someone",
 };
 
 // The real Explore page (ticket 06): 4 Conversation Chunk Sections holding

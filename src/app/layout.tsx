@@ -20,7 +20,7 @@ const fontZh = Noto_Sans_SC({
 });
 
 export const metadata: Metadata = {
-  title: "Greeting Somebody — AI English Learning",
+  title: "Greeting Someone — AI English Learning",
   description: "手机端优先的英语口语练习课程",
 };
 

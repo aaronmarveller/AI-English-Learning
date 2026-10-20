@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { PracticePageContent } from "@/components/practice/practice-page-content";
 
 export const metadata: Metadata = {
-  title: "Practice — Greeting Somebody",
+  title: "Practice — Greeting Someone",
 };
 
 // Practice: a live voice Call with Emily. Body lives in PracticePageContent (a

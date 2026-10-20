@@ -1,6 +1,6 @@
-# AI English Learning — Greeting Somebody MVP
+# AI English Learning — Greeting Someone MVP
 
-Mobile-first Next.js app for the `Greeting Somebody` lesson. See
+Mobile-first Next.js app for the `Greeting Someone` lesson. See
 [.scratch/greeting-somebody-mvp/spec.md](.scratch/greeting-somebody-mvp/spec.md)
 for the product spec and [.scratch/greeting-somebody-mvp/issues/](.scratch/greeting-somebody-mvp/issues/)
 for the per-page implementation tickets.

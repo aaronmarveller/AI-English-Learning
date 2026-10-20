@@ -3,8 +3,8 @@
  * consume content instead of hardcoding strings inline (spec.md user story 84:
  * "所有课程文案集中在一处，换课程内容不用翻遍组件").
  *
- * Course name is fixed to `Greeting Somebody` per spec.md's "命名与内容修正"
- * (the UI draft's "Greeting Someone" on pages 1/2 was ruled a typo). The
+ * Course name is fixed to `Greeting Someone` per spec.md's "命名与内容修正"
+ * (the earlier "Somebody" ruling was reversed; Someone is canonical). The
  * Chinese title `邻里问候` ("neighborhood greeting") matches the lesson's
  * actual scene: two neighbors greeting each other in passing.
  */
@@ -25,7 +25,7 @@ export type ComingNextItem = {
 
 export const HOME_CONTENT = {
   course: {
-    nameEn: "Greeting Somebody",
+    nameEn: "Greeting Someone",
     nameZh: "邻里问候",
     duration: "5–10 分钟",
     category: "日常社交",

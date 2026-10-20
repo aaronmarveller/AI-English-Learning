@@ -6,7 +6,7 @@ const DESKTOP_VIEWPORT = { width: 1280, height: 800 };
 test.describe("project scaffold and design system", () => {
   test("home page loads and links to the style guide", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("heading", { name: "Greeting Somebody" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Greeting Someone" })).toBeVisible();
 
     await page.getByRole("link", { name: "查看样式基准页" }).click();
     await expect(page).toHaveURL(/\/style-guide$/);

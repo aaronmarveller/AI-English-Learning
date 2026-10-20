@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { ReviewPageContent } from "@/components/review/review-page-content";
 
 export const metadata: Metadata = {
-  title: "Learning Summary — Greeting Somebody",
+  title: "Learning Summary — Greeting Someone",
 };
 
 // The internal Review route presents the learner-facing Learning Summary,

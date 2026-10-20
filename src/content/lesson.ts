@@ -1,6 +1,6 @@
 /**
  * The Lesson (CONTEXT.md "Lesson"): one self-contained scenario the learner
- * practices end to end. Today there is exactly one, "Greeting Somebody" —
+ * practices end to end. Today there is exactly one, "Greeting Someone" —
  * greeting someone, "How are you today?", and saying goodbye.
  *
  * Emily's behaviour inside a Call (what she says, how she steers back to the

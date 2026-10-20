@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "Coming Soon — Greeting Somebody",
+  title: "Coming Soon — Greeting Someone",
 };
 
 // Standalone placeholder (not part of the (learning) route group — no

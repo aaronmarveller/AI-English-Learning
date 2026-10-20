@@ -4,7 +4,12 @@ Domain glossary for AI-English-Learning. Use these terms as defined here in code
 
 ## Lesson
 
-One self-contained scenario the learner practices end to end, owning the topic Emily keeps the conversation on. Today there is exactly one: `Greeting Somebody` — greeting someone, "How are you today?", and saying goodbye.
+One self-contained scenario the learner practices end to end, owning the topic Emily keeps the conversation on. Today there is exactly one: `Greeting Someone` — greeting someone, "How are you today?", and saying goodbye.
+
+## Learning Objective
+
+Something a Lesson promises the learner will be able to do once they finish it, shown before they start. A Lesson has a few; one may be marked optional. Purely a promise to read — nothing in the learning flow checks, scores, or tracks it.
+_Avoid_: Goal — the retired Conversation Goal family was tracked during Practice; a Learning Objective never is
 
 ## Practice
 

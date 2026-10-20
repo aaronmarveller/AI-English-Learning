@@ -6,7 +6,7 @@ import { getStepFromPathname, STEP_IDS, STEP_LABELS, useProgress } from "@/lib/p
 /**
  * Course-name chip + 5-step progress dots. Previously lived in the shared
  * learning-page `<header>`, above every page's own StageTag (UI draft,
- * 2026-08-07 review round 3: "Greeting Somebody 以及进度是放在 Observe 下方" —
+ * 2026-08-07 review round 3: "Greeting Someone 以及进度是放在 Observe 下方" —
  * it belongs below each page's stage pill instead). Kept as one shared
  * component rather than hand-copied into all 5 pages since the underlying
  * state (current step from the route, completed steps from the progress
@@ -30,7 +30,7 @@ export function CourseProgressChip() {
   return (
     <div className="flex items-center justify-between gap-3">
       <span className="flex w-fit items-center rounded-button bg-accent-soft px-3 py-1 text-body-sm font-medium text-accent">
-        Greeting Somebody
+        Greeting Someone
       </span>
 
       <ol aria-label="学习进度 Learning progress" className="flex items-center gap-2">

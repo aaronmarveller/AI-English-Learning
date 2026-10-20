@@ -8,7 +8,7 @@ import { StageTag } from "@/components/stage-tag";
 import { OBSERVE_CONTENT } from "@/content/observe";
 
 export const metadata: Metadata = {
-  title: "Observe — Greeting Somebody",
+  title: "Observe — Greeting Someone",
 };
 
 // No task here, just watching: a scene video builds context for what's

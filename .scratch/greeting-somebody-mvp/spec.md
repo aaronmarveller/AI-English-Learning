@@ -1,4 +1,4 @@
-# Spec: AI English Learning MVP — Lesson `Greeting Somebody`
+# Spec: AI English Learning MVP — Lesson `Greeting Someone`
 
 Status: ready-for-agent
 
@@ -19,7 +19,7 @@ Status: ready-for-agent
 
 ## Solution
 
-交付一个**手机端优先的网页 App**，包含 1 节完整课程 `Greeting Somebody`，走完固定的六步 Learning Flow：
+交付一个**手机端优先的网页 App**，包含 1 节完整课程 `Greeting Someone`，走完固定的六步 Learning Flow：
 
 ```
 Home → Observe → Explore → Notice → Practice → Review
@@ -246,7 +246,7 @@ Emily 的主线台词是**固定集合**：Opening 5 条、Check-in 3 条、Resp
 
 ### 命名与内容修正
 
-- 课程名统一为 **`Greeting Somebody`**（PRD 两处 + 设计稿 4/6 页为准）
+- 课程名统一为 **`Greeting Someone`**（设计稿与工单为准；此前曾裁定为 Somebody，现已撤销）
 - 进度点共 5 个（Home 不计步）：Observe=1 / Explore=2 / Notice=3 / Practice=4 / Review=5
 - Explore 页的 Response Section **破例不用 Carousel**，改为竖向三步阶梯（左侧 ①②③ 竖线串联）+ 底部高亮的「常见组合」卡。理由：Carousel 会让学习者滑到②时看不见①③，「三句连起来说」的教学意图丢失
 
@@ -321,7 +321,7 @@ eval 至少覆盖：每个 Conversation State 的白名单内表达、白名单�
 
 **功能层面**
 
-- 多节课程 — 只做 `Greeting Somebody` 一节，其余显示 Coming Soon
+- 多节课程 — 只做 `Greeting Someone` 一节，其余显示 Coming Soon
 - 用户系统 / 登录 / 注册 / User Profile
 - 学习历史 / 长期学习记录 / 数据统计
 - 成就系统 / 分数 / 等级
@@ -367,7 +367,7 @@ Emily 立绘**建议提供透明背景版**——设计稿里 Emily 嵌在客厅
 | 手机端 vs 1086px 宽屏稿 | 需求 vs UI 稿 | 手机优先，宽屏降级 |
 | Practice 单浮动气泡 vs 聊天流逐条展示 | UI 稿 vs PRD | 当前轮双气泡 + 折叠记录抽屉 |
 | Review 英文模板 vs 全中文反馈 | AI Cfg §6 vs UI 稿 | 中文叙述 + 英文例句嵌入 |
-| 课程名 Greeting Someone vs Somebody | UI 稿 1,2 vs 其余 | 统一 Greeting Somebody |
+| 课程名 Greeting Someone vs Somebody | UI 稿 1,2 vs 其余 | 统一 Greeting Someone（推翻早先的 Somebody 裁定） |
 | Explore 进度点亮 3 个 | UI 稿 3 | 应为 2，设计稿有误 |
 | 四个 Section 共用 UI vs Response 有序三步 | PRD 自相矛盾 | Response 破例用竖向阶梯 |
 | 对话 3–5 步 vs 锁死 4 步 | PRD vs AI Cfg §3 | 以 AI Cfg 为准，4 步 |
