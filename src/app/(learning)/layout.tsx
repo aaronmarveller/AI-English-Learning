@@ -11,13 +11,13 @@ import { getStepFromPathname, STEP_IDS, STEP_ROUTES, useProgress } from "@/lib/p
 import { useHasMounted } from "@/lib/use-has-mounted";
 
 /**
- * Shared chrome for the 5 learning pages (Observe/Notice/Explore/Practice/
- * Review): back link (Back to Home on Observe, Back to Previous Step
+ * Shared chrome for the 6 learning pages (Observe/Notice/Explore/Guided
+ * Practice/Practice/Review): back link (Back to Home on Observe, Back to Previous Step
  * elsewhere — a plain link that marks nothing complete), persistent nav, and the progressive-learning
  * guard (redirects to Home if the current step's prerequisite isn't
  * complete yet — unless debug mode is active).
  *
- * The course-name chip + 5-dot progress row used to live here too, but
+ * The course-name chip + 6-dot progress row used to live here too, but
  * moved into each page's own content (src/components/course-progress.tsx,
  * rendered below each page's StageTag) per the UI draft's 2026-08-07 review
  * round 3 feedback that it belongs below the stage pill, not in the shared

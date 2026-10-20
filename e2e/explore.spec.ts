@@ -211,6 +211,38 @@ test.describe("Explore page", () => {
 
     await expect(page.getByRole("button", { name: /继续 Continue/ })).toBeVisible();
     await page.getByRole("button", { name: /继续 Continue/ }).click();
-    await expect(page).toHaveURL(/\/practice(\?|$)/);
+    await expect(page).toHaveURL(/\/guided-practice(\?|$)/);
+  });
+
+  test("progress dots: Observe and Notice are solid green, Explore is a green ring, later dots are white", async ({
+    page,
+  }) => {
+    await resetStorage(page);
+    await page.addInitScript(() => {
+      window.localStorage.setItem(
+        "greeting-somebody:progress",
+        JSON.stringify({ completed: ["observe", "notice"] }),
+      );
+    });
+    await page.goto(EXPLORE_URL);
+
+    const dot = (step: string) => page.getByTestId(`progress-dot-${step}`);
+    const GREEN = "rgb(47, 174, 96)";
+    const WHITE = "rgb(255, 255, 255)";
+
+    for (const step of ["observe", "notice"]) {
+      await expect(dot(step)).toHaveAttribute("data-state", "completed");
+      await expect(dot(step)).toHaveCSS("background-color", GREEN);
+    }
+
+    await expect(dot("explore")).toHaveAttribute("data-state", "current");
+    await expect(dot("explore")).toHaveCSS("border-top-color", GREEN);
+    await expect(dot("explore")).not.toHaveCSS("background-color", GREEN);
+
+    for (const step of ["guided-practice", "practice", "review"]) {
+      await expect(dot(step)).toHaveAttribute("data-state", "upcoming");
+      await expect(dot(step)).toHaveCSS("background-color", WHITE);
+      await expect(dot(step)).not.toHaveCSS("border-top-color", GREEN);
+    }
   });
 });

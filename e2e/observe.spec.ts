@@ -157,12 +157,12 @@ test.describe("observe page", () => {
     expect(promptsBox!.y + promptsBox!.height).toBeLessThanOrEqual(videoBox!.y);
   });
 
-  test("the progress row shows 5 dots with Observe as the current one", async ({ page }) => {
+  test("the progress row shows 6 dots with Observe as the current one", async ({ page }) => {
     await resetStorage(page);
     await page.goto("/observe?debug=1");
 
     await expect(page.getByRole("heading", { name: "Observe" })).toBeVisible();
-    await expect(page.locator('[data-testid^="progress-dot-"]')).toHaveCount(5);
+    await expect(page.locator('[data-testid^="progress-dot-"]')).toHaveCount(6);
     await expect(page.getByTestId("progress-dot-observe")).toHaveAttribute("data-state", "current");
   });
 

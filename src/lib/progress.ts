@@ -4,14 +4,14 @@ import { useSyncExternalStore } from "react";
 import { createPersistedStore } from "@/lib/create-persisted-store";
 
 /**
- * Progress store for the 5-step Learning Flow (Home doesn't count as a step).
+ * Progress store for the 6-step Learning Flow (Home doesn't count as a step).
  *
  * Persists which steps the learner has completed to localStorage, and
  * exposes both plain functions (for use outside React, e.g. route guards
  * evaluated during render) and a `useProgress()` hook (for components that
  * need to re-render when progress changes).
  *
- * Order matters: STEP_IDS defines both the progress-dot order (1-5) and the
+ * Order matters: STEP_IDS defines both the progress-dot order (1-6) and the
  * unlock chain — a step is unlocked once the step immediately before it is
  * complete. `observe` has no prerequisite, so it's always unlocked from Home.
  *
@@ -22,7 +22,14 @@ import { createPersistedStore } from "@/lib/create-persisted-store";
  * validation that recovers from corrupt storage.
  */
 
-export const STEP_IDS = ["observe", "notice", "explore", "practice", "review"] as const;
+export const STEP_IDS = [
+  "observe",
+  "notice",
+  "explore",
+  "guided-practice",
+  "practice",
+  "review",
+] as const;
 
 export type StepId = (typeof STEP_IDS)[number];
 
@@ -30,6 +37,7 @@ export const STEP_ROUTES: Record<StepId, `/${StepId}`> = {
   observe: "/observe",
   explore: "/explore",
   notice: "/notice",
+  "guided-practice": "/guided-practice",
   practice: "/practice",
   review: "/review",
 };
@@ -38,6 +46,7 @@ export const STEP_LABELS: Record<StepId, string> = {
   observe: "Observe",
   explore: "Explore",
   notice: "Notice",
+  "guided-practice": "Guided Practice",
   practice: "Practice",
   review: "Learning Summary",
 };

@@ -134,8 +134,15 @@ test.describe("navigation spine", () => {
     await expect(page.getByRole("heading", { name: "Notice" })).toBeVisible();
   });
 
-  test("the flow order is observe, notice, explore, practice, review", async () => {
-    expect([...STEP_IDS]).toEqual(["observe", "notice", "explore", "practice", "review"]);
+  test("the flow order is observe, notice, explore, guided-practice, practice, review", async () => {
+    expect([...STEP_IDS]).toEqual([
+      "observe",
+      "notice",
+      "explore",
+      "guided-practice",
+      "practice",
+      "review",
+    ]);
   });
 
   test("notice, explore, practice and review show Back to Previous Step linking to the previous step", async ({
