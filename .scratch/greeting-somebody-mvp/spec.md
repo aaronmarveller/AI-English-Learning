@@ -22,10 +22,10 @@ Status: ready-for-agent
 交付一个**手机端优先的网页 App**，包含 1 节完整课程 `Greeting Someone`，走完固定的六步 Learning Flow：
 
 ```
-Home → Observe → Explore → Notice → Practice → Review
+Home → Observe → Notice → Explore → Practice → Review
 ```
 
-设计理念是 **Context First, Language Second, Communication Last**：先用真实场景视频建立情境（Observe），再学成块的表达（Explore），再理解中美打招呼的文化差异（Notice），然后和 AI Conversation Partner「Emily」做一次真实对话练习（Practice），最后由 Emily 用中文复盘（Review）。
+设计理念是 **Context First, Language Second, Communication Last**：先用真实场景视频建立情境（Observe），再理解打招呼背后的含义（Notice），再学成块的表达（Explore），然后和 AI Conversation Partner「Emily」做一次真实对话练习（Practice），最后由 Emily 用中文复盘（Review）。
 
 对学习者而言，这个产品的关键承诺是**低压力**：
 
@@ -247,7 +247,7 @@ Emily 的主线台词是**固定集合**：Opening 5 条、Check-in 3 条、Resp
 ### 命名与内容修正
 
 - 课程名统一为 **`Greeting Someone`**（设计稿与工单为准；此前曾裁定为 Somebody，现已撤销）
-- 进度点共 5 个（Home 不计步）：Observe=1 / Explore=2 / Notice=3 / Practice=4 / Review=5
+- 进度点共 5 个（Home 不计步）：Observe=1 / Notice=2 / Explore=3 / Practice=4 / Review=5
 - Explore 页的 Response Section **破例不用 Carousel**，改为竖向三步阶梯（左侧 ①②③ 竖线串联）+ 底部高亮的「常见组合」卡。理由：Carousel 会让学习者滑到②时看不见①③，「三句连起来说」的教学意图丢失
 
 ## Testing Decisions

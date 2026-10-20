@@ -59,7 +59,7 @@ test.describe("observe page", () => {
     }
   });
 
-  test("clicking Continue navigates to /explore without ever touching the video", async ({
+  test("clicking Continue navigates to /notice without ever touching the video", async ({
     page,
   }) => {
     await resetStorage(page);
@@ -73,7 +73,7 @@ test.describe("observe page", () => {
     await expect(continueButton).toHaveText(/Continue 继续学习/);
 
     await continueButton.click();
-    await expect(page).toHaveURL(/\/explore(\?|$)/);
+    await expect(page).toHaveURL(/\/notice(\?|$)/);
   });
 
   test("clicking one overlay starts only that video and hides only its overlay", async ({

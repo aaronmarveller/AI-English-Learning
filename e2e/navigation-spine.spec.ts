@@ -125,12 +125,60 @@ test.describe("navigation spine", () => {
       );
     });
 
-    await page.goto(STEP_ROUTES.explore);
-    await expect(page).toHaveURL(new RegExp(`${STEP_ROUTES.explore}$`));
+    await page.goto(STEP_ROUTES.notice);
+    await expect(page).toHaveURL(new RegExp(`${STEP_ROUTES.notice}$`));
 
     await page.reload();
 
-    await expect(page).toHaveURL(new RegExp(`${STEP_ROUTES.explore}$`));
-    await expect(page.getByRole("heading", { name: "Explore" })).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`${STEP_ROUTES.notice}$`));
+    await expect(page.getByRole("heading", { name: "Notice" })).toBeVisible();
+  });
+
+  test("the flow order is observe, notice, explore, practice, review", async () => {
+    expect([...STEP_IDS]).toEqual(["observe", "notice", "explore", "practice", "review"]);
+  });
+
+  test("notice, explore, practice and review show Back to Previous Step linking to the previous step", async ({
+    page,
+  }) => {
+    await resetStorage(page);
+
+    for (const step of STEP_IDS.slice(1)) {
+      await page.goto(`${STEP_ROUTES[step]}?debug=1`);
+      const back = page.getByTestId("back-previous");
+      await expect(back).toHaveText(/Back to Previous Step/);
+      await expect(back).toHaveAttribute("aria-label", "返回上一步");
+      await expect(back).toHaveAttribute(
+        "href",
+        STEP_ROUTES[STEP_IDS[STEP_IDS.indexOf(step) - 1]],
+      );
+      await expect(page.getByTestId("back-home")).toHaveCount(0);
+    }
+  });
+
+  test("observe shows Back to Home and no Back to Previous Step", async ({ page }) => {
+    await resetStorage(page);
+    await page.goto("/observe?debug=1");
+
+    await expect(page.getByTestId("back-home")).toHaveAttribute("href", "/");
+    await expect(page.getByTestId("back-previous")).toHaveCount(0);
+  });
+
+  test("clicking Back to Previous Step on Explore lands on Notice and leaves progress unchanged", async ({
+    page,
+  }) => {
+    await resetStorage(page);
+    await page.goto("/explore?debug=1");
+
+    await page.getByTestId("back-previous").click();
+    await expect(page).toHaveURL(/\/notice(\?|$)/);
+
+    // Nothing was marked complete: only the current dot is distinguished.
+    for (const step of STEP_IDS) {
+      await expect(page.getByTestId(`progress-dot-${step}`)).toHaveAttribute(
+        "data-state",
+        step === "notice" ? "current" : "upcoming",
+      );
+    }
   });
 });

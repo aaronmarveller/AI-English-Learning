@@ -1,158 +1,129 @@
 /**
- * Content for the Notice page (ticket 07): 3 Cultural Insight Cards
- * contrasting US and China greeting norms. Single data source so
- * components stay presentational — see spec.md "模块划分" > "课程内容模块"
- * ("组件只消费，不硬编码文案").
+ * Content for the Notice page (#78): three Notice Cards about what a
+ * greeting means. Single data source so components stay presentational —
+ * all copy, photos and icons are named here.
  *
- * The three cards map directly onto spec.md's user stories 35-41 for this
- * page: who this kind of casual greeting is normally used with (35/36),
- * whether the chat continues past the greeting itself (37), and what people
- * actually talk about once it does (38) — including why "How are you?"
- * isn't a real question about your wellbeing (36). Each card's `why` field
- * exists because user story 39 asks for the *reasoning* behind the
- * difference, not just the difference itself — the goal is understanding
- * real communication, not memorizing phrases (see the ticket's own "目标是
- * 理解真实交流方式，不是记忆语言形式").
+ * Each card contrasts two readings (`left` green, `right` red). `items` are
+ * card 2's scene tiles and card 3's cue rows; card 1 has none and uses the
+ * side's big `icon` instead.
  *
- * Restructured from free-text paragraphs to short phrase checklists (UI
- * draft, 2026-08-07 review): the reference mockup pairs each side with a
- * headline phrase plus a handful of checked bullet points rather than a
- * paragraph, and shows both sides side-by-side rather than stacked (see
- * docs/adr/0001-side-by-side-comparison-on-mobile.md). `preview` is a short
- * emoji summary shown on the card header while it's collapsed — new surface
- * area the old paragraph-only layout didn't need.
+ * Photo files are placeholders: the real ones drop in at these paths with no
+ * code change (a missing file renders as an empty circle).
  */
 
-/** Editorial hero headline (UI draft, 2026-08-06 review). */
+export type NoticeIconName =
+  | "wave"
+  | "heart"
+  | "coffee"
+  | "fork-knife"
+  | "shopping-bag"
+  | "briefcase"
+  | "house"
+  | "users"
+  | "chat-bubble"
+  | "user"
+  | "exit"
+  | "x"
+  | "clock";
+
+export type NoticeSide = {
+  titleEn: string;
+  titleZh: string;
+  description?: string;
+  /** Big icon (card 1) and the collapsed photo's corner badge. */
+  icon: NoticeIconName;
+  photo: { src: string; alt: string };
+  /** Card 2 scenes / card 3 cues. */
+  items?: { icon: NoticeIconName; label: string }[];
+};
+
+export type NoticeCard = {
+  id: "greeting-intention" | "conversation-length" | "conversation-cues";
+  question: string;
+  left: NoticeSide;
+  right: NoticeSide;
+  tip: string;
+};
+
 export const NOTICE_HEADLINE = {
-  en: "Discover how greetings differ across cultures.",
-  zh: "看看不同文化中，人们是怎么打招呼的。",
+  en: "Discover What Greetings Mean.",
+  zh: "点击卡片，发现对话背后的含义。",
 };
 
-/**
- * Decorative street-scene illustration with "Hi!" / "你好！" speech bubbles
- * baked into the image itself (UI draft, 2026-08-07 review — the bubbles
- * aren't a separate overlay component). File isn't in the repo yet; drop it
- * at this path once available.
- */
-export const NOTICE_HERO_IMAGE = {
-  src: "/assets/notice/hero-street-greeting.jpg",
-  alt: "",
-};
-
-export type CulturalInsightCard = {
-  /** Stable id, also used to derive data-testid hooks for E2E. */
-  id: string;
-  /** Chinese card title — the question this card answers. */
-  title: string;
-  /** English gloss, shown as a secondary label. */
-  subtitle: string;
-  /**
-   * Composite "who greets this way" avatar row images, US and China side by
-   * side. Only card 1 has these — cards 2/3 illustrate a phrase/behavior,
-   * not a cast of people. Files aren't in the repo yet; drop them at these
-   * paths once available.
-   */
-  peopleImage?: {
-    us: { src: string; alt: string };
-    china: { src: string; alt: string };
-  };
-  us: {
-    /** Representative phrase shown as this column's headline. */
-    phrase: string;
-    /** Short checked bullet points, not full sentences. */
-    items: string[];
-  };
-  china: {
-    phrase: string;
-    items: string[];
-  };
-  /** The "why" explanation behind the difference — never just stated as fact. */
-  why: string;
-  /** Optional US/China editorial images for cards 2 and 3. */
-  images?: { us: string; china: string };
-  /** Compact emoji summary shown on the card header while collapsed. */
-  preview: {
-    us: string;
-    china: string;
-  };
-};
-
-export const CULTURAL_INSIGHT_CARDS: CulturalInsightCard[] = [
+export const NOTICE_CARDS: NoticeCard[] = [
   {
-    id: "who-greets",
-    title: "会和谁这样打招呼？",
-    subtitle: "Who You Greet This Way",
-    peopleImage: {
-      us: {
-        src: "/assets/notice/who-greets-us.jpg",
-        alt: "美国常见打招呼对象：警察、店员、邻居、路人",
-      },
-      china: {
-        src: "/assets/notice/who-greets-china.jpg",
-        alt: "中国常见打招呼对象：家人、朋友、熟络的邻居",
-      },
+    id: "greeting-intention",
+    question: "“How are you?” 真的是在问近况吗？",
+    left: {
+      titleEn: "Friendly Greeting",
+      titleZh: "礼貌寒暄",
+      description: "表达友好，不一定期待详细回答。",
+      icon: "wave",
+      photo: { src: "/assets/notice/greeting-intention-friendly.webp", alt: "" },
     },
-    us: {
-      phrase: "How are you?",
-      items: ["陌生人", "熟人", "都可以说"],
+    right: {
+      titleEn: "Genuine Check-in",
+      titleZh: "真正关心",
+      description: "想了解你的近况，可以多分享一些。",
+      icon: "heart",
+      photo: { src: "/assets/notice/greeting-intention-genuine.webp", alt: "" },
     },
-    china: {
-      phrase: "吃了吗？\n去哪儿？\n最近怎么样？",
-      items: ["更多用于熟人之间"],
-    },
-    why: '"How are you?" 通常只是一个友好的问候，不是真的想了解你的近况，所以简单回应即可。',
-    preview: {
-      us: "👋🌍",
-      china: "👋👨‍👩‍👧",
-    },
+    tip: "就像中文的“吃了吗？”，有时只是打个招呼，有时是真的关心你。",
   },
   {
-    id: "keep-chatting",
-    title: "打完招呼以后，会继续聊吗？",
-    // Deliberately not "...Continue?" — e2e/navigation-spine.spec.ts and
-    // e2e/notice.spec.ts both scope their Continue-button query by the
-    // accessible-name substring "Continue" and assume it's unique on the
-    // page; this card's own header button would otherwise match too.
-    subtitle: "Does the Chat Go On?",
-    us: {
-      phrase: "通常会继续聊天",
-      items: ["回应对方", "回问一句", "再聊几句"],
+    id: "conversation-length",
+    question: "为什么有的对话短，有的会多聊？",
+    left: {
+      titleEn: "Quick Greeting",
+      titleZh: "简短问候",
+      description: "简单回应，然后继续当前的事。",
+      icon: "coffee",
+      photo: { src: "/assets/notice/conversation-length-quick.webp", alt: "" },
+      items: [
+        { icon: "coffee", label: "咖啡店" },
+        { icon: "fork-knife", label: "餐厅" },
+        { icon: "shopping-bag", label: "商店" },
+      ],
     },
-    china: {
-      phrase: "打完招呼后",
-      items: ["有时直接结束", "不一定继续聊天"],
+    right: {
+      titleEn: "Small Talk",
+      titleZh: "日常寒暄",
+      description: "可以分享近况，再多聊几句。",
+      icon: "users",
+      photo: { src: "/assets/notice/conversation-length-small-talk.webp", alt: "" },
+      items: [
+        { icon: "briefcase", label: "同事" },
+        { icon: "house", label: "邻居" },
+        { icon: "users", label: "朋友" },
+      ],
     },
-    why: "英语里的问候通常只是对话的开始，简单回应后，再继续聊几句会更自然。",
-    preview: {
-      us: "😃💬",
-      china: "👋🚶",
-    },
-    images: {
-      us: "/assets/notice/keep-chatting-us.webp",
-      china: "/assets/notice/keep-chatting-china.webp",
-    },
+    tip: "这只是常见例子。聊多久，还要看彼此的关系、当下的情况和对方的反应。",
   },
   {
-    id: "small-talk-topics",
-    title: "通常会聊什么？",
-    subtitle: "What They Talk About",
-    us: {
-      phrase: "常见话题",
-      items: ["天气", "今天怎么样", "周末安排"],
+    id: "conversation-cues",
+    question: "怎么判断继续聊还是结束？",
+    left: {
+      titleEn: "Keep Talking",
+      titleZh: "可能想继续聊",
+      icon: "chat-bubble",
+      photo: { src: "/assets/notice/conversation-cues-keep-talking.webp", alt: "" },
+      items: [
+        { icon: "chat-bubble", label: "对方继续提问" },
+        { icon: "user", label: "主动分享近况" },
+        { icon: "clock", label: "愿意停下来聊" },
+      ],
     },
-    china: {
-      phrase: "常见话题",
-      items: ["吃饭", "工作/学习", "家人"],
+    right: {
+      titleEn: "Move On",
+      titleZh: "可能准备结束",
+      icon: "wave",
+      photo: { src: "/assets/notice/conversation-cues-move-on.webp", alt: "" },
+      items: [
+        { icon: "exit", label: "准备离开" },
+        { icon: "x", label: "忙于其他事" },
+        { icon: "wave", label: "表示要结束" },
+      ],
     },
-    why: "不同文化有不同的聊天习惯。了解这些常见话题，可以帮助你更自然地延续对话。",
-    preview: {
-      us: "☀️🎉",
-      china: "🍚💼",
-    },
-    images: {
-      us: "/assets/notice/small-talk-topics-us.webp",
-      china: "/assets/notice/small-talk-topics-china.webp",
-    },
+    tip: "看看对方的反应，不是每次都需要多聊。",
   },
 ];

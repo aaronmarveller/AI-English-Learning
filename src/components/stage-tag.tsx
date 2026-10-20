@@ -1,5 +1,5 @@
 /**
- * Small "👁 Observe / Explore / Notice / 🎙 Practice / ✨ Summary" label shown
+ * Small "👁 Observe / Notice / Explore / 🎙 Practice / ✨ Summary" label shown
  * above each learning page's editorial headline (UI draft, 2026-08-06
  * review). Purely decorative labeling by default — the page's own <h1> is
  * the thing e2e coverage and the outer 5-dot progress header key off.

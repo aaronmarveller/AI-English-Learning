@@ -11,6 +11,11 @@ One self-contained scenario the learner practices end to end, owning the topic E
 Something a Lesson promises the learner will be able to do once they finish it, shown before they start. A Lesson has a few; one may be marked optional. Purely a promise to read — nothing in the learning flow checks, scores, or tracks it.
 _Avoid_: Goal — the retired Conversation Goal family was tracked during Practice; a Learning Objective never is
 
+## Notice Card
+
+One of the three cards on the Notice stage. Each poses a question about what an everyday English greeting really means, contrasts two readings of it side by side, and closes with a tip. Opening one is optional — nothing checks whether the learner read any.
+_Avoid_: Cultural Insight Card — the retired US-vs-China comparison the Notice Cards replaced
+
 ## Practice
 
 The learning-flow stage where the learner talks with Emily out loud. It is made up of at most three Calls, and it is complete once a Call has ended in which the learner said at least one line in English or Chinese. A Call counts toward the three as soon as it connects, even if the learner says nothing; only starting Practice over from Review grants three again.
@@ -50,3 +55,5 @@ _Avoid_: Learning Summary when naming the internal flow stage
 ## Retired terms
 
 The scripted Practice was replaced by live Calls. These terms named parts of it and must not be reused for anything in the new model: Verdict, Turn Outcome, Recovery, Retry Streak, Conversation Script, Conversation Goal, Goal Report, Goal Progress, Focus Goal, Conversation State, Tap-to-Talk, Silence Reminder, Judge / Submit seam.
+
+The Notice stage's US-vs-China cultural comparison was replaced by Notice Cards; Cultural Insight Card must not be reused either.

@@ -20,7 +20,7 @@ type ContinueButtonProps = {
  * later tickets (04/05/06) for Home/Observe/Explore's real page content.
  *
  * @example
- * <ContinueButton next="/explore" markStepComplete="observe">
+ * <ContinueButton next="/notice" markStepComplete="observe">
  *   继续 Continue
  * </ContinueButton>
  */

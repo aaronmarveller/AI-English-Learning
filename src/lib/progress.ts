@@ -22,7 +22,7 @@ import { createPersistedStore } from "@/lib/create-persisted-store";
  * validation that recovers from corrupt storage.
  */
 
-export const STEP_IDS = ["observe", "explore", "notice", "practice", "review"] as const;
+export const STEP_IDS = ["observe", "notice", "explore", "practice", "review"] as const;
 
 export type StepId = (typeof STEP_IDS)[number];
 

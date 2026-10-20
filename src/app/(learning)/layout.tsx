@@ -7,12 +7,13 @@ import type { ReactNode } from "react";
 import { DebugJumpBar } from "@/components/debug-jump-bar";
 import { TopNav } from "@/components/top-nav";
 import { useDebugFlag } from "@/lib/debug";
-import { getStepFromPathname, useProgress } from "@/lib/progress";
+import { getStepFromPathname, STEP_IDS, STEP_ROUTES, useProgress } from "@/lib/progress";
 import { useHasMounted } from "@/lib/use-has-mounted";
 
 /**
- * Shared chrome for the 5 learning pages (Observe/Explore/Notice/Practice/
- * Review): back-to-Home entry, persistent nav, and the progressive-learning
+ * Shared chrome for the 5 learning pages (Observe/Notice/Explore/Practice/
+ * Review): back link (Back to Home on Observe, Back to Previous Step
+ * elsewhere — a plain link that marks nothing complete), persistent nav, and the progressive-learning
  * guard (redirects to Home if the current step's prerequisite isn't
  * complete yet — unless debug mode is active).
  *
@@ -47,6 +48,9 @@ export default function LearningLayout({ children }: { children: ReactNode }) {
   const currentStep = getStepFromPathname(pathname);
   const unlocked = debugEnabled || !currentStep || isStepUnlocked(currentStep);
 
+  const stepIndex = currentStep ? STEP_IDS.indexOf(currentStep) : 0;
+  const previousStep = stepIndex > 0 ? STEP_IDS[stepIndex - 1] : null;
+
   useEffect(() => {
     if (!hasMounted || unlocked) return;
     router.replace("/");
@@ -61,12 +65,12 @@ export default function LearningLayout({ children }: { children: ReactNode }) {
           showStubNav={false}
           left={
             <Link
-              href="/"
-              aria-label="返回 Home"
-              data-testid="back-home"
+              href={previousStep ? STEP_ROUTES[previousStep] : "/"}
+              aria-label={previousStep ? "返回上一步" : "返回 Home"}
+              data-testid={previousStep ? "back-previous" : "back-home"}
               className="btn-icon-pressed whitespace-nowrap rounded-button py-1 text-body-sm text-muted"
             >
-              <span aria-hidden>←</span> Back to Home
+              <span aria-hidden>←</span> {previousStep ? "Back to Previous Step" : "Back to Home"}
             </Link>
           }
         />

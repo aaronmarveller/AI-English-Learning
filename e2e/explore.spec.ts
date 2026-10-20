@@ -211,6 +211,6 @@ test.describe("Explore page", () => {
 
     await expect(page.getByRole("button", { name: /继续 Continue/ })).toBeVisible();
     await page.getByRole("button", { name: /继续 Continue/ }).click();
-    await expect(page).toHaveURL(/\/notice(\?|$)/);
+    await expect(page).toHaveURL(/\/practice(\?|$)/);
   });
 });
