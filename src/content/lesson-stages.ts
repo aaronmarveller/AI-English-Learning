@@ -5,8 +5,7 @@
  * labels live in this one place.
  *
  * Two Chinese label lengths: `labelZhLong` is the descriptive form used for
- * headings and categories. For "closing" it is "结束对话"; the other stages'
- * names are already short.
+ * headings and categories. Explore's four section headers read these labels.
  */
 
 export const LESSON_STAGES = ["greeting", "checkin", "response", "closing"] as const;
@@ -23,7 +22,7 @@ export type LessonStageLabel = {
 
 export const LESSON_STAGE_LABELS: Record<LessonStage, LessonStageLabel> = {
   greeting: { key: "greeting", labelZhLong: "打招呼", labelEn: "Greeting" },
-  checkin: { key: "checkin", labelZhLong: "问候", labelEn: "Check-in" },
-  response: { key: "response", labelZhLong: "回应", labelEn: "Response" },
-  closing: { key: "closing", labelZhLong: "结束对话", labelEn: "Closing" },
+  checkin: { key: "checkin", labelZhLong: "问候近况", labelEn: "Check-in" },
+  response: { key: "response", labelZhLong: "回应与继续交流", labelEn: "Response & Keep It Going" },
+  closing: { key: "closing", labelZhLong: "结束交流", labelEn: "Closing" },
 };

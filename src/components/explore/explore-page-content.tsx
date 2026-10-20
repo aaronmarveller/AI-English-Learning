@@ -4,24 +4,41 @@ import { useState } from "react";
 import { ContinueButton } from "@/components/continue-button";
 import { CourseProgressChip } from "@/components/course-progress";
 import { ChunkSection } from "@/components/explore/chunk-section";
-import { ExpressionCarousel } from "@/components/explore/expression-carousel";
-import { ResponseLadder } from "@/components/explore/response-ladder";
+import { ExpressionCard, TINT_CYCLE, type ExpressionTint } from "@/components/explore/expression-card";
 import { StageTag } from "@/components/stage-tag";
 import {
+  CONVERSATION_FORMULA,
   EXPLORE_HEADLINE,
   EXPLORE_SECTION_ORDER,
   EXPLORE_SECTIONS,
-  RESPONSE_COMBO,
-  RESPONSE_STEPS,
   type ExploreSectionKey,
+  type FormulaRole,
 } from "@/content/explore";
+import { LESSON_STAGE_LABELS } from "@/content/lesson-stages";
+
+const SECTION_ICONS: Record<ExploreSectionKey, string> = {
+  greeting: "👋",
+  checkin: "😊",
+  response: "💬",
+  closing: "👋",
+};
+
+const ROLE_TINT: Record<FormulaRole, ExpressionTint> = {
+  respond: "green",
+  "add-more": "blue",
+  "ask-back": "yellow",
+};
+
+const ROLE_LABEL = Object.fromEntries(
+  CONVERSATION_FORMULA.map((step) => [step.role, `${step.en} · ${step.zh}`]),
+) as Record<FormulaRole, string>;
 
 /**
- * Explore page body: the lesson's 12 Key Expressions grouped into 4
- * Conversation Chunk Sections (打招呼/问候/回应/结束对话). Only 打招呼
+ * Explore page body: four expression sections (Greeting, Check-in,
+ * Response & Keep It Going, Closing) in one bordered container. Greeting
  * starts expanded; every section toggles independently and multiple can be
  * open at once (not an accordion). Continue is always reachable — nothing
- * here gates it, per spec.md user story 34.
+ * here gates it.
  *
  * Split out from page.tsx (a Server Component, so it can keep exporting
  * `metadata` like every other learning page) because the open/closed state
@@ -29,7 +46,7 @@ import {
  */
 export function ExplorePageContent() {
   const [openSections, setOpenSections] = useState<Record<ExploreSectionKey, boolean>>({
-    greeting: false,
+    greeting: true,
     checkin: false,
     response: false,
     closing: false,
@@ -54,47 +71,51 @@ export function ExplorePageContent() {
           Today&apos;s Expressions
         </h2>
 
-        {EXPLORE_SECTION_ORDER.map((key) => {
-          const testId = `section-${key}`;
-          const open = openSections[key];
-
-          if (key === "response") {
-            const section = EXPLORE_SECTIONS.response;
+        <div className="divide-y divide-border overflow-hidden rounded-card border border-border bg-card">
+          {EXPLORE_SECTION_ORDER.map((key) => {
+            const label = LESSON_STAGE_LABELS[key];
             return (
               <ChunkSection
                 key={key}
-                icon={section.icon}
-                title={section.title}
-                subtitle={section.subtitle}
-                open={open}
+                icon={SECTION_ICONS[key]}
+                titleEn={label.labelEn}
+                titleZh={label.labelZhLong}
+                open={openSections[key]}
                 onToggle={() => toggleSection(key)}
-                testId={testId}
+                testId={`section-${key}`}
               >
-                <ResponseLadder steps={RESPONSE_STEPS} combo={RESPONSE_COMBO} />
+                <div className="flex flex-col gap-3">
+                  {key === "response"
+                    ? EXPLORE_SECTIONS.response.main.map((item) => (
+                        <ExpressionCard
+                          key={item.id}
+                          id={item.id}
+                          lines={item.lines}
+                          zh={item.zh}
+                          pill={ROLE_LABEL[item.role]}
+                          tint={ROLE_TINT[item.role]}
+                        />
+                      ))
+                    : EXPLORE_SECTIONS[key].main.map((item, index) => (
+                        <ExpressionCard
+                          key={item.id}
+                          id={item.id}
+                          lines={item.lines}
+                          zh={item.zh}
+                          pill={item.tag}
+                          tint={TINT_CYCLE[index % TINT_CYCLE.length]}
+                        />
+                      ))}
+                </div>
               </ChunkSection>
             );
-          }
-
-          const section = EXPLORE_SECTIONS[key];
-          return (
-            <ChunkSection
-              key={key}
-              icon={section.icon}
-              title={section.title}
-              subtitle={section.subtitle}
-              open={open}
-              onToggle={() => toggleSection(key)}
-              testId={testId}
-            >
-              <ExpressionCarousel cards={section.expressions} testId={`${testId}-carousel`} />
-            </ChunkSection>
-          );
-        })}
+          })}
+        </div>
       </div>
 
       <div className="mt-auto pt-6">
         <ContinueButton next="/guided-practice" markStepComplete="explore">
-          继续 Continue
+          Continue 继续学习 →
         </ContinueButton>
       </div>
     </div>

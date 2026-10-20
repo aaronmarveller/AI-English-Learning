@@ -1,47 +1,49 @@
-import type { ExpressionCard as ExpressionCardData } from "@/content/explore";
 import { PronunciationButton } from "@/components/explore/pronunciation-button";
 
-type ExpressionCardProps = {
-  card: ExpressionCardData;
+export type ExpressionTint = "green" | "blue" | "yellow";
+
+export const TINT_CYCLE: ExpressionTint[] = ["green", "blue", "yellow"];
+
+const TINT_CLASSES: Record<ExpressionTint, string> = {
+  green: "bg-accent-soft",
+  blue: "bg-[#e8f0fb]",
+  yellow: "bg-[#fdf3d6]",
 };
 
-/** One Key Expression card: expression, trait tag, usage-context hint, pronunciation control. */
-export function ExpressionCard({ card }: ExpressionCardProps) {
+type ExpressionCardProps = {
+  id: string;
+  /** Spoken lines; each gets its own pronunciation button. */
+  lines: string[];
+  zh: string;
+  /** Pill text: the Chinese tag, or "<Role> · <中文>" in Response & Keep It Going. */
+  pill: string;
+  tint: ExpressionTint;
+};
+
+/**
+ * One text expression card: bold English line(s) each with its own audio
+ * button, then one shared Chinese translation and a small pill.
+ */
+export function ExpressionCard({ id, lines, zh, pill, tint }: ExpressionCardProps) {
   return (
     <div
-      data-testid={`expression-card-${card.id}`}
-      className="flex h-full flex-col gap-3 rounded-card border border-border bg-card p-4"
+      data-testid={`expression-card-${id}`}
+      data-tint={tint}
+      className={`flex flex-col gap-1 rounded-card p-4 ${TINT_CLASSES[tint]}`}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element -- fixed-aspect
-          decorative scene photo; next/image's layout machinery buys nothing here. */}
-      <img
-        src={card.image}
-        alt=""
-        aria-hidden
-        className="aspect-[4/3] w-full rounded-card object-cover"
-      />
-      {card.pronunciationTexts ? (
-        <div className="flex flex-col gap-2">
-          {card.pronunciationTexts.map((text, index) => (
-            <div key={text} className="flex items-center justify-between gap-2">
-              <p className="text-caption text-foreground">{text}</p>
-              <PronunciationButton
-                text={text}
-                testId={`pronounce-${card.id}-${index + 1}`}
-              />
-            </div>
-          ))}
+      {lines.map((line, index) => (
+        <div key={line} className="flex items-center justify-between gap-2">
+          <p className="min-w-0 text-h3 font-semibold text-foreground">{line}</p>
+          <PronunciationButton
+            text={line}
+            testId={lines.length > 1 ? `pronounce-${id}-${index + 1}` : `pronounce-${id}`}
+          />
         </div>
-      ) : (
-        <div className="flex items-start justify-between gap-2">
-          <p className="text-h3 text-foreground">{card.expression}</p>
-          <PronunciationButton text={card.expression} testId={`pronounce-${card.id}`} />
-        </div>
-      )}
-      <span className="w-fit rounded-button bg-accent-soft px-2 py-1 text-caption text-accent">
-        {card.tag}
+      ))}
+      <p className="text-body-sm text-muted">{zh}</p>
+      <span className="mt-1 w-fit rounded-button bg-white/70 px-2 py-1 text-caption text-foreground">
+        {pill}
       </span>
-      <p className="text-body-sm text-muted">{card.hint}</p>
     </div>
   );
 }

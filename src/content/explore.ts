@@ -1,190 +1,102 @@
 /**
- * Explore page content — the lesson's 12 Key Expressions grouped into 4
- * Conversation Chunk Sections (打招呼/问候/回应/结束对话), plus the 回应
- * section's 3-step combo sentence.
+ * Explore page content — four expression sections (Greeting, Check-in,
+ * Response & Keep It Going, Closing), each with a short `main` list and an
+ * optional `more` list (Explore More), plus the Conversation Formula shown
+ * at the top of Response & Keep It Going.
  *
- * Single data source (spec.md "模块划分" > "课程内容模块"): components only
- * consume this, never hardcode copy. Content follows the 2026-08 UI mockup
- * (Expression/Tag/Hint per stage) rather than being tied to a specific
- * conversation scenario.
+ * Single data source: components only consume this, never hardcode copy.
+ * Every string is taken word for word from the Curriculum Content table in
+ * issue #81.
  */
 
-import { LESSON_STAGE_LABELS } from "@/content/lesson-stages";
-
-/** Editorial hero headline (UI draft, 2026-08-06 review). */
+/** Editorial hero headline. */
 export const EXPLORE_HEADLINE = {
   en: "Learn useful expressions.",
-  zh: "学习真实交流中常用的表达。",
+  zh: "学习常用表达，根据情境灵活组合。",
 };
 
-export type ExpressionCard = {
+export type Expression = {
   /** Stable id, also used to derive data-testid hooks for E2E. */
   id: string;
-  expression: string;
-  /** Names a trait of the expression (e.g. 最常用/根据时间) — not a translation. */
-  tag: string;
-  /** Usage-context hint — explicitly NOT a Chinese translation of the expression. */
-  hint: string;
-  /** Scene photo illustrating the expression's context. Path under /public. */
-  image: string;
-  /** Optional separate phrases rendered with their own pronunciation buttons. */
-  pronunciationTexts?: string[];
+  /** One or more spoken lines; each gets its own audio button. */
+  lines: string[];
+  zh: string;
 };
 
-export const GREETING_EXPRESSIONS: ExpressionCard[] = [
-  {
-    id: "greeting-hello",
-    expression: "Hello.",
-    tag: "正式一点",
-    hint: "适合稍正式的场合。",
-    image: "/assets/explore/greeting-hi.webp",
-  },
-  {
-    id: "greeting-hi",
-    expression: "Hi!",
-    tag: "最常用",
-    hint: "最常见的打招呼方式。",
-    image: "/assets/explore/greeting-good-morning.webp",
-  },
-  {
-    id: "greeting-time-based",
-    expression: "Good morning. / Good afternoon. / Good evening.",
-    tag: "根据时间",
-    hint: "根据见面时间实用。",
-    image: "/assets/explore/greeting-hey-there.webp",
-    pronunciationTexts: ["Good morning.", "Good afternoon.", "Good evening."],
-  },
-];
+export type TaggedExpression = Expression & { tag: string };
 
-export const CHECKIN_EXPRESSIONS: ExpressionCard[] = [
-  {
-    id: "checkin-how-are-you",
-    expression: "How are you?",
-    tag: "最经典",
-    hint: "最常见的寒暄方式。",
-    image: "/assets/explore/checkin-how-are-you.webp",
-  },
-  {
-    id: "checkin-how-are-you-doing",
-    expression: "How are you doing?",
-    tag: "更自然",
-    hint: "比 How are you? 更口语、更亲切。",
-    image: "/assets/explore/checkin-hows-your-morning-going.webp",
-  },
-  {
-    id: "checkin-hows-it-going",
-    expression: "How's it going?",
-    tag: "很日常",
-    hint: "熟人之间非常常见的表达。",
-    image: "/assets/explore/checkin-hows-it-going.webp",
-  },
-];
+export type FormulaRole = "respond" | "add-more" | "ask-back";
 
-// Audio lookup (src/lib/audio-manifest.ts) is exact text matching with a
-// duplicate-text guard that throws at module load, so each expression is
-// authored once with its final punctuation.
-export const CLOSING_EXPRESSIONS: ExpressionCard[] = [
-  {
-    id: "closing-see-you",
-    expression: "See you!",
-    tag: "最常用",
-    hint: "最简单、最常见的结束语。",
-    image: "/assets/explore/closing-see-you-around.webp",
-  },
-  {
-    id: "closing-have-a-nice-day",
-    expression: "Have a nice day!",
-    tag: "很礼貌",
-    hint: "适合结束对话时使用。",
-    image: "/assets/explore/closing-have-a-good-one.webp",
-  },
-  {
-    id: "closing-take-care",
-    expression: "Take care!",
-    tag: "更温暖",
-    hint: "表达关心，让结束语更自然。",
-    image: "/assets/explore/closing-take-care.webp",
-  },
-];
+export type RoleExpression = Expression & { role: FormulaRole };
 
-export type ResponseStep = {
-  id: string;
-  /** Fixed 1-3 order — these are read in sequence, never presented as alternatives. */
+export const CONVERSATION_FORMULA: {
+  role: FormulaRole;
   order: 1 | 2 | 3;
-  expression: string;
-  /** Names a trait of the step (e.g. 回应别人/表达礼貌) — not a translation. */
-  tag: string;
+  en: string;
+  zh: string;
   hint: string;
-};
-
-export const RESPONSE_STEPS: ResponseStep[] = [
-  {
-    id: "response-1",
-    order: 1,
-    expression: "I'm good.",
-    tag: "回应别人",
-    hint: "回答对方的问候。",
-  },
-  {
-    id: "response-2",
-    order: 2,
-    expression: "Thank you.",
-    tag: "表达礼貌",
-    hint: "回应后，加一句谢谢更自然。",
-  },
-  {
-    id: "response-3",
-    order: 3,
-    expression: "How about you?",
-    tag: "回问对方",
-    hint: "回问对方，让对话继续进行。",
-  },
+}[] = [
+  { role: "respond", order: 1, en: "Respond", zh: "回应", hint: "先回应" },
+  { role: "add-more", order: 2, en: "Add More", zh: "补充近况", hint: "想多说时" },
+  { role: "ask-back", order: 3, en: "Ask Back", zh: "回问", hint: "想继续聊时" },
 ];
 
-export const RESPONSE_COMBO = {
-  id: "response-combo",
-  expression: "I'm good. Thank you. How about you?",
-};
-
-/**
- * The 4 Conversation Chunk Sections, in fixed display order. `title`/
- * `subtitle` are read from the shared src/content/lesson-stages.ts
- * labels (the descriptive long-form Chinese label + the English label) —
- * not hardcoded here. `response` intentionally has no `expressions` array:
- * its content shape is a 3-step ladder + combo sentence (see
- * `RESPONSE_STEPS`/`RESPONSE_COMBO` below), not an expression-card array,
- * so src/components/explore/explore-page-content.tsx still branches on
- * `key === "response"` to pick `<ResponseLadder>` over
- * `<ExpressionCarousel>` — but no longer needs a hardcoded title/subtitle
- * for it.
- */
 export const EXPLORE_SECTIONS = {
   greeting: {
-    key: "greeting",
-    icon: "👋",
-    title: LESSON_STAGE_LABELS.greeting.labelZhLong,
-    subtitle: LESSON_STAGE_LABELS.greeting.labelEn,
-    expressions: GREETING_EXPRESSIONS,
+    main: [
+      { id: "greeting-hi", lines: ["Hi!"], zh: "嗨！", tag: "最常用" },
+      { id: "greeting-hello", lines: ["Hello."], zh: "你好。", tag: "稍正式" },
+      {
+        id: "greeting-time-based",
+        lines: ["Good morning.", "Good afternoon.", "Good evening."],
+        zh: "早上好 / 下午好 / 晚上好",
+        tag: "根据时间",
+      },
+    ] satisfies TaggedExpression[],
+    more: [
+      { id: "greeting-hey", lines: ["Hey!"], zh: "嗨！", tag: "更随意" },
+      { id: "greeting-good-to-see-you", lines: ["Good to see you!"], zh: "见到你真高兴！", tag: "再次见面" },
+    ] satisfies TaggedExpression[],
+    moreSubtitle: "想了解更多打招呼的表达",
   },
   checkin: {
-    key: "checkin",
-    icon: "😊",
-    title: LESSON_STAGE_LABELS.checkin.labelZhLong,
-    subtitle: LESSON_STAGE_LABELS.checkin.labelEn,
-    expressions: CHECKIN_EXPRESSIONS,
+    main: [
+      { id: "checkin-how-are-you", lines: ["How are you?"], zh: "你怎么样？", tag: "常用问候" },
+      { id: "checkin-hows-it-going", lines: ["How's it going?"], zh: "最近怎么样？", tag: "更随意" },
+    ] satisfies TaggedExpression[],
+    more: [
+      { id: "checkin-how-are-you-doing", lines: ["How are you doing?"], zh: "你怎么样？", tag: "日常口语" },
+      { id: "checkin-hows-your-day-going", lines: ["How's your day going?"], zh: "今天过得怎么样？", tag: "询问今天" },
+      { id: "checkin-how-have-you-been", lines: ["How have you been?"], zh: "最近过得怎么样？", tag: "久别问候" },
+    ] satisfies TaggedExpression[],
+    moreSubtitle: "想了解更多问候近况的表达",
   },
   response: {
-    key: "response",
-    icon: "🗣️",
-    title: LESSON_STAGE_LABELS.response.labelZhLong,
-    subtitle: LESSON_STAGE_LABELS.response.labelEn,
+    main: [
+      { id: "response-good-thanks", lines: ["Good, thanks!"], zh: "挺好的，谢谢！", role: "respond" },
+      { id: "response-little-busy-today", lines: ["Just a little busy today."], zh: "就是今天有点忙。", role: "add-more" },
+      { id: "response-how-about-you", lines: ["How about you?"], zh: "你呢？", role: "ask-back" },
+    ] satisfies RoleExpression[],
+    more: [
+      { id: "response-pretty-good", lines: ["Pretty good!"], zh: "挺不错的！", role: "respond" },
+      { id: "response-not-bad", lines: ["Not bad!"], zh: "还不错！", role: "respond" },
+      { id: "response-enjoying-the-weather", lines: ["Just enjoying the weather."], zh: "正享受这好天气呢。", role: "add-more" },
+      { id: "response-busy-week", lines: ["It's been a busy week."], zh: "这周一直挺忙的。", role: "add-more" },
+      { id: "response-what-about-you", lines: ["What about you?"], zh: "你呢？", role: "ask-back" },
+    ] satisfies RoleExpression[],
+    moreSubtitle: "想了解更多回应与继续交流的表达",
   },
   closing: {
-    key: "closing",
-    icon: "🙌",
-    title: LESSON_STAGE_LABELS.closing.labelZhLong,
-    subtitle: LESSON_STAGE_LABELS.closing.labelEn,
-    expressions: CLOSING_EXPRESSIONS,
+    main: [
+      { id: "closing-see-you", lines: ["See you!"], zh: "回头见！", tag: "日常告别" },
+      { id: "closing-have-a-nice-day", lines: ["Have a nice day!"], zh: "祝你今天愉快！", tag: "礼貌结束" },
+    ] satisfies TaggedExpression[],
+    more: [
+      { id: "closing-take-care", lines: ["Take care!"], zh: "保重！", tag: "表达关心" },
+      { id: "closing-have-a-good-one", lines: ["Have a good one!"], zh: "祝你今天愉快！", tag: "日常口语" },
+      { id: "closing-catch-you-later", lines: ["Catch you later!"], zh: "回头见！", tag: "熟人之间" },
+    ] satisfies TaggedExpression[],
+    moreSubtitle: "想了解更多结束交流的表达",
   },
 } as const;
 

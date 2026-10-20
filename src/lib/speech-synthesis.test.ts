@@ -139,7 +139,7 @@ describe("speak", () => {
     await expect(speak("A sentence that has no recording.")).resolves.toBe(false);
   });
 
-  it("keeps slash-delimited text intact by default", async () => {
+  it("keeps slash-delimited text intact", async () => {
     const spoken: string[] = [];
     class FakeUtterance {
       lang = "";
@@ -167,38 +167,5 @@ describe("speak", () => {
     const { speak } = await import("@/lib/speech-synthesis");
     await speak("上午/下午都可以说", { lang: "zh-CN" });
     expect(spoken).toEqual(["上午/下午都可以说"]);
-  });
-
-  it("splits slash-delimited text only when explicitly requested", async () => {
-    vi.useFakeTimers();
-    const spoken: string[] = [];
-    class FakeUtterance {
-      lang = "";
-      voice: unknown = null;
-      rate = 1;
-      onend: (() => void) | null = null;
-      onerror: (() => void) | null = null;
-      constructor(readonly text: string) {}
-    }
-    vi.stubGlobal("window", {
-      speechSynthesis: {
-        getVoices: () => [{ name: "Test", lang: "zh-CN" }],
-        cancel: () => {},
-        speak: (utterance: FakeUtterance) => {
-          spoken.push(utterance.text);
-          utterance.onend?.();
-        },
-      },
-      SpeechSynthesisUtterance: FakeUtterance,
-    });
-    vi.stubGlobal("SpeechSynthesisUtterance", FakeUtterance);
-    vi.stubGlobal("Audio", FakeAudio);
-    vi.resetModules();
-
-    const { speak } = await import("@/lib/speech-synthesis");
-    const playback = speak("上午/下午", { lang: "zh-CN", splitOnSlash: true });
-    await vi.advanceTimersByTimeAsync(2_000);
-    await expect(playback).resolves.toBe(true);
-    expect(spoken).toEqual(["上午", "下午"]);
   });
 });

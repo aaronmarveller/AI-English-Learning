@@ -2,12 +2,12 @@ import { test, expect, type Page } from "@playwright/test";
 import { resetStorage } from "./fixtures";
 
 /**
- * E2E coverage for the Explore page (ticket 06). Per spec.md's testing
- * philosophy, everything here asserts what a learner could see or do —
- * section expanded/collapsed state via each section's `data-state`
- * attribute, step order via DOM position, and pronunciation playback via
- * PronunciationButton's own `data-state="idle" | "playing"` — never
- * internal React state.
+ * E2E coverage for the Explore page (ticket 06, reworked by #82). Per
+ * spec.md's testing philosophy, everything here asserts what a learner could
+ * see or do — section expanded/collapsed state via each section's
+ * `data-state` attribute, card tint via `data-tint`, and pronunciation
+ * playback via PronunciationButton's own `data-state="idle" | "playing"` —
+ * never internal React state.
  *
  * Reached via `?debug=1` (see src/lib/debug.ts / the learning layout's
  * guard) since Explore's normal prerequisite is completing Observe, which
@@ -18,8 +18,8 @@ const EXPLORE_URL = "/explore?debug=1";
 
 /**
  * A self-contained, controllable `window.speechSynthesis` stub, installed
- * only for the one test below that needs to observe the transient
- * "playing" state deterministically.
+ * only for the tests that need to observe the transient "playing" state
+ * deterministically.
  *
  * This is intentionally NOT added to e2e/fixtures.ts's shared
  * `mockSpeechApis`: that helper's existing stub resolves `onend` on a
@@ -30,8 +30,6 @@ const EXPLORE_URL = "/explore?debug=1";
  * "playing" attribute before it flips back. Real browser speech synthesis
  * is equally unusable here: headless environments often have no system TTS
  * voices, so `speechSynthesis.speak()` can hang or error unpredictably.
- * Rolling a small local stub here — instead of touching the shared fixture
- * — keeps this ticket's footprint to its own files.
  */
 async function installControllableSpeechStub(page: Page): Promise<void> {
   await page.addInitScript(() => {
@@ -78,123 +76,213 @@ declare global {
   }
 }
 
+type Row = { id: string; en: string[]; zh: string; pill: string; tint: "green" | "blue" | "yellow" };
+
+/** Main (non-Explore-More) expressions, word for word from issue #81's tables. */
+const MAIN: Record<string, Row[]> = {
+  greeting: [
+    { id: "greeting-hi", en: ["Hi!"], zh: "嗨！", pill: "最常用", tint: "green" },
+    { id: "greeting-hello", en: ["Hello."], zh: "你好。", pill: "稍正式", tint: "blue" },
+    {
+      id: "greeting-time-based",
+      en: ["Good morning.", "Good afternoon.", "Good evening."],
+      zh: "早上好 / 下午好 / 晚上好",
+      pill: "根据时间",
+      tint: "yellow",
+    },
+  ],
+  checkin: [
+    { id: "checkin-how-are-you", en: ["How are you?"], zh: "你怎么样？", pill: "常用问候", tint: "green" },
+    { id: "checkin-hows-it-going", en: ["How's it going?"], zh: "最近怎么样？", pill: "更随意", tint: "blue" },
+  ],
+  response: [
+    { id: "response-good-thanks", en: ["Good, thanks!"], zh: "挺好的，谢谢！", pill: "Respond · 回应", tint: "green" },
+    {
+      id: "response-little-busy-today",
+      en: ["Just a little busy today."],
+      zh: "就是今天有点忙。",
+      pill: "Add More · 补充近况",
+      tint: "blue",
+    },
+    { id: "response-how-about-you", en: ["How about you?"], zh: "你呢？", pill: "Ask Back · 回问", tint: "yellow" },
+  ],
+  closing: [
+    { id: "closing-see-you", en: ["See you!"], zh: "回头见！", pill: "日常告别", tint: "green" },
+    { id: "closing-have-a-nice-day", en: ["Have a nice day!"], zh: "祝你今天愉快！", pill: "礼貌结束", tint: "blue" },
+  ],
+};
+
+const HEADERS: Record<string, string> = {
+  greeting: "Greeting · 打招呼",
+  checkin: "Check-in · 问候近况",
+  response: "Response & Keep It Going · 回应与继续交流",
+  closing: "Closing · 结束交流",
+};
+
+const SECTIONS = ["greeting", "checkin", "response", "closing"] as const;
+
+/** Greeting starts open; this opens the other three. */
+async function openAll(page: Page): Promise<void> {
+  for (const key of SECTIONS.slice(1)) {
+    await page.getByTestId(`section-${key}-header`).click();
+  }
+}
+
 test.describe("Explore page", () => {
-  test("defaults to all sections collapsed", async ({
-    page,
-  }) => {
+  test("shows the headline, subtitle and Today's Expressions heading", async ({ page }) => {
     await resetStorage(page);
     await page.goto(EXPLORE_URL);
 
-    await expect(page.getByTestId("section-greeting")).toHaveAttribute("data-state", "collapsed");
-    await expect(page.getByTestId("section-checkin")).toHaveAttribute("data-state", "collapsed");
-    await expect(page.getByTestId("section-response")).toHaveAttribute("data-state", "collapsed");
-    await expect(page.getByTestId("section-closing")).toHaveAttribute("data-state", "collapsed");
-
-    // Every section's body is hidden until the learner opens it.
-    await expect(page.getByTestId("section-greeting-body")).not.toBeVisible();
-    await expect(page.getByTestId("section-checkin-body")).not.toBeVisible();
-    await expect(page.getByTestId("section-response-body")).not.toBeVisible();
-    await expect(page.getByTestId("section-closing-body")).not.toBeVisible();
+    await expect(page.getByRole("heading", { name: "Learn useful expressions." })).toBeVisible();
+    await expect(page.getByText("学习常用表达，根据情境灵活组合。")).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Today's Expressions/ })).toBeVisible();
   });
 
-  test("opening two sections independently expands both", async ({
-    page,
-  }) => {
+  test("section headers read English · 中文, with a green chevron that follows open state", async ({ page }) => {
+    await resetStorage(page);
+    await page.goto(EXPLORE_URL);
+
+    for (const key of SECTIONS) {
+      await expect(page.getByTestId(`section-${key}-header`)).toContainText(HEADERS[key]);
+      await expect(page.getByTestId(`section-${key}-chevron`)).toHaveCSS("color", "rgb(47, 174, 96)");
+    }
+
+    await expect(page.getByTestId("section-greeting-chevron")).toHaveText("⌃");
+    await expect(page.getByTestId("section-checkin-chevron")).toHaveText("⌄");
+    await page.getByTestId("section-checkin-header").click();
+    await expect(page.getByTestId("section-checkin-chevron")).toHaveText("⌃");
+  });
+
+  test("on arrival Greeting is expanded and the other three sections are collapsed", async ({ page }) => {
+    await resetStorage(page);
+    await page.goto(EXPLORE_URL);
+
+    await expect(page.getByTestId("section-greeting")).toHaveAttribute("data-state", "expanded");
+    await expect(page.getByTestId("section-greeting-body")).toBeVisible();
+    for (const key of ["checkin", "response", "closing"]) {
+      await expect(page.getByTestId(`section-${key}`)).toHaveAttribute("data-state", "collapsed");
+      await expect(page.getByTestId(`section-${key}-body`)).not.toBeVisible();
+    }
+  });
+
+  test("sections toggle independently: opening one never closes another", async ({ page }) => {
     await resetStorage(page);
     await page.goto(EXPLORE_URL);
 
     await page.getByTestId("section-checkin-header").click();
     await page.getByTestId("section-closing-header").click();
+    for (const key of ["greeting", "checkin", "closing"]) {
+      await expect(page.getByTestId(`section-${key}`)).toHaveAttribute("data-state", "expanded");
+    }
+    await expect(page.getByTestId("section-response")).toHaveAttribute("data-state", "collapsed");
 
+    // Collapsing Greeting leaves Check-in and Closing open.
+    await page.getByTestId("section-greeting-header").click();
     await expect(page.getByTestId("section-greeting")).toHaveAttribute("data-state", "collapsed");
     await expect(page.getByTestId("section-checkin")).toHaveAttribute("data-state", "expanded");
     await expect(page.getByTestId("section-closing")).toHaveAttribute("data-state", "expanded");
-    // Untouched section stays collapsed.
-    await expect(page.getByTestId("section-response")).toHaveAttribute("data-state", "collapsed");
-
-    await expect(page.getByTestId("section-greeting-body")).not.toBeVisible();
-    await expect(page.getByTestId("section-checkin-body")).toBeVisible();
-    await expect(page.getByTestId("section-closing-body")).toBeVisible();
   });
 
-  test("collapsing one open section leaves the others untouched", async ({ page }) => {
+  test("every main expression shows its English, Chinese and tag or role word for word", async ({ page }) => {
     await resetStorage(page);
     await page.goto(EXPLORE_URL);
+    await openAll(page);
 
-    await page.getByTestId("section-checkin-header").click();
-    await expect(page.getByTestId("section-checkin")).toHaveAttribute("data-state", "expanded");
-
-    // Toggling Check-in back off leaves the untouched Greeting collapsed.
-    await page.getByTestId("section-checkin-header").click();
-    await expect(page.getByTestId("section-checkin")).toHaveAttribute("data-state", "collapsed");
-    await expect(page.getByTestId("section-greeting")).toHaveAttribute("data-state", "collapsed");
+    for (const key of SECTIONS) {
+      for (const row of MAIN[key]) {
+        const card = page.getByTestId(`expression-card-${row.id}`);
+        for (const line of row.en) await expect(card.getByText(line, { exact: true })).toBeVisible();
+        await expect(card.getByText(row.zh, { exact: true })).toBeVisible();
+        await expect(card.getByText(row.pill, { exact: true })).toBeVisible();
+      }
+      // Explore More is not rendered yet: only the main list appears.
+      await expect(page.getByTestId(`section-${key}-body`).locator('[data-testid^="expression-card-"]')).toHaveCount(
+        MAIN[key].length,
+      );
+    }
   });
 
-  test("回应 section shows its three steps in fixed ①②③ order, plus a combo card", async ({
+  test("the time-based Greeting card shows three lines with their own buttons and one translation", async ({
     page,
   }) => {
     await resetStorage(page);
     await page.goto(EXPLORE_URL);
 
-    await page.getByTestId("section-response-header").click();
-    await expect(page.getByTestId("section-response")).toHaveAttribute("data-state", "expanded");
-
-    await expect(page.getByTestId("response-step-1")).toContainText("I'm good.");
-    await expect(page.getByTestId("response-step-2")).toContainText("Thank you.");
-    await expect(page.getByTestId("response-step-3")).toContainText("How about you?");
-
-    // Order is fixed in the DOM, not just independently present.
-    const stepOrder = await page.evaluate(() =>
-      Array.from(document.querySelectorAll('[data-testid^="response-step-"]')).map((el) =>
-        el.getAttribute("data-testid"),
-      ),
-    );
-    expect(stepOrder).toEqual(["response-step-1", "response-step-2", "response-step-3"]);
-
-    await expect(page.getByTestId("response-combo")).toBeVisible();
-    await expect(page.getByTestId("response-combo")).toContainText(
-      "I'm good. Thank you. How about you?",
-    );
+    const card = page.getByTestId("expression-card-greeting-time-based");
+    await expect(card.getByRole("button")).toHaveCount(3);
+    await expect(card.getByText("早上好 / 下午好 / 晚上好")).toHaveCount(1);
+    await expect(card.getByText("根据时间")).toHaveCount(1);
   });
 
-  test("clicking a pronunciation button triggers playback and is repeatable", async ({ page }) => {
+  test("card tints cycle green, blue, yellow by position, and follow the role in Response", async ({ page }) => {
+    await resetStorage(page);
+    await page.goto(EXPLORE_URL);
+    await openAll(page);
+
+    for (const key of SECTIONS) {
+      for (const row of MAIN[key]) {
+        await expect(page.getByTestId(`expression-card-${row.id}`)).toHaveAttribute("data-tint", row.tint);
+      }
+    }
+  });
+
+  test("no image carousel, scene photo or combo sentence remains", async ({ page }) => {
+    await resetStorage(page);
+    await page.goto(EXPLORE_URL);
+    await openAll(page);
+
+    for (const key of SECTIONS) {
+      await expect(page.getByTestId(`section-${key}-body`).locator("img")).toHaveCount(0);
+    }
+    await expect(page.getByText("I'm good. Thank you. How about you?")).toHaveCount(0);
+    await expect(page.getByText("连起来说")).toHaveCount(0);
+  });
+
+  test("every spoken line has its own button; clicking a second stops the first", async ({ page }) => {
     await resetStorage(page);
     await installControllableSpeechStub(page);
     await page.goto(EXPLORE_URL);
-    await page.getByTestId("section-greeting-header").click();
+    await openAll(page);
 
-    const button = page.getByTestId("pronounce-greeting-hi");
-    await expect(button).toHaveAttribute("data-state", "idle");
+    for (const key of SECTIONS) {
+      for (const row of MAIN[key]) {
+        const card = page.getByTestId(`expression-card-${row.id}`);
+        await expect(card.getByRole("button")).toHaveCount(row.en.length);
+        for (const line of row.en) {
+          await expect(card.getByRole("button", { name: `播放发音 Play pronunciation: ${line}` })).toHaveCount(1);
+        }
+      }
+    }
 
-    await button.click();
-    await expect(button).toHaveAttribute("data-state", "playing");
+    const first = page.getByTestId("pronounce-greeting-hi");
+    const second = page.getByTestId("pronounce-greeting-time-based-2");
+    await expect(first).toHaveAttribute("data-state", "idle");
 
-    // Let the (stubbed) utterance finish.
+    await first.click();
+    await expect(first).toHaveAttribute("data-state", "playing");
+
+    await second.click();
+    await expect(second).toHaveAttribute("data-state", "playing");
+    await expect(first).toHaveAttribute("data-state", "idle");
+
     await page.evaluate(() => window.__resolveSpeech?.());
-    await expect(button).toHaveAttribute("data-state", "idle");
+    await expect(second).toHaveAttribute("data-state", "idle");
 
     // Repeatable: clicking again re-triggers playback.
-    await button.click();
-    await expect(button).toHaveAttribute("data-state", "playing");
+    await first.click();
+    await expect(first).toHaveAttribute("data-state", "playing");
     await page.evaluate(() => window.__resolveSpeech?.());
-    await expect(button).toHaveAttribute("data-state", "idle");
+    await expect(first).toHaveAttribute("data-state", "idle");
   });
 
-  test("carousels scroll horizontally within their own bounds without causing page-level horizontal scroll", async ({
-    page,
-  }) => {
+  test("at 375px with every section open there is no horizontal scroll", async ({ page }) => {
     await resetStorage(page);
-    await page.setViewportSize({ width: 390, height: 844 });
+    await page.setViewportSize({ width: 375, height: 812 });
     await page.goto(EXPLORE_URL);
+    await openAll(page);
 
-    // Expand every section so all three carousels + the ladder are mounted at once.
-    await page.getByTestId("section-greeting-header").click();
-    await page.getByTestId("section-checkin-header").click();
-    await page.getByTestId("section-response-header").click();
-    await page.getByTestId("section-closing-header").click();
-
-    for (const testId of ["section-greeting-body", "section-checkin-body", "section-response-body", "section-closing-body"]) {
-      await expect(page.getByTestId(testId)).toBeVisible();
+    for (const key of SECTIONS) {
+      await expect(page.getByTestId(`section-${key}-body`)).toBeVisible();
     }
 
     const hasHorizontalScroll = await page.evaluate(
@@ -203,14 +291,13 @@ test.describe("Explore page", () => {
     expect(hasHorizontalScroll).toBe(false);
   });
 
-  test("the Continue button is reachable without opening any other section or playing anything", async ({
-    page,
-  }) => {
+  test("Continue reads \"Continue 继续学习 →\" and is reachable without opening anything", async ({ page }) => {
     await resetStorage(page);
     await page.goto(EXPLORE_URL);
 
-    await expect(page.getByRole("button", { name: /继续 Continue/ })).toBeVisible();
-    await page.getByRole("button", { name: /继续 Continue/ }).click();
+    const continueButton = page.getByRole("button", { name: "Continue 继续学习 →" });
+    await expect(continueButton).toBeVisible();
+    await continueButton.click();
     await expect(page).toHaveURL(/\/guided-practice(\?|$)/);
   });
 

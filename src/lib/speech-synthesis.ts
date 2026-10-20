@@ -22,16 +22,11 @@ export type SpeakOptions = {
   lang?: string;
   /** 0.1–10, browser-defined default is 1. */
   rate?: number;
-  /** Split "/"-delimited teaching text into sequential segments. Defaults to false. */
-  splitOnSlash?: boolean;
 };
 
 const PREGENERATED_AUDIO_PATHS = new Map(
   AUDIO_MANIFEST.map((entry) => [entry.text, `/audio/${entry.id}.mp3`]),
 );
-
-/** Silence inserted between the segments of a "/"-delimited text (see `speak()`). */
-const SEGMENT_PAUSE_MS = 1000;
 
 /** True when the browser exposes a usable Web Speech synthesis API. */
 export function isSpeechSynthesisSupported(): boolean {
@@ -180,10 +175,6 @@ async function speakWithBrowser(text: string, options: SpeakOptions, myGeneratio
   });
 }
 
-function pause(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 /**
  * Speaks `text` aloud and resolves once playback ends (or immediately, as a
  * no-op, if no playback path is available — callers don't need to
@@ -194,32 +185,15 @@ function pause(ms: number): Promise<void> {
  * Cancels any audio already in flight before starting, so repeat clicks
  * (including on a different card) always restart cleanly instead of
  * overlapping.
- *
- * Slash splitting is opt-in for teaching-card callers. Ordinary text keeps
- * "/" intact because Chinese prose can naturally use it (for example,
- * "上午/下午都可以说"). Opted-in segments receive a fixed pause and each still
- * goes through the normal playback ladder independently.
  */
 export async function speak(text: string, options: SpeakOptions = {}): Promise<boolean> {
   cancelSpeech();
   const myGeneration = generation;
 
-  const segments = options.splitOnSlash
-    ? text
-        .split("/")
-        .map((segment) => segment.trim())
-        .filter(Boolean)
-    : [text];
-
-  let playedAny = false;
-  for (let i = 0; i < segments.length && myGeneration === generation; i++) {
-    const played =
-      (await playPregeneratedAudio(segments[i], options.rate)) ||
-      (myGeneration === generation && (await speakWithBrowser(segments[i], options, myGeneration)));
-    playedAny = playedAny || played;
-    if (i < segments.length - 1 && myGeneration === generation) await pause(SEGMENT_PAUSE_MS);
-  }
-  return playedAny;
+  return (
+    (await playPregeneratedAudio(text, options.rate)) ||
+    (myGeneration === generation && (await speakWithBrowser(text, options, myGeneration)))
+  );
 }
 
 /** Stops any in-flight playback. */

@@ -10,8 +10,6 @@ type PronunciationButtonProps = {
   label?: string;
   testId?: string;
   className?: string;
-  /** Opt into the adapter's teaching-card "/" segmentation behavior. */
-  splitOnSlash?: boolean;
 };
 
 /**
@@ -30,14 +28,13 @@ export function PronunciationButton({
   label,
   testId,
   className = "",
-  splitOnSlash = false,
 }: PronunciationButtonProps) {
   const [isPlaying, setIsPlaying] = useState(false);
 
   async function activate() {
     setIsPlaying(true);
     try {
-      await speak(text, { splitOnSlash });
+      await speak(text);
     } finally {
       setIsPlaying(false);
     }

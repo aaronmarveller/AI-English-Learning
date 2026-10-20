@@ -3,10 +3,10 @@
 import type { ReactNode } from "react";
 
 type ChunkSectionProps = {
-  /** Optional leading emoji — Explore's sections use this; Notice's cards don't. */
-  icon?: string;
-  title: string;
-  subtitle: string;
+  /** Leading icon (emoji or a tinted icon) shown before the title. */
+  icon?: ReactNode;
+  titleEn: string;
+  titleZh: string;
   open: boolean;
   onToggle: () => void;
   testId: string;
@@ -14,43 +14,36 @@ type ChunkSectionProps = {
 };
 
 /**
- * One Conversation Chunk Section: a header that independently toggles its
- * own body (no accordion coupling — every section owns its own open/closed
- * state in the parent page, toggling one never touches the others).
+ * One Explore section: a header that independently toggles its own body (no
+ * accordion coupling — every section owns its own open/closed state in the
+ * parent page, toggling one never touches the others). The header reads
+ * "<icon> <English> · <中文>" with a green chevron (⌄ collapsed, ⌃ expanded).
  *
  * Header is a real `<button>` with the standard ARIA disclosure pattern
- * (`aria-expanded` + `aria-controls`) — e2e/navigation-spine.spec.ts's
- * shared walkthrough test scopes its own button query by accessible name
- * (`/Continue/`), so this page doesn't need to avoid the "button" role to
- * keep that query unambiguous.
+ * (`aria-expanded` + `aria-controls`). Sections are stacked inside one
+ * bordered container by the parent, so this renders no border of its own.
  */
-export function ChunkSection({ icon, title, subtitle, open, onToggle, testId, children }: ChunkSectionProps) {
+export function ChunkSection({ icon, titleEn, titleZh, open, onToggle, testId, children }: ChunkSectionProps) {
   const bodyId = `${testId}-body`;
 
   return (
-    <section
-      data-testid={testId}
-      data-state={open ? "expanded" : "collapsed"}
-      className="rounded-card border border-border bg-card"
-    >
+    <section data-testid={testId} data-state={open ? "expanded" : "collapsed"}>
       <button
         type="button"
         aria-expanded={open}
         aria-controls={bodyId}
         data-testid={`${testId}-header`}
-        className="flex w-full items-center justify-between px-4 py-4 text-left active:brightness-95"
+        className="flex w-full items-center justify-between gap-2 px-4 py-4 text-left active:brightness-95"
         onClick={onToggle}
       >
-        <span className="flex items-baseline gap-2">
+        <span className="flex min-w-0 items-center gap-2">
           {icon ? <span aria-hidden>{icon}</span> : null}
-          <span className="text-h3 text-foreground">{title}</span>
-          <span className="text-body-sm text-muted">{subtitle}</span>
+          <span className="text-h3 text-foreground">
+            {titleEn} · {titleZh}
+          </span>
         </span>
-        <span
-          aria-hidden
-          className={`text-muted transition-transform duration-150 ${open ? "rotate-180" : ""}`}
-        >
-          ⌄
+        <span aria-hidden className="shrink-0 text-h3 text-accent" data-testid={`${testId}-chevron`}>
+          {open ? "⌃" : "⌄"}
         </span>
       </button>
 
