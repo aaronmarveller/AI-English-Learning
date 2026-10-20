@@ -1,6 +1,6 @@
 /**
  * Shared skeleton for a localStorage-backed external store, factored out of
- * src/lib/progress.ts and src/lib/practice-state.ts (ticket 07 — those two
+ * src/lib/learning-flow.ts and src/lib/practice-state.ts (ticket 07 — those two
  * modules independently hand-rolled the exact same
  * singleton-snapshot + hydrated-flag + listeners-Set + try/catch
  * localStorage read/write boilerplate under useSyncExternalStore).
@@ -65,7 +65,7 @@ export type PersistedStore<T> = {
 /**
  * Builds a tiny external store (subscribe/getSnapshot/getServerSnapshot +
  * persist) suitable for `useSyncExternalStore`, backed by a single
- * localStorage key. See src/lib/progress.ts and src/lib/practice-state.ts
+ * localStorage key. See src/lib/learning-flow.ts and src/lib/practice-state.ts
  * for the two call sites and how they layer their own validated
  * serialize/deserialize on top.
  */

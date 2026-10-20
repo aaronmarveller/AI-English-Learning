@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useDebugFlag } from "@/lib/debug";
-import { STEP_IDS, STEP_LABELS, STEP_ROUTES } from "@/lib/progress";
+import { debugJumpLinks } from "@/lib/learning-flow";
 
 /**
  * Presenter-only step jump bar: hidden unless debug mode is active (see
@@ -27,12 +27,9 @@ export function DebugJumpBar() {
       className="flex flex-wrap items-center gap-2 border-b border-border bg-accent-soft px-4 py-2"
     >
       <span className="text-caption font-semibold text-muted">DEBUG</span>
-      <Link href="/" className={linkClassName}>
-        Home
-      </Link>
-      {STEP_IDS.map((step) => (
-        <Link key={step} href={`${STEP_ROUTES[step]}?debug=1`} className={linkClassName}>
-          {STEP_LABELS[step]}
+      {debugJumpLinks().map(({ label, href }) => (
+        <Link key={href} href={href} className={linkClassName}>
+          {label}
         </Link>
       ))}
     </nav>

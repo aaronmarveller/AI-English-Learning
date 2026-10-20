@@ -1,14 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import {
-  getStepFromPathname,
-  STEP_IDS,
-  STEP_LABELS,
-  STEP_ROUTES,
-  useProgress,
-} from "@/lib/progress";
+import { STEP_IDS, STEP_LABELS, useLearningFlow } from "@/lib/learning-flow";
 
 /**
  * Course-name chip + 6-step progress dots. Previously lived in the shared
@@ -17,7 +10,7 @@ import {
  * it belongs below each page's stage pill instead). Kept as one shared
  * component rather than hand-copied into all 6 pages since the underlying
  * state (current step from the route, completed steps from the progress
- * store) is identical everywhere — see src/lib/progress.ts.
+ * store) is identical everywhere — see src/lib/learning-flow.ts.
  *
  * Dots are plain equal-size circles (UI draft, 2026-08-07 review round 3:
  * "进度的UI...是单纯的...原点" — not the previous current-step elongated pill).
@@ -27,12 +20,10 @@ import {
  * reached are white with a thin border.
  */
 export function CourseProgressChip() {
-  const pathname = usePathname();
-  const { completed } = useProgress();
-  const currentStep = getStepFromPathname(pathname);
+  const { step: currentStep, prev, completed } = useLearningFlow();
   const currentIndex = currentStep ? STEP_IDS.indexOf(currentStep) : -1;
 
-  const previousStep = currentIndex > 0 ? STEP_IDS[currentIndex - 1] : null;
+  const hasPreviousStep = currentIndex > 0;
   const linkClassName =
     "btn-icon-pressed whitespace-nowrap rounded-button text-body-sm text-muted";
 
@@ -45,13 +36,13 @@ export function CourseProgressChip() {
       <div className="flex flex-col items-end gap-2">
         <div className="relative -top-7 flex items-center gap-3">
           <Link
-            href={previousStep ? STEP_ROUTES[previousStep] : "/"}
-            aria-label={previousStep ? "返回上一步" : "返回 Home"}
-            data-testid={previousStep ? "back-previous" : "back-home"}
+            href={prev ?? "/"}
+            aria-label={hasPreviousStep ? "返回上一步" : "返回 Home"}
+            data-testid={hasPreviousStep ? "back-previous" : "back-home"}
             className={linkClassName}
           >
             <span aria-hidden>←</span>{" "}
-            {previousStep ? "Back to Previous Step" : "Back to Home"}
+            {hasPreviousStep ? "Back to Previous Step" : "Back to Home"}
           </Link>
         </div>
 

@@ -4,8 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import type { ReactNode } from "react";
 import { DebugJumpBar } from "@/components/debug-jump-bar";
-import { useDebugFlag } from "@/lib/debug";
-import { getStepFromPathname, useProgress } from "@/lib/progress";
+import { useLearningFlow } from "@/lib/learning-flow";
 import { useHasMounted } from "@/lib/use-has-mounted";
 
 /**
@@ -37,13 +36,8 @@ import { useHasMounted } from "@/lib/use-has-mounted";
 export default function LearningLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { isStepUnlocked } = useProgress();
-  const debugEnabled = useDebugFlag();
-
+  const { unlocked } = useLearningFlow();
   const hasMounted = useHasMounted();
-
-  const currentStep = getStepFromPathname(pathname);
-  const unlocked = debugEnabled || !currentStep || isStepUnlocked(currentStep);
 
   useEffect(() => {
     if (!hasMounted || unlocked) return;

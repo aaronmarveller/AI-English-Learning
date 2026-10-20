@@ -10,7 +10,7 @@ import { useEffect, useSyncExternalStore } from "react";
  * is intentional — this is a per-demo-session presenter switch, not
  * learner progress, and should reset when the tab closes.
  *
- * Implemented as a useSyncExternalStore-backed store (like src/lib/progress.ts)
+ * Implemented as a useSyncExternalStore-backed store (like src/lib/learning-flow.ts)
  * rather than useState+useEffect: reading window.location/sessionStorage is a
  * read of external mutable state, which is exactly what useSyncExternalStore
  * is for — it also gives correct, mismatch-free SSR/hydration behavior for

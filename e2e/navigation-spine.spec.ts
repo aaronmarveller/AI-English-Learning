@@ -1,6 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
 import { hangUp, installFakeCall, learnerSpeaks, resetStorage, startCallAndGreet } from "./fixtures";
-import { STEP_IDS, STEP_ROUTES, type StepId } from "@/lib/progress";
 
 /**
  * Ticket 02's nav spine (route guard, progress dots, debug bypass,
@@ -12,6 +11,10 @@ import { STEP_IDS, STEP_ROUTES, type StepId } from "@/lib/progress";
  */
 
 const HOME_URL = /\/$/;
+
+const STEP_IDS = ["observe", "notice", "explore", "guided-practice", "practice", "review"] as const;
+type StepId = (typeof STEP_IDS)[number];
+const STEP_ROUTES = Object.fromEntries(STEP_IDS.map((step) => [step, `/${step}`])) as Record<StepId, string>;
 
 function expectedDotState(dotStep: StepId, currentStep: StepId): "current" | "completed" | "upcoming" {
   if (dotStep === currentStep) return "current";

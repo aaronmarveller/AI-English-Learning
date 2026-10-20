@@ -1,0 +1,101 @@
+import { describe, expect, it } from "vitest";
+import {
+  STEP_IDS,
+  completionRoute,
+  debugJumpLinks,
+  entryRoute,
+  flowAt,
+} from "@/lib/learning-flow";
+
+describe("step order", () => {
+  it("is observe, notice, explore, guided-practice, practice, review", () => {
+    expect([...STEP_IDS]).toEqual([
+      "observe",
+      "notice",
+      "explore",
+      "guided-practice",
+      "practice",
+      "review",
+    ]);
+  });
+});
+
+describe("flowAt unlock rule", () => {
+  it("always unlocks the first step, even with nothing completed", () => {
+    expect(flowAt("observe", [], { debug: false }).unlocked).toBe(true);
+  });
+
+  it("unlocks a step once the step before it is complete", () => {
+    expect(flowAt("notice", ["observe"], { debug: false }).unlocked).toBe(true);
+    expect(flowAt("review", ["practice"], { debug: false }).unlocked).toBe(true);
+  });
+
+  it("keeps a step locked while the step before it is incomplete, even if later steps are complete", () => {
+    expect(flowAt("notice", [], { debug: false }).unlocked).toBe(false);
+    expect(flowAt("explore", ["observe"], { debug: false }).unlocked).toBe(false);
+    expect(flowAt("explore", ["observe", "practice"], { debug: false }).unlocked).toBe(false);
+  });
+
+  it("unlocks every step under debug, with no progress", () => {
+    for (const step of STEP_IDS) {
+      expect(flowAt(step, [], { debug: true }).unlocked).toBe(true);
+    }
+  });
+
+  it("treats a path outside the flow as unlocked with no neighbours", () => {
+    expect(flowAt(null, [], { debug: false })).toEqual({
+      step: null,
+      prev: null,
+      next: null,
+      unlocked: true,
+    });
+  });
+});
+
+describe("flowAt prev / next", () => {
+  it("makes Home the previous destination of the first step", () => {
+    expect(flowAt("observe", [], { debug: false }).prev).toBe("/");
+  });
+
+  it("links each step to its neighbours", () => {
+    const at = (step: (typeof STEP_IDS)[number]) => flowAt(step, [], { debug: false });
+    expect(at("observe").next).toBe("/notice");
+    expect(at("notice")).toMatchObject({ prev: "/observe", next: "/explore" });
+    expect(at("explore")).toMatchObject({ prev: "/notice", next: "/guided-practice" });
+    expect(at("guided-practice")).toMatchObject({ prev: "/explore", next: "/practice" });
+    expect(at("practice")).toMatchObject({ prev: "/guided-practice", next: "/review" });
+    expect(at("review").prev).toBe("/practice");
+  });
+
+  it("exits to Coming Soon after the last step", () => {
+    expect(flowAt("review", [], { debug: false }).next).toBe("/coming-soon");
+  });
+});
+
+describe("completionRoute", () => {
+  it("returns the route that follows each step", () => {
+    expect(
+      STEP_IDS.map((step) => completionRoute(step)),
+    ).toEqual(["/notice", "/explore", "/guided-practice", "/practice", "/review", "/coming-soon"]);
+  });
+});
+
+describe("entryRoute", () => {
+  it("is the first step", () => {
+    expect(entryRoute()).toBe("/observe");
+  });
+});
+
+describe("debugJumpLinks", () => {
+  it("starts with Home and then lists every step in order, carrying the debug flag", () => {
+    expect(debugJumpLinks()).toEqual([
+      { label: "Home", href: "/" },
+      { label: "Observe", href: "/observe?debug=1" },
+      { label: "Notice", href: "/notice?debug=1" },
+      { label: "Explore", href: "/explore?debug=1" },
+      { label: "Guided Practice", href: "/guided-practice?debug=1" },
+      { label: "Practice", href: "/practice?debug=1" },
+      { label: "Learning Summary", href: "/review?debug=1" },
+    ]);
+  });
+});

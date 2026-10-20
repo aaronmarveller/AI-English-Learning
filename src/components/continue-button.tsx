@@ -2,44 +2,31 @@
 
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-import { markStepComplete, type StepId } from "@/lib/progress";
+import { completeStep, type StepId } from "@/lib/learning-flow";
 
 type ContinueButtonProps = {
-  /** Route to navigate to after marking the current step complete. */
-  next: string;
-  /** Step to mark complete in the progress store when clicked. */
-  markStepComplete: StepId;
+  /** The step being left: marked complete on click; the Learning Flow decides where to go next. */
+  step: StepId;
   children: ReactNode;
   className?: string;
 };
 
 /**
  * The one primary action button every learning page renders: on click it
- * marks the current step complete in the progress store, then navigates to
- * `next`. This is the shared "advance to next step" control referenced by
- * later tickets (04/05/06) for Home/Observe/Explore's real page content.
+ * completes `step` in the Learning Flow and navigates to the route that
+ * returns. Pages name only the step they are leaving.
  *
  * @example
- * <ContinueButton next="/notice" markStepComplete="observe">
- *   继续 Continue
- * </ContinueButton>
+ * <ContinueButton step="observe">继续 Continue</ContinueButton>
  */
-export function ContinueButton({
-  next,
-  markStepComplete: step,
-  children,
-  className = "",
-}: ContinueButtonProps) {
+export function ContinueButton({ step, children, className = "" }: ContinueButtonProps) {
   const router = useRouter();
 
   return (
     <button
       type="button"
       className={`btn-primary w-full ${className}`.trim()}
-      onClick={() => {
-        markStepComplete(step);
-        router.push(next);
-      }}
+      onClick={() => router.push(completeStep(step))}
     >
       {children}
     </button>

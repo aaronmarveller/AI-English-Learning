@@ -24,7 +24,7 @@ function getServerSnapshot(): boolean {
  * version of the classic "isClient"/"hasMounted" flag: unlike a plain
  * useState+useEffect, it doesn't call setState from inside an effect body,
  * and — more importantly for guards that also read other
- * useSyncExternalStore-backed values (see src/lib/progress.ts,
+ * useSyncExternalStore-backed values (see src/lib/learning-flow.ts,
  * src/lib/debug.ts) — it flips from false to true via the exact same
  * post-hydration correction mechanism those stores use, so by the render
  * where this becomes true, their real (localStorage/sessionStorage-backed)

@@ -67,7 +67,7 @@ export default function ObservePage() {
       </div>
 
       <div className="mt-auto pt-6">
-        <ContinueButton next="/notice" markStepComplete="observe">
+        <ContinueButton step="observe">
           Continue 继续学习 →
         </ContinueButton>
       </div>

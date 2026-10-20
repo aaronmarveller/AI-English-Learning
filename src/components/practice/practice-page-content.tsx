@@ -9,7 +9,7 @@ import { EmilyInfoCard } from "@/components/practice/emily-info-card";
 import { StageTag } from "@/components/stage-tag";
 import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
 import { MAX_CALLS, settleInterruptedCalls, usePractice } from "@/lib/practice-state";
-import { markStepComplete } from "@/lib/progress";
+import { completeStep } from "@/lib/learning-flow";
 import { useLiveCall } from "@/lib/use-live-call";
 
 /**
@@ -48,8 +48,7 @@ export function PracticePageContent() {
 
   function handleViewSummary() {
     if (!isComplete || inCall) return;
-    markStepComplete("practice");
-    router.push("/review");
+    router.push(completeStep("practice"));
   }
 
   return (

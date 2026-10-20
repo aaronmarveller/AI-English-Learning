@@ -8,7 +8,7 @@ import { useSyncExternalStore } from "react";
  * spec doesn't mandate exact cutoffs, these are the suggested ones.
  *
  * Reads the learner's *local* browser time via `new Date()`, which can only
- * be known client-side — the same category of problem src/lib/progress.ts
+ * be known client-side — the same category of problem src/lib/learning-flow.ts
  * and src/lib/debug.ts solve with a useSyncExternalStore-backed store
  * rather than useState+useEffect, so this follows the same pattern instead
  * of calling setState from inside an effect (which react-hooks/

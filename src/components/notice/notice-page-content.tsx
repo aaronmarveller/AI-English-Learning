@@ -47,7 +47,7 @@ export function NoticePageContent() {
       </div>
 
       <div className="mt-auto pt-6">
-        <ContinueButton next="/explore" markStepComplete="notice">
+        <ContinueButton step="notice">
           Continue 继续学习 <span aria-hidden>→</span>
         </ContinueButton>
       </div>

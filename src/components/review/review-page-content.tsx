@@ -9,7 +9,7 @@ import { LEARNING_SUMMARY_HEADLINE } from "@/content/review";
 import { loadSummaryLines } from "@/lib/load-summary-lines";
 import type { SummaryLine } from "@/lib/learning-summary";
 import { resetPractice, usePractice } from "@/lib/practice-state";
-import { markStepComplete } from "@/lib/progress";
+import { completeStep, useLearningFlow } from "@/lib/learning-flow";
 
 /**
  * Learning Summary body for the internal Review stage. Split out from
@@ -27,6 +27,7 @@ import { markStepComplete } from "@/lib/progress";
 export function ReviewPageContent() {
   const router = useRouter();
   const { calls } = usePractice();
+  const { prev } = useLearningFlow();
 
   // Requested exactly once, from the Calls as they stand at mount time.
   const [callsAtMount] = useState(calls);
@@ -59,13 +60,12 @@ export function ReviewPageContent() {
     if (isRevealing) return;
     // Three Calls again, no transcripts (CONTEXT.md "Practice").
     resetPractice();
-    router.push("/practice");
+    if (prev) router.push(prev);
   }
 
   function handleContinue() {
     if (isRevealing) return;
-    markStepComplete("review");
-    router.push("/coming-soon");
+    router.push(completeStep("review"));
   }
 
   return (

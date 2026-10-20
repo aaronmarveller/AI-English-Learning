@@ -179,7 +179,7 @@ export function GuidedPracticeContent() {
       </section>
 
       <div className="mt-auto pt-2">
-        <ContinueButton next="/practice" markStepComplete="guided-practice">
+        <ContinueButton step="guided-practice">
           Continue 继续学习 →
         </ContinueButton>
       </div>

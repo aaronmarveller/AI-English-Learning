@@ -112,7 +112,7 @@ export function ExplorePageContent() {
       </div>
 
       <div className="mt-auto pt-6">
-        <ContinueButton next="/guided-practice" markStepComplete="explore">
+        <ContinueButton step="explore">
           Continue 继续学习 →
         </ContinueButton>
       </div>
