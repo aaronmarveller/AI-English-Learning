@@ -39,6 +39,7 @@ test.describe("observe page", () => {
     // matters here is that "Continue" itself is unambiguous.
     const continueButton = page.getByRole("button", { name: /continue/i });
     await expect(continueButton).toHaveCount(1);
+    await expect(continueButton).toHaveText(/Continue 继续学习/);
 
     await continueButton.click();
     await expect(page).toHaveURL(/\/explore(\?|$)/);
@@ -57,23 +58,53 @@ test.describe("observe page", () => {
     expect(await video.evaluate((el: HTMLVideoElement) => el.paused)).toBe(false);
   });
 
-  test("shows the scene name and all four Watch for items, display-only", async ({ page }) => {
+  test("shows the new two-line headline and drops the old copy", async ({ page }) => {
     await resetStorage(page);
     await page.goto("/observe?debug=1");
 
     await expect(page.getByRole("heading", { name: "Observe" })).toBeVisible();
-    // Scene name appears twice by design (page subtitle + poster overlay
-    // caption) — assert at least one is visible rather than picking one.
-    await expect(page.getByText("邻里偶遇打招呼").first()).toBeVisible();
+    await expect(page.getByText("Same greeting.")).toBeVisible();
+    await expect(page.getByText("Different conversations.")).toBeVisible();
 
-    for (const category of ["打招呼", "问候", "回应", "结束对话"]) {
-      await expect(page.getByText(category, { exact: false }).first()).toBeVisible();
-    }
+    await expect(page.getByText("Watch how people really communicate.")).toHaveCount(0);
+    await expect(page.getByText("看看真实生活中，人们是怎么交流的。")).toHaveCount(0);
+    await expect(page.getByText("邻里偶遇打招呼")).toHaveCount(0);
+    await expect(page.getByTestId("watch-for")).toHaveCount(0);
+    await expect(page.getByText("Watch for")).toHaveCount(0);
+  });
 
-    // Display-only: no buttons or links inside the Watch for section.
-    const watchForSection = page.getByTestId("watch-for");
-    await expect(watchForSection.getByRole("button")).toHaveCount(0);
-    await expect(watchForSection.getByRole("link")).toHaveCount(0);
+  test("thinking prompts show a title and three questions above the video, display-only", async ({
+    page,
+  }) => {
+    await resetStorage(page);
+    await page.goto("/observe?debug=1");
+
+    const prompts = page.getByTestId("thinking-prompts");
+    await expect(prompts).toBeVisible();
+    await expect(prompts.getByText("看看视频，想一想")).toBeVisible();
+
+    const items = prompts.getByRole("listitem");
+    await expect(items).toHaveCount(3);
+    await expect(items.nth(0)).toContainText("How are you?");
+    await expect(items.nth(0)).toContainText("真的在问近况吗？");
+    await expect(items.nth(1)).toContainText("为什么有的聊得短，有的聊得久？");
+    await expect(items.nth(2)).toContainText("什么时候该继续聊，什么时候该结束？");
+
+    await expect(prompts.getByRole("button")).toHaveCount(0);
+    await expect(prompts.getByRole("link")).toHaveCount(0);
+
+    const promptsBox = await prompts.boundingBox();
+    const videoBox = await page.getByTestId("observe-video").first().boundingBox();
+    expect(promptsBox!.y + promptsBox!.height).toBeLessThanOrEqual(videoBox!.y);
+  });
+
+  test("the progress row shows 5 dots with Observe as the current one", async ({ page }) => {
+    await resetStorage(page);
+    await page.goto("/observe?debug=1");
+
+    await expect(page.getByRole("heading", { name: "Observe" })).toBeVisible();
+    await expect(page.locator('[data-testid^="progress-dot-"]')).toHaveCount(5);
+    await expect(page.getByTestId("progress-dot-observe")).toHaveAttribute("data-state", "current");
   });
 
   test("no horizontal scroll at the mobile viewport", async ({ page }) => {
