@@ -43,25 +43,6 @@ export function HomeIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-export function ProgressIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <IconBase {...props}>
-      <path d="M5 20V13" />
-      <path d="M12 20V6" />
-      <path d="M19 20v-8" />
-    </IconBase>
-  );
-}
-
-export function ProfileIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <IconBase {...props}>
-      <circle cx="12" cy="8" r="3.25" />
-      <path d="M5 20c0-3.5 3.1-6 7-6s7 2.5 7 6" />
-    </IconBase>
-  );
-}
-
 export function PinIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <IconBase {...props}>
