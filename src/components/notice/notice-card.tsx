@@ -31,7 +31,7 @@ const TONE = {
 
 function PhotoCircle({ side, tone }: { side: NoticeSide; tone: Tone }) {
   return (
-    <span className="relative block h-[74px] w-[74px] shrink-0">
+    <span className="relative block h-[94px] w-[94px] shrink-0">
       {/* eslint-disable-next-line @next/next/no-img-element -- placeholder photos; a missing file must show an empty circle, not a broken layout. */}
       <img
         src={side.photo.src}
