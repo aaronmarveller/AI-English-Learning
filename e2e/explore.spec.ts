@@ -572,8 +572,7 @@ test.describe("Explore page", () => {
     }
 
     await expect(dot("explore")).toHaveAttribute("data-state", "current");
-    await expect(dot("explore")).toHaveCSS("border-top-color", GREEN);
-    await expect(dot("explore")).not.toHaveCSS("background-color", GREEN);
+    await expect(dot("explore")).toHaveCSS("background-color", GREEN);
 
     for (const step of ["guided-practice", "practice", "review"]) {
       await expect(dot(step)).toHaveAttribute("data-state", "upcoming");

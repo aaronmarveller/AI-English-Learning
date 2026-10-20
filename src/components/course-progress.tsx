@@ -15,15 +15,15 @@ import { getStepFromPathname, STEP_IDS, STEP_LABELS, useProgress } from "@/lib/p
  * Dots are plain equal-size circles (UI draft, 2026-08-07 review round 3:
  * "进度的UI...是单纯的...原点" — not the previous current-step elongated pill).
  *
- * Color rule (reverses the earlier "only the current dot is green" rule, per
- * the final design): completed steps are a solid green dot, the current step
- * is a green ring (green border, soft-green fill, small green centre), and
- * upcoming steps are white with a thin border.
+ * Color rule: by position, every step up to and including the current one is
+ * a solid green dot (e.g. on step 3, dots 1-3 are green); steps not yet
+ * reached are white with a thin border.
  */
 export function CourseProgressChip() {
   const pathname = usePathname();
   const { completed } = useProgress();
   const currentStep = getStepFromPathname(pathname);
+  const currentIndex = currentStep ? STEP_IDS.indexOf(currentStep) : -1;
 
   return (
     <div className="flex items-center justify-between gap-3">
@@ -43,16 +43,9 @@ export function CourseProgressChip() {
               aria-current={step === currentStep ? "step" : undefined}
               className={
                 "flex h-2.5 w-2.5 items-center justify-center rounded-full " +
-                (state === "completed"
-                  ? "bg-accent"
-                  : state === "current"
-                    ? "border-2 border-accent bg-accent-soft"
-                    : "border border-border bg-white")
+                (index <= currentIndex ? "bg-accent" : "border border-border bg-white")
               }
             >
-              {state === "current" ? (
-                <span aria-hidden className="block h-1 w-1 rounded-full bg-accent" />
-              ) : null}
               <span className="sr-only">
                 {index + 1}. {STEP_LABELS[step]}
               </span>
