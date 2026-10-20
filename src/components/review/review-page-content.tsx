@@ -71,7 +71,7 @@ export function ReviewPageContent() {
   return (
     <div className="flex flex-1 flex-col gap-6">
       <div className="flex flex-col gap-2">
-        <StageTag label="Summary" icon="✨" />
+        <StageTag label="Learning Summary" icon="✨" />
         <CourseProgressChip />
         <h1 className="text-display text-accent">{LEARNING_SUMMARY_HEADLINE.en}</h1>
         <p className="text-body-lg text-muted">{LEARNING_SUMMARY_HEADLINE.zh}</p>

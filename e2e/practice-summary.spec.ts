@@ -153,6 +153,7 @@ test.describe("Review — the Learning Summary", () => {
     await page.goto(REVIEW_URL);
 
     await expect(page.getByRole("heading", { name: "Learning Summary" })).toBeVisible();
+    await expect(page.getByTestId("stage-tag")).toHaveText(/^\s*✨\s*Learning Summary$/);
     await expect(page.getByTestId("retry-button")).toBeDisabled();
     await expect(page.getByTestId("review-continue-button")).toBeDisabled();
     await expect(page.getByTestId("review-typing-indicator")).toBeVisible();

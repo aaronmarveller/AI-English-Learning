@@ -1,5 +1,5 @@
 /**
- * Small "👁 Observe / Notice / Explore / 🎙 Practice / ✨ Summary" label shown
+ * Small "👁 Observe / Notice / Explore / 🎙 Practice / ✨ Learning Summary" label shown
  * above each learning page's editorial headline (UI draft, 2026-08-06
  * review). Purely decorative labeling by default — the page's own <h1> is
  * the thing e2e coverage and the outer 5-dot progress header key off.
@@ -33,6 +33,7 @@ export function StageTag({
 }) {
   return (
     <span
+      data-testid="stage-tag"
       role={asHeading ? "heading" : undefined}
       aria-level={asHeading ? 1 : undefined}
       className="flex w-fit items-center gap-1.5 text-body-sm font-bold text-accent"
