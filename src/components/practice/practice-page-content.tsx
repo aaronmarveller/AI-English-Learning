@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import { useRouter } from "next/navigation";
 import { CourseProgressChip } from "@/components/course-progress";
 import { CallTranscript } from "@/components/practice/call-transcript";
@@ -8,7 +8,8 @@ import { EmilyAvatar, type EmilyAvatarState } from "@/components/practice/emily-
 import { EmilyInfoCard } from "@/components/practice/emily-info-card";
 import { StageTag } from "@/components/stage-tag";
 import { GREETING_SOMEBODY_LESSON } from "@/content/lesson";
-import { MAX_CALLS, settleInterruptedCalls, usePractice } from "@/lib/practice-state";
+import { callNumber, MAX_CALLS } from "@/lib/practice";
+import { usePractice } from "@/lib/practice-state";
 import { completeStep } from "@/lib/learning-flow";
 import { useLiveCall } from "@/lib/use-live-call";
 
@@ -25,19 +26,15 @@ import { useLiveCall } from "@/lib/use-live-call";
 export function PracticePageContent() {
   const router = useRouter();
   const audioRef = useRef<HTMLAudioElement>(null);
-  const { callsUsed, canStartCall, latestCall, isComplete } = usePractice();
+  const { state, canStartCall, latestCall, canViewLearningSummary } = usePractice();
   const { phase, remaining, floor, error, start, hangUp } = useLiveCall(audioRef);
-
-  // A reload mid-Call killed the connection: whatever was said stays, the Call is over.
-  useEffect(() => {
-    settleInterruptedCalls();
-  }, []);
 
   const inCall = phase === "connecting" || phase === "live" || phase === "ending";
   const avatarState: EmilyAvatarState = phase === "connecting" ? "thinking" : floor === "emily" && inCall ? "talking" : "idle";
 
   // Which Call this is: the live one, or the next one to be made.
-  const callNumber = inCall ? Math.max(callsUsed, 1) : Math.min(callsUsed + 1, MAX_CALLS);
+  const currentCall = callNumber(state, inCall);
+  const summaryEnabled = canViewLearningSummary && phase !== "connecting";
 
   let buttonLabel: string;
   if (phase === "live") buttonLabel = `挂断对话 ${remaining}s`;
@@ -47,7 +44,7 @@ export function PracticePageContent() {
   else buttonLabel = "开始对话";
 
   function handleViewSummary() {
-    if (!isComplete || inCall) return;
+    if (!summaryEnabled) return;
     router.push(completeStep("practice"));
   }
 
@@ -78,7 +75,7 @@ export function PracticePageContent() {
 
       <div className="flex flex-col gap-3 rounded-card border border-border bg-card p-4">
         <p data-testid="call-counter" className="text-center text-body-lg font-semibold text-foreground">
-          <span aria-hidden>📞</span> 第 {callNumber} / {MAX_CALLS} 通
+          <span aria-hidden>📞</span> 第 {currentCall} / {MAX_CALLS} 通
         </p>
 
         {error ? (
@@ -102,9 +99,7 @@ export function PracticePageContent() {
       <div className="mt-auto flex flex-col gap-3 pt-6">
         <button
           type="button"
-          // Enabled once a Call has ended in which the learner said a line in
-          // English or Chinese — never while a Call is still going.
-          disabled={!isComplete || inCall}
+          disabled={!summaryEnabled}
           onClick={handleViewSummary}
           data-testid="view-summary-button"
           className="btn-primary flex w-full items-center justify-center gap-2"

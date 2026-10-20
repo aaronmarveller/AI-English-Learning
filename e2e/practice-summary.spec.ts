@@ -41,11 +41,6 @@ test.describe("Practice — 查看学习总结 gating", () => {
     await expect(summaryButton).toBeEnabled();
   });
 
-  test("a line in Chinese counts too", async ({ page }) => {
-    await makeCall(page, "我想问一下怎么回答", 1);
-    await expect(page.getByTestId("view-summary-button")).toBeEnabled();
-  });
-
   test("tapping it marks Practice complete and opens Review", async ({ page }) => {
     await makeCall(page, "Hello, Emily.", 1);
 

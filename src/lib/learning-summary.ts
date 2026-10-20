@@ -1,4 +1,4 @@
-import { isSupportedLearnerText } from "@/lib/supported-language";
+import { isLearnerLine, MAX_CALLS } from "@/lib/practice";
 
 /**
  * The Learning Summary (CONTEXT.md): one Praise, two or three Highlights,
@@ -80,7 +80,7 @@ export function buildSummaryTranscript(calls: readonly SummaryCall[]): string {
   return calls
     .map((call, index) => {
       const lines = call.lines
-        .filter((l) => (l.role === "learner" ? isSupportedLearnerText(l.text) : l.text.trim() !== ""))
+        .filter((l) => (l.role === "learner" ? isLearnerLine(l) : l.text.trim() !== ""))
         .map((l) => `${l.role === "learner" ? "Learner" : "Emily"}: ${l.text.trim()}`);
       return lines.length ? `Call ${index + 1}\n${lines.join("\n")}` : "";
     })
@@ -94,7 +94,7 @@ export function isSummaryRequest(body: unknown): body is { calls: SummaryCall[] 
   const calls = (body as { calls?: unknown }).calls;
   return (
     Array.isArray(calls) &&
-    calls.length <= 3 &&
+    calls.length <= MAX_CALLS &&
     calls.every(
       (call) =>
         typeof call === "object" &&
@@ -109,4 +109,32 @@ export function isSummaryRequest(body: unknown): body is { calls: SummaryCall[] 
         ),
     )
   );
+}
+
+const NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
+
+function numberWord(n: number): string {
+  return NUMBER_WORDS[n] ?? String(n);
+}
+
+/** The system prompt for the summary model; the Call count comes from the Practice cap. */
+export function summarySystemPrompt(): string {
+  return `
+You write the Learning Summary for a Chinese-speaking beginner who just practiced spoken English with their tutor Emily over up to ${numberWord(MAX_CALLS)} short phone calls. The topic was greetings, "How are you today?", and goodbyes.
+
+You only see a speech-to-text transcript of what the Learner and Emily said. Write the summary in Chinese, grounded in the Learner's own lines (quote their English expressions where useful), as one JSON object with exactly these keys and nothing else:
+{
+  "praise": one warm sentence of praise for something the learner actually did,
+  "highlights": an array of 2 or 3 strings, each pointing at something specific the learner said (keep their English wording; if a line had a clear mistake, add a more natural way to say it),
+  "suggestion": one concrete, kind suggestion for what to practice next,
+  "closing": one short encouraging closing sentence
+}
+
+Rules:
+- Chinese is the language of the summary; English appears only as the learner's own expressions and short better alternatives.
+- Only English and Chinese are supported in this practice: ignore any learner line in another language (do not quote, translate or comment on it).
+- NEVER comment on pronunciation, accent or fluency — you only see a transcript, not their voice.
+- If the learner said very little, still give 2 honest highlights from what they did say or do (e.g. that they picked up the call), and keep the tone kind.
+- Output the JSON object only: no Markdown, no code fence.
+`.trim();
 }

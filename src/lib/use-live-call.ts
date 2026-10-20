@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { CALL_SECONDS, CallEngine, type CallLine, type Floor } from "@/lib/call-engine";
-import { endCall, startCall, updateCallLines } from "@/lib/practice-state";
+import { canStartCall, endCall, startCall, updateCallLines } from "@/lib/practice-state";
 import { CallConnectionError, connectRealtime, type RealtimeConnection } from "@/lib/realtime-call";
+
+const NO_CALLS_LEFT_MESSAGE = "三次通话已经用完了。";
 
 export type CallPhase = "idle" | "connecting" | "live" | "ending";
 
@@ -42,8 +44,13 @@ export function useLiveCall(audioRef: RefObject<HTMLAudioElement | null>) {
   const start = useCallback(async () => {
     const audio = audioRef.current;
     if (phaseRef.current !== "idle" || !audio) return;
-    changePhase("connecting");
     setError(null);
+    // Never dial when all three Calls are used (e.g. spent in another tab).
+    if (!canStartCall()) {
+      setError(NO_CALLS_LEFT_MESSAGE);
+      return;
+    }
+    changePhase("connecting");
     setRemaining(CALL_SECONDS);
     setFloor("emily");
 
@@ -70,7 +77,11 @@ export function useLiveCall(audioRef: RefObject<HTMLAudioElement | null>) {
       const connection = await connectRealtime({
         audio,
         onConnected: () => {
-          callIdRef.current = startCall();
+          const id = startCall();
+          // Recording refused (the last Call was taken meanwhile): throwing makes
+          // connectRealtime hang up at once rather than continue unrecorded.
+          if (id === null) throw new CallConnectionError(NO_CALLS_LEFT_MESSAGE);
+          callIdRef.current = id;
           changePhase("live");
         },
         onOpen: () => {

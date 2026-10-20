@@ -4,8 +4,7 @@ import {
   toLearningSummary,
   type SummaryLine,
 } from "@/lib/learning-summary";
-import { isSupportedLearnerText } from "@/lib/supported-language";
-import type { CallRecord } from "@/lib/practice-state";
+import { learnerLinesOf, type CallRecord } from "@/lib/practice";
 
 /**
  * Asks the summary route for the Learning Summary and returns the lines to
@@ -17,9 +16,7 @@ export async function loadSummaryLines(
   calls: readonly CallRecord[],
   signal?: AbortSignal,
 ): Promise<SummaryLine[]> {
-  const learnerLines = calls.flatMap((call) =>
-    call.lines.filter((l) => l.role === "learner" && isSupportedLearnerText(l.text)).map((l) => l.text.trim()),
-  );
+  const learnerLines = learnerLinesOf(calls);
   if (learnerLines.length === 0) return fallbackLines([]);
 
   try {

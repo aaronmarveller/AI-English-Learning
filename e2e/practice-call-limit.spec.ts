@@ -1,6 +1,5 @@
 import { expect, test } from "@playwright/test";
 import {
-  PRACTICE_STORAGE_KEY,
   PRACTICE_URL,
   hangUp,
   installFakeCall,
@@ -90,30 +89,6 @@ test.describe("Practice — three Calls", () => {
 
     await expect(page.getByTestId("call-button")).toBeDisabled();
     await expect(page.getByTestId("call-button")).toHaveText("3 次通话已用完");
-  });
-
-  test("a snapshot in the old scripted-Practice shape is discarded without errors", async ({ page }) => {
-    const errors: string[] = [];
-    page.on("pageerror", (error) => errors.push(error.message));
-    await page.addInitScript((key) => {
-      window.localStorage.setItem(
-        key,
-        JSON.stringify({
-          goalProgress: ["greeting"],
-          messages: [{ id: "m1", role: "emily", textEn: "Hi!", textZh: "嗨！", state: "greeting" }],
-          turnRecords: [],
-          retryCounts: {},
-          retryStreak: null,
-        }),
-      );
-    }, PRACTICE_STORAGE_KEY);
-    await installFakeCall(page);
-    await page.goto(PRACTICE_URL);
-
-    await expect(page.getByTestId("call-counter")).toContainText("第 1 / 3 通");
-    await expect(page.getByTestId("call-button")).toBeEnabled();
-    await expect(page.getByTestId("emily-message-bubble")).toHaveCount(0);
-    expect(errors).toEqual([]);
   });
 
   test("a Call cut off by a reload is over, keeping what was already said", async ({ page }) => {

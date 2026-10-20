@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { MAX_CALLS } from "@/lib/practice";
 import {
   buildSummaryTranscript,
   fallbackLines,
   isSummaryRequest,
   parseLearningSummary,
   summaryToLines,
+  summarySystemPrompt,
 } from "@/lib/learning-summary";
 
 const valid = {
@@ -85,14 +87,25 @@ describe("buildSummaryTranscript", () => {
 });
 
 describe("isSummaryRequest", () => {
-  it("accepts up to three Calls of role + text lines", () => {
+  it("accepts Calls of role + text lines, up to the Practice cap", () => {
     expect(isSummaryRequest({ calls: [{ lines: [{ role: "learner", text: "Hi" }] }] })).toBe(true);
+    expect(isSummaryRequest({ calls: Array.from({ length: MAX_CALLS }, () => ({ lines: [] })) })).toBe(true);
+  });
+
+  it("rejects one Call more than the Practice cap", () => {
+    expect(isSummaryRequest({ calls: Array.from({ length: MAX_CALLS + 1 }, () => ({ lines: [] })) })).toBe(false);
   });
 
   it("rejects malformed bodies", () => {
     expect(isSummaryRequest(null)).toBe(false);
     expect(isSummaryRequest({ calls: "x" })).toBe(false);
     expect(isSummaryRequest({ calls: [{ lines: [{ role: "robot", text: "Hi" }] }] })).toBe(false);
-    expect(isSummaryRequest({ calls: [1, 2, 3, 4].map(() => ({ lines: [] })) })).toBe(false);
+  });
+});
+
+describe("summarySystemPrompt", () => {
+  it("says the Practice has up to the cap's number of short phone calls", () => {
+    expect(MAX_CALLS).toBe(3);
+    expect(summarySystemPrompt()).toContain("over up to three short phone calls");
   });
 });
