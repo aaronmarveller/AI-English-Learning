@@ -26,7 +26,7 @@
  *   npm run generate:audio
  *
  * Requires OPENAI_API_KEY (and optionally TTS_PROVIDER, OPENAI_TTS_MODEL,
- * OPENAI_TTS_VOICE), read from .env.local (see .env.example) or the
+ * OPENAI_TTS_VOICE, OPENAI_TTS_INSTRUCTIONS), read from .env.local (see .env.example) or the
  * environment.
  */
 
@@ -67,13 +67,18 @@ const openaiProvider: TtsProvider = {
     // English and Chinese samples (issue #24).
     const voice = process.env.OPENAI_TTS_VOICE ?? "coral";
 
+    // Pins accent and pace so every line sounds alike; override per run via env.
+    const instructions =
+      process.env.OPENAI_TTS_INSTRUCTIONS ??
+      "Speak in natural American English at a normal, friendly conversational pace.";
+
     const response = await fetch("https://api.openai.com/v1/audio/speech", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ model, voice, input: text, response_format: "mp3" }),
+      body: JSON.stringify({ model, voice, input: text, instructions, response_format: "mp3" }),
     });
 
     if (!response.ok) {

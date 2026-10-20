@@ -33,6 +33,11 @@ const EXPLORE_URL = "/explore?debug=1";
  */
 async function installControllableSpeechStub(page: Page): Promise<void> {
   await page.addInitScript(() => {
+    // Pre-generated mp3s must not take part: make <audio> playback fail at once
+    // so speak() always falls through to the controllable synthesis stub below,
+    // whether or not public/audio holds a file for the line.
+    HTMLMediaElement.prototype.play = () => Promise.reject(new Error("audio disabled in test"));
+
     type FakeUtterance = { onstart?: () => void; onend?: () => void };
     let resolveCurrent: (() => void) | null = null;
 

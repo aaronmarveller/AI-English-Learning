@@ -1,6 +1,7 @@
 /**
  * Single source of truth for every piece of English text that gets
- * pre-generated as an audio file: Explore's pronounceable expressions. Emily's voice in a Call is not pre-generated
+ * pre-generated as an audio file: Explore's 25 spoken lines, derived from
+ * src/content/explore.ts. Emily's voice in a Call is not pre-generated
  * — it is streamed live over the Realtime connection.
  *
  * Consumed by two places that must never drift apart:
@@ -15,6 +16,8 @@
  * find a match and falls back to browser synthesis until the next
  * `npm run generate:audio`).
  */
+import { EXPLORE_SECTIONS, EXPLORE_SECTION_ORDER, type Expression } from "@/content/explore";
+
 export type AudioManifestEntry = {
   id: string;
   /** Exact English text this audio file is the pronunciation of. Matched
@@ -22,28 +25,28 @@ export type AudioManifestEntry = {
   text: string;
 };
 
-// TODO(#85): rebuild from the new Explore content (src/content/explore.ts:
-// one entry per spoken line, 25 in total) and regenerate public/audio. Until
-// then this keeps the previously generated files playable; any Explore line
-// without an entry falls back to browser speech.
-export const AUDIO_MANIFEST: AudioManifestEntry[] = [
-  { id: "greeting-hello", text: "Hello." },
-  { id: "greeting-hi", text: "Hi!" },
-  { id: "greeting-time-based", text: "Good morning. / Good afternoon. / Good evening." },
-  { id: "greeting-good-morning", text: "Good morning." },
-  { id: "greeting-good-afternoon", text: "Good afternoon." },
-  { id: "greeting-good-evening", text: "Good evening." },
-  { id: "checkin-how-are-you", text: "How are you?" },
-  { id: "checkin-how-are-you-doing", text: "How are you doing?" },
-  { id: "checkin-hows-it-going", text: "How's it going?" },
-  { id: "closing-see-you", text: "See you!" },
-  { id: "closing-have-a-nice-day", text: "Have a nice day!" },
-  { id: "closing-take-care", text: "Take care!" },
-  { id: "response-1", text: "I'm good." },
-  { id: "response-2", text: "Thank you." },
-  { id: "response-3", text: "How about you?" },
-  { id: "response-combo", text: "I'm good. Thank you. How about you?" },
-];
+/** Time-based greeting lines get one file each; the card's own id is not a file. */
+const TIME_BASED_IDS: Record<string, string> = {
+  "Good morning.": "greeting-good-morning",
+  "Good afternoon.": "greeting-good-afternoon",
+  "Good evening.": "greeting-good-evening",
+};
+
+function entriesFor(expression: Expression): AudioManifestEntry[] {
+  if (expression.lines.length === 1) {
+    return [{ id: expression.id, text: expression.lines[0] }];
+  }
+  return expression.lines.map((text) => {
+    const id = TIME_BASED_IDS[text];
+    if (!id) throw new Error(`audio-manifest.ts: no audio id for multi-line expression line "${text}"`);
+    return { id, text };
+  });
+}
+
+/** One entry per spoken Explore line (main + Explore More): 25 in total. */
+export const AUDIO_MANIFEST: AudioManifestEntry[] = EXPLORE_SECTION_ORDER.flatMap((key) =>
+  [...EXPLORE_SECTIONS[key].main, ...EXPLORE_SECTIONS[key].more].flatMap(entriesFor),
+);
 
 // speech-synthesis.ts looks up a pre-generated file by exact `text`, so two
 // entries sharing the same text would silently collide (whichever's audio

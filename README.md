@@ -42,7 +42,7 @@ OpenAI or Anthropic.
 ## Pre-generated audio (manual only)
 
 `npm run generate:audio` pre-generates `public/audio/*.mp3` for Explore's
-English expressions and combo sentence, listed in `src/lib/audio-manifest.ts`,
+English expressions (all 25 spoken lines), listed in `src/lib/audio-manifest.ts`,
 via a real TTS provider (OpenAI's `gpt-4o-mini-tts` by default).
 `src/lib/speech-synthesis.ts` plays the pre-generated file that matches,
 falling back to browser speech synthesis otherwise.
