@@ -42,7 +42,7 @@ export function CourseProgressChip() {
               data-state={state}
               aria-current={step === currentStep ? "step" : undefined}
               className={
-                "h-2.5 w-2.5 rounded-full " +
+                "flex h-2.5 w-2.5 items-center justify-center rounded-full " +
                 (state === "completed"
                   ? "bg-accent"
                   : state === "current"
