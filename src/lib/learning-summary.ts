@@ -111,16 +111,10 @@ export function isSummaryRequest(body: unknown): body is { calls: SummaryCall[] 
   );
 }
 
-const NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
-
-function numberWord(n: number): string {
-  return NUMBER_WORDS[n] ?? String(n);
-}
-
 /** The system prompt for the summary model; the Call count comes from the Practice cap. */
 export function summarySystemPrompt(): string {
   return `
-You write the Learning Summary for a Chinese-speaking beginner who just practiced spoken English with their tutor Emily over up to ${numberWord(MAX_CALLS)} short phone calls. The topic was greetings, "How are you today?", and goodbyes.
+You write the Learning Summary for a Chinese-speaking beginner who just practiced spoken English with their tutor Emily over up to ${MAX_CALLS} short phone calls. The topic was greetings, "How are you today?", and goodbyes.
 
 You only see a speech-to-text transcript of what the Learner and Emily said. Write the summary in Chinese, grounded in the Learner's own lines (quote their English expressions where useful), as one JSON object with exactly these keys and nothing else:
 {

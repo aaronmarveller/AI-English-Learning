@@ -35,7 +35,9 @@ const INITIAL_STATE: PracticeState = startOver();
 function loadAndSettle(raw: string): PracticeState {
   const loaded = loadPractice(raw);
   const settled = JSON.stringify(loaded);
-  if (settled !== raw) {
+  // Only a Call settled on load is written back; an old-shape or malformed
+  // snapshot (loaded empty) is left as it is.
+  if (loaded.calls.length > 0 && settled !== raw) {
     try {
       window.localStorage.setItem(STORAGE_KEY, settled);
     } catch {

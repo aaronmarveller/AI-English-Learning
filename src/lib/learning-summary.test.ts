@@ -105,7 +105,6 @@ describe("isSummaryRequest", () => {
 
 describe("summarySystemPrompt", () => {
   it("says the Practice has up to the cap's number of short phone calls", () => {
-    expect(MAX_CALLS).toBe(3);
-    expect(summarySystemPrompt()).toContain("over up to three short phone calls");
+    expect(summarySystemPrompt()).toContain(`over up to ${MAX_CALLS} short phone calls`);
   });
 });

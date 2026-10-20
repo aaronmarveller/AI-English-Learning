@@ -5,7 +5,7 @@ import { CALL_SECONDS, CallEngine, type CallLine, type Floor } from "@/lib/call-
 import { canStartCall, endCall, startCall, updateCallLines } from "@/lib/practice-state";
 import { CallConnectionError, connectRealtime, type RealtimeConnection } from "@/lib/realtime-call";
 
-const NO_CALLS_LEFT_MESSAGE = "三次通话已经用完了。";
+const NO_CALLS_LEFT_MESSAGE = "通话次数已经用完了。";
 
 export type CallPhase = "idle" | "connecting" | "live" | "ending";
 
@@ -46,10 +46,7 @@ export function useLiveCall(audioRef: RefObject<HTMLAudioElement | null>) {
     if (phaseRef.current !== "idle" || !audio) return;
     setError(null);
     // Never dial when all three Calls are used (e.g. spent in another tab).
-    if (!canStartCall()) {
-      setError(NO_CALLS_LEFT_MESSAGE);
-      return;
-    }
+    if (!canStartCall()) return;
     changePhase("connecting");
     setRemaining(CALL_SECONDS);
     setFloor("emily");
