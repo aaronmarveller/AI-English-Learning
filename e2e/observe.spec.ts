@@ -35,9 +35,7 @@ test.describe("observe page", () => {
     await page.goto("/observe?debug=1");
 
     // Scoped by name rather than an unscoped role query — same reasoning as
-    // e2e/navigation-spine.spec.ts: TopNav's Progress/Profile stubs are now
-    // real buttons too (tapping either surfaces the "coming soon" toast), so
-    // this page legitimately has more than one <button>. What actually
+    // e2e/navigation-spine.spec.ts: the page legitimately has more than one <button>. What actually
     // matters here is that "Continue" itself is unambiguous.
     const continueButton = page.getByRole("button", { name: /continue/i });
     await expect(continueButton).toHaveCount(1);

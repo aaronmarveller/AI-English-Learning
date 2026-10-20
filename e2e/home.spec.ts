@@ -87,6 +87,23 @@ test.describe("Home page", () => {
     await expect(page).toHaveURL(/\/observe$/);
   });
 
+  test("header shows only a non-interactive Home tab, with no Progress or Profile control", async ({
+    page,
+  }) => {
+    await resetStorage(page);
+    await page.goto("/");
+
+    const nav = page.getByRole("navigation", { name: /main navigation/i });
+    await expect(nav.getByText("Home", { exact: true })).toBeVisible();
+    await expect(page.getByText("Progress", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Profile", { exact: true })).toHaveCount(0);
+    await expect(nav.getByRole("button")).toHaveCount(0);
+    await expect(nav.getByRole("link")).toHaveCount(0);
+
+    await nav.getByText("Home", { exact: true }).click();
+    await expect(page).toHaveURL(/\/$/);
+  });
+
   test("clicking a locked Coming Next item does not navigate anywhere", async ({ page }) => {
     await resetStorage(page);
     await page.goto("/");

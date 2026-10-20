@@ -1,8 +1,8 @@
-import Link from "next/link";
 import { DebugJumpBar } from "@/components/debug-jump-bar";
 import { ComingNextList } from "@/components/home/coming-next-list";
 import { GreetingBanner } from "@/components/home/greeting-banner";
 import { MissionCard } from "@/components/home/mission-card";
+import { StyleGuideLink } from "@/components/home/style-guide-link";
 import { StartLessonButton } from "@/components/home/start-lesson-button";
 import { TopNav } from "@/components/top-nav";
 import { HOME_CONTENT } from "@/content/home";
@@ -64,12 +64,7 @@ export default function Home() {
         <ComingNextList />
 
         <div className="mt-auto flex flex-col gap-4 pt-6">
-          <Link
-            href="/style-guide"
-            className="text-center text-caption text-muted underline-offset-2 hover:underline"
-          >
-            查看样式基准页
-          </Link>
+          <StyleGuideLink />
         </div>
       </main>
     </>

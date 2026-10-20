@@ -1,7 +1,7 @@
 import type { SVGProps } from "react";
 
 /**
- * Small line-icon set for persistent chrome (TopNav's Home/Progress/Profile,
+ * Small line-icon set for persistent chrome (TopNav's Home,
  * Observe's location line) — UI draft, 2026-08-07 review feedback: the emoji
  * stand-ins used here (🏠📊👤📍) don't read as "colored" the way the draft's
  * icons do, because several of them (👤 "bust in silhouette" especially) are

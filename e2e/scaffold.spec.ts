@@ -4,8 +4,14 @@ const MOBILE_VIEWPORT = { width: 390, height: 844 }; // ticket 01's check viewpo
 const DESKTOP_VIEWPORT = { width: 1280, height: 800 };
 
 test.describe("project scaffold and design system", () => {
-  test("home page loads and links to the style guide", async ({ page }) => {
+  test("home page has no style-guide link without debug", async ({ page }) => {
     await page.goto("/");
+    await expect(page.getByRole("heading", { name: "Greeting Someone" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "查看样式基准页" })).toHaveCount(0);
+  });
+
+  test("home page links to the style guide in debug mode", async ({ page }) => {
+    await page.goto("/?debug=1");
     await expect(page.getByRole("heading", { name: "Greeting Someone" })).toBeVisible();
 
     await page.getByRole("link", { name: "查看样式基准页" }).click();

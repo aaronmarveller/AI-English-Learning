@@ -2,7 +2,7 @@
 
 /**
  * Shared "正在制作中" toast for stub entry points that have no destination
- * yet (TopNav's Progress/Profile, Home's locked Coming Next rows). A brief
+ * yet (Home's locked Coming Next rows). A brief
  * bottom banner rather than navigating to /coming-soon (used by Review's
  * "继续下一课") — these are persistent chrome / a list of 4 rows a learner
  * might tap several times, so staying on the page beats a full transition.
