@@ -110,6 +110,9 @@ export function completeStep(step: StepId): string {
   return completionRoute(step);
 }
 
+/** A progress dot's state, by position in the flow. */
+export type DotState = "done" | "current" | "upcoming";
+
 export type Flow = {
   step: StepId | null;
   /** Destination of "Back": the previous step, or Home from the first. Null outside the flow. */
@@ -118,6 +121,8 @@ export type Flow = {
   next: string | null;
   /** Debug bypasses the unlock rule; paths outside the flow are always open. */
   unlocked: boolean;
+  /** One entry per step in order: before the current is done, the current is current, after is upcoming. All upcoming outside the flow. */
+  dots: DotState[];
 };
 
 /** Pure core: the navigation facts for `step` given what is completed. */
@@ -126,14 +131,18 @@ export function flowAt(
   completed: readonly StepId[],
   { debug }: { debug: boolean },
 ): Flow {
-  if (step === null) return { step, prev: null, next: null, unlocked: true };
-  const index = STEP_IDS.indexOf(step);
+  const index = step === null ? -1 : STEP_IDS.indexOf(step);
+  const dots = STEP_IDS.map((_, i): DotState =>
+    index === -1 || i > index ? "upcoming" : i === index ? "current" : "done",
+  );
+  if (step === null) return { step, prev: null, next: null, unlocked: true, dots };
   const before = STEP_IDS[index - 1];
   return {
     step,
     prev: before ? routeOf(before) : HOME_ROUTE,
     next: completionRoute(step),
     unlocked: debug || index === 0 || completed.includes(before),
+    dots,
   };
 }
 
@@ -153,8 +162,7 @@ function stepFromPathname(pathname: string): StepId | null {
 
 /**
  * React hook: subscribes to the store, reads pathname + debug flag, and
- * returns `flowAt` for the current page plus the completed steps (for the
- * progress dots). `getServerSnapshot` is an empty list so server render and
+ * returns `flowAt` for the current page plus the completed steps. `getServerSnapshot` is an empty list so server render and
  * the first hydration pass agree (no hydration mismatch).
  */
 export function useLearningFlow(): Flow & { completed: readonly StepId[] } {

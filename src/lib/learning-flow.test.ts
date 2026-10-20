@@ -48,6 +48,7 @@ describe("flowAt unlock rule", () => {
       prev: null,
       next: null,
       unlocked: true,
+      dots: Array(6).fill("upcoming"),
     });
   });
 });
@@ -69,6 +70,28 @@ describe("flowAt prev / next", () => {
 
   it("exits to Coming Soon after the last step", () => {
     expect(flowAt("review", [], { debug: false }).next).toBe("/coming-soon");
+  });
+});
+
+describe("flowAt dots", () => {
+  it("marks steps before the current one done, the current one current, later ones upcoming", () => {
+    const dotsAt = (step: (typeof STEP_IDS)[number]) => flowAt(step, [], { debug: false }).dots;
+    expect(dotsAt("observe")).toEqual(["current", "upcoming", "upcoming", "upcoming", "upcoming", "upcoming"]);
+    expect(dotsAt("notice")).toEqual(["done", "current", "upcoming", "upcoming", "upcoming", "upcoming"]);
+    expect(dotsAt("explore")).toEqual(["done", "done", "current", "upcoming", "upcoming", "upcoming"]);
+    expect(dotsAt("guided-practice")).toEqual(["done", "done", "done", "current", "upcoming", "upcoming"]);
+    expect(dotsAt("practice")).toEqual(["done", "done", "done", "done", "current", "upcoming"]);
+    expect(dotsAt("review")).toEqual(["done", "done", "done", "done", "done", "current"]);
+  });
+
+  it("ignores what is completed and the debug flag", () => {
+    const bare = flowAt("explore", [], { debug: false }).dots;
+    expect(flowAt("explore", ["observe", "practice"], { debug: false }).dots).toEqual(bare);
+    expect(flowAt("explore", [], { debug: true }).dots).toEqual(bare);
+  });
+
+  it("shows every dot upcoming outside the flow", () => {
+    expect(flowAt(null, [], { debug: false }).dots).toEqual(Array(6).fill("upcoming"));
   });
 });
 

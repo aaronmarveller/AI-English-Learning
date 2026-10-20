@@ -50,7 +50,7 @@ test.describe("Practice — 查看学习总结 gating", () => {
     await page.getByTestId("view-summary-button").click();
 
     await expect(page).toHaveURL(/\/review(\?|$)/);
-    await expect(page.getByTestId("progress-dot-practice")).toHaveAttribute("data-state", "completed");
+    await expect(page.getByTestId("progress-dot-practice")).toHaveAttribute("data-state", "done");
   });
 });
 

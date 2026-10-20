@@ -64,6 +64,27 @@ export async function mockApiRoute(
   });
 }
 
+// --- Learning progress ------------------------------------------------------
+
+const PROGRESS_STORAGE_KEY = "greeting-somebody:progress";
+
+/**
+ * Seeds the persisted learning progress (the steps the learner has completed)
+ * before every navigation `page` makes, so a test can arrive mid-flow. This is
+ * the only place in the suite that knows the storage key and JSON shape. Call
+ * after {@link resetStorage} (init scripts run in order); it re-applies on a
+ * reload, so a test that needs progress to survive a reload by itself should
+ * use {@link resetStorageOnce} instead of resetStorage.
+ */
+export async function seedProgress(page: Page, steps: string[]): Promise<void> {
+  await page.addInitScript(
+    ({ key, value }) => {
+      window.localStorage.setItem(key, JSON.stringify({ completed: value }));
+    },
+    { key: PROGRESS_STORAGE_KEY, value: steps },
+  );
+}
+
 // --- Practice page --------------------------------------------------------
 
 /** The Practice page's debug entry point: `?debug=1` bypasses the prerequisite of completing earlier steps. */

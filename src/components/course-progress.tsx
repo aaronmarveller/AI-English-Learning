@@ -15,15 +15,13 @@ import { STEP_IDS, STEP_LABELS, useLearningFlow } from "@/lib/learning-flow";
  * Dots are plain equal-size circles (UI draft, 2026-08-07 review round 3:
  * "进度的UI...是单纯的...原点" — not the previous current-step elongated pill).
  *
- * Color rule: by position, every step up to and including the current one is
- * a solid green dot (e.g. on step 3, dots 1-3 are green); steps not yet
- * reached are white with a thin border.
+ * Color rule: both `data-state` and the colour come from the Learning Flow's
+ * `dots` value: done and current dots are solid green (e.g. on step 3, dots
+ * 1-3 are green); upcoming dots are white with a thin border.
  */
 export function CourseProgressChip() {
-  const { step: currentStep, prev, completed } = useLearningFlow();
-  const currentIndex = currentStep ? STEP_IDS.indexOf(currentStep) : -1;
-
-  const hasPreviousStep = currentIndex > 0;
+  const { prev, dots } = useLearningFlow();
+  const hasPreviousStep = prev !== null && prev !== "/";
   const linkClassName =
     "btn-icon-pressed whitespace-nowrap rounded-button text-body-sm text-muted";
 
@@ -51,23 +49,18 @@ export function CourseProgressChip() {
           className="flex items-center gap-2"
         >
           {STEP_IDS.map((step, index) => {
-            const state =
-              step === currentStep
-                ? "current"
-                : completed.includes(step)
-                  ? "completed"
-                  : "upcoming";
+            const state = dots[index];
             return (
               <li
                 key={step}
                 data-testid={`progress-dot-${step}`}
                 data-state={state}
-                aria-current={step === currentStep ? "step" : undefined}
+                aria-current={state === "current" ? "step" : undefined}
                 className={
                   "flex h-2.5 w-2.5 items-center justify-center rounded-full " +
-                  (index <= currentIndex
-                    ? "bg-accent"
-                    : "border border-border bg-white")
+                  (state === "upcoming"
+                    ? "border border-border bg-white"
+                    : "bg-accent")
                 }
               >
                 <span className="sr-only">
