@@ -26,7 +26,7 @@ export function ThinkingPrompts() {
               {index + 1}
             </span>
             <span>
-              {"en" in item && item.en ? <span className="font-semibold">{item.en} </span> : null}
+              {"en" in item && item.en ? <span>{item.en} </span> : null}
               {item.zh}
             </span>
           </li>

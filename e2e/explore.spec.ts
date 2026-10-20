@@ -226,22 +226,21 @@ test.describe("Explore page", () => {
     }
   });
 
-  test("sections toggle independently: opening one never closes another", async ({ page }) => {
+  test("sections form an accordion: opening one closes the others", async ({ page }) => {
     await resetStorage(page);
     await page.goto(EXPLORE_URL);
 
     await page.getByTestId("section-checkin-header").click();
-    await page.getByTestId("section-closing-header").click();
-    for (const key of ["greeting", "checkin", "closing"]) {
-      await expect(page.getByTestId(`section-${key}`)).toHaveAttribute("data-state", "expanded");
-    }
-    await expect(page.getByTestId("section-response")).toHaveAttribute("data-state", "collapsed");
-
-    // Collapsing Greeting leaves Check-in and Closing open.
-    await page.getByTestId("section-greeting-header").click();
-    await expect(page.getByTestId("section-greeting")).toHaveAttribute("data-state", "collapsed");
     await expect(page.getByTestId("section-checkin")).toHaveAttribute("data-state", "expanded");
-    await expect(page.getByTestId("section-closing")).toHaveAttribute("data-state", "expanded");
+    for (const key of ["greeting", "response", "closing"]) {
+      await expect(page.getByTestId(`section-${key}`)).toHaveAttribute("data-state", "collapsed");
+    }
+
+    // Clicking the open section collapses it, leaving all four closed.
+    await page.getByTestId("section-checkin-header").click();
+    for (const key of SECTIONS) {
+      await expect(page.getByTestId(`section-${key}`)).toHaveAttribute("data-state", "collapsed");
+    }
   });
 
   test("every main expression shows its English, Chinese and tag or role word for word", async ({ page }) => {

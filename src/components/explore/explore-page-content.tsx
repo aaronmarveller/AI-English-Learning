@@ -38,8 +38,8 @@ const ROLE_LABEL = Object.fromEntries(
 /**
  * Explore page body: four expression sections (Greeting, Check-in,
  * Response & Keep It Going, Closing) in one bordered container. Greeting
- * starts expanded; every section toggles independently and multiple can be
- * open at once (not an accordion). Continue is always reachable — nothing
+ * starts expanded; the sections form an accordion — opening one closes the
+ * others. Continue is always reachable — nothing
  * here gates it.
  *
  * Split out from page.tsx (a Server Component, so it can keep exporting
@@ -47,12 +47,7 @@ const ROLE_LABEL = Object.fromEntries(
  * here needs a Client Component.
  */
 export function ExplorePageContent() {
-  const [openSections, setOpenSections] = useState<Record<ExploreSectionKey, boolean>>({
-    greeting: true,
-    checkin: false,
-    response: false,
-    closing: false,
-  });
+  const [openSection, setOpenSection] = useState<ExploreSectionKey | null>("greeting");
 
   // Lifted here (not inside ChunkSection) so it survives the section's body unmounting.
   const [openMore, setOpenMore] = useState<Record<ExploreSectionKey, boolean>>({
@@ -67,7 +62,7 @@ export function ExplorePageContent() {
   }
 
   function toggleSection(key: ExploreSectionKey) {
-    setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
+    setOpenSection((prev) => (prev === key ? null : key));
   }
 
   return (
@@ -75,7 +70,7 @@ export function ExplorePageContent() {
       <div className="flex flex-col gap-2">
         <StageTag label="Explore" asHeading />
         <CourseProgressChip />
-        <h2 className="text-display text-foreground">{EXPLORE_HEADLINE.en}</h2>
+        <h2 className="text-[min(24px,6vw)] leading-8 font-bold whitespace-nowrap text-foreground">{EXPLORE_HEADLINE.en}</h2>
         <p className="text-body-lg text-muted">{EXPLORE_HEADLINE.zh}</p>
       </div>
 
@@ -94,7 +89,7 @@ export function ExplorePageContent() {
                 icon={SECTION_ICONS[key]}
                 titleEn={label.labelEn}
                 titleZh={label.labelZhLong}
-                open={openSections[key]}
+                open={openSection === key}
                 onToggle={() => toggleSection(key)}
                 testId={`section-${key}`}
               >

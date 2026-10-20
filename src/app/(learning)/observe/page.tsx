@@ -24,7 +24,7 @@ export default function ObservePage() {
       <div className="flex flex-col gap-2">
         <StageTag label="Observe" asHeading />
         <CourseProgressChip />
-        <h2 className="text-display text-foreground">
+        <h2 className="text-[24px] leading-8 font-bold text-foreground">
           {OBSERVE_CONTENT.headlineLines.map((line) => (
             <span key={line} className="block">
               {line}
@@ -42,13 +42,15 @@ export default function ObservePage() {
             data-testid={`observe-scene-${scene.id}`}
             className="flex flex-col gap-3"
           >
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="flex min-w-0 items-center gap-2 text-body-lg font-semibold text-foreground">
-                <span aria-hidden>{scene.emoji}</span>
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="flex min-w-0 items-center gap-2 text-[14px] leading-6 font-semibold whitespace-nowrap text-foreground">
+                <span aria-hidden className="text-[18px]">
+                  {scene.emoji}
+                </span>
                 {scene.nameEn}
               </h3>
               <span
-                className={`shrink-0 rounded-button px-3 py-1 text-body-sm font-medium ${TAG_TONE[scene.tag.tone]}`}
+                className={`shrink-0 rounded-button px-2 py-1 text-[9px] font-medium whitespace-nowrap ${TAG_TONE[scene.tag.tone]}`}
               >
                 {scene.tag.en} {scene.tag.zh}
               </span>

@@ -1,7 +1,14 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { getStepFromPathname, STEP_IDS, STEP_LABELS, useProgress } from "@/lib/progress";
+import {
+  getStepFromPathname,
+  STEP_IDS,
+  STEP_LABELS,
+  STEP_ROUTES,
+  useProgress,
+} from "@/lib/progress";
 
 /**
  * Course-name chip + 6-step progress dots. Previously lived in the shared
@@ -25,34 +32,61 @@ export function CourseProgressChip() {
   const currentStep = getStepFromPathname(pathname);
   const currentIndex = currentStep ? STEP_IDS.indexOf(currentStep) : -1;
 
+  const previousStep = currentIndex > 0 ? STEP_IDS[currentIndex - 1] : null;
+  const linkClassName =
+    "btn-icon-pressed whitespace-nowrap rounded-button text-body-sm text-muted";
+
   return (
-    <div className="flex items-center justify-between gap-3">
+    <div className="flex items-end justify-between gap-3">
       <span className="flex w-fit items-center rounded-button bg-accent-soft px-3 py-1 text-body-sm font-medium text-accent">
         Greeting Someone
       </span>
 
-      <ol aria-label="学习进度 Learning progress" className="flex items-center gap-2">
-        {STEP_IDS.map((step, index) => {
-          const state =
-            step === currentStep ? "current" : completed.includes(step) ? "completed" : "upcoming";
-          return (
-            <li
-              key={step}
-              data-testid={`progress-dot-${step}`}
-              data-state={state}
-              aria-current={step === currentStep ? "step" : undefined}
-              className={
-                "flex h-2.5 w-2.5 items-center justify-center rounded-full " +
-                (index <= currentIndex ? "bg-accent" : "border border-border bg-white")
-              }
-            >
-              <span className="sr-only">
-                {index + 1}. {STEP_LABELS[step]}
-              </span>
-            </li>
-          );
-        })}
-      </ol>
+      <div className="flex flex-col items-end gap-2">
+        <div className="relative -top-7 flex items-center gap-3">
+          <Link
+            href={previousStep ? STEP_ROUTES[previousStep] : "/"}
+            aria-label={previousStep ? "返回上一步" : "返回 Home"}
+            data-testid={previousStep ? "back-previous" : "back-home"}
+            className={linkClassName}
+          >
+            <span aria-hidden>←</span>{" "}
+            {previousStep ? "Back to Previous Step" : "Back to Home"}
+          </Link>
+        </div>
+
+        <ol
+          aria-label="学习进度 Learning progress"
+          className="flex items-center gap-2"
+        >
+          {STEP_IDS.map((step, index) => {
+            const state =
+              step === currentStep
+                ? "current"
+                : completed.includes(step)
+                  ? "completed"
+                  : "upcoming";
+            return (
+              <li
+                key={step}
+                data-testid={`progress-dot-${step}`}
+                data-state={state}
+                aria-current={step === currentStep ? "step" : undefined}
+                className={
+                  "flex h-2.5 w-2.5 items-center justify-center rounded-full " +
+                  (index <= currentIndex
+                    ? "bg-accent"
+                    : "border border-border bg-white")
+                }
+              >
+                <span className="sr-only">
+                  {index + 1}. {STEP_LABELS[step]}
+                </span>
+              </li>
+            );
+          })}
+        </ol>
+      </div>
     </div>
   );
 }

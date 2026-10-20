@@ -5,40 +5,46 @@ import { GreetingBanner } from "@/components/home/greeting-banner";
 import { MissionCard } from "@/components/home/mission-card";
 import { StyleGuideLink } from "@/components/home/style-guide-link";
 import { StartLessonButton } from "@/components/home/start-lesson-button";
-import { TopNav } from "@/components/top-nav";
 import { HOME_CONTENT } from "@/content/home";
 
 export default function Home() {
   return (
     <>
       <DebugJumpBar />
-      <main className="relative flex flex-1 flex-col gap-6 overflow-x-clip px-5 py-6 [&>*:not(img)]:relative">
+      <main className="relative flex flex-1 flex-col gap-6 overflow-x-clip px-5 py-6 [&>*:not([data-hero])]:relative">
         {/* Decorative backdrop: top-right, bleeding to the edges and running
             up behind the header. Its light left side sits under the hero text,
             and a left-to-right fade keeps that text readable. */}
         {/* eslint-disable-next-line @next/next/no-img-element -- decorative
             backdrop; next/image's layout machinery buys nothing here. */}
-        <img
-          src="/assets/home/hero.jpg"
-          alt=""
-          aria-hidden
-          className="pointer-events-none absolute top-0 right-0 h-[19rem] w-[85%] object-cover object-right [mask-image:linear-gradient(to_right,transparent,black_55%)]"
-        />
-
-        <TopNav />
+        <div data-hero className="pointer-events-none absolute top-0 right-0 h-[19rem] w-[85%] overflow-hidden [mask-image:linear-gradient(to_right,transparent,black_55%)]">
+          {/* Zoomed in on the photo's top-left corner. */}
+          <img
+            src="/assets/home/hero.jpg"
+            alt=""
+            aria-hidden
+            className="h-full w-full origin-top-left scale-[1.01] object-cover object-left-top"
+          />
+        </div>
 
         <div className="flex flex-col gap-3">
           <GreetingBanner />
           <h1
             className="text-display whitespace-nowrap text-foreground"
-            style={{ fontSize: "clamp(1.5rem, 8vw, 2rem)" }}
+            style={{ fontSize: "clamp(calc(1.5rem - 3px), calc(8vw - 3px), calc(2rem - 3px))" }}
           >
             {HOME_CONTENT.tagline.headlineEn}
           </h1>
           {/* Product proposition + the "10 minutes a day" promise — both
               above the fold (spec.md user story 12). */}
-          <p className="text-body-lg text-foreground">{HOME_CONTENT.tagline.zh}</p>
-          <p className="text-body font-medium text-foreground">{HOME_CONTENT.tagline.promiseZh}</p>
+          <div className="flex flex-col gap-0.5">
+            <p className="text-body-lg text-foreground" style={{ fontSize: "calc(1rem - 3px)" }}>
+              {HOME_CONTENT.tagline.zh}
+            </p>
+            <p className="text-body-lg text-foreground" style={{ fontSize: "calc(1rem - 3px)" }}>
+              {HOME_CONTENT.tagline.promiseZh}
+            </p>
+          </div>
         </div>
 
         {/* Shared card shell (UI draft, 2026-08-07 review): header row +

@@ -14,9 +14,8 @@ type ChunkSectionProps = {
 };
 
 /**
- * One Explore section: a header that independently toggles its own body (no
- * accordion coupling — every section owns its own open/closed state in the
- * parent page, toggling one never touches the others). The header reads
+ * One Explore section: a header that toggles its body. Open/closed state is controlled
+ * by the parent page, which keeps at most one section open (an accordion). The header reads
  * "<icon> <English> · <中文>" with a green chevron (⌄ collapsed, ⌃ expanded).
  *
  * Header is a real `<button>` with the standard ARIA disclosure pattern
@@ -33,12 +32,12 @@ export function ChunkSection({ icon, titleEn, titleZh, open, onToggle, testId, c
         aria-expanded={open}
         aria-controls={bodyId}
         data-testid={`${testId}-header`}
-        className="flex w-full items-center justify-between gap-2 px-4 py-4 text-left active:brightness-95"
+        className="flex w-full items-center justify-between gap-1 px-3 py-4 text-left active:brightness-95"
         onClick={onToggle}
       >
-        <span className="flex min-w-0 items-center gap-2">
+        <span className="flex min-w-0 items-center gap-1.5">
           {icon ? <span aria-hidden>{icon}</span> : null}
-          <span className="text-h3 text-foreground">
+          <span className="min-w-0 text-[12px] leading-6 font-medium whitespace-nowrap text-foreground">
             {titleEn} · {titleZh}
           </span>
         </span>

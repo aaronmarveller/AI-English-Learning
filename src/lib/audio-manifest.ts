@@ -1,7 +1,9 @@
 /**
  * Single source of truth for every piece of English text that gets
  * pre-generated as an audio file: Explore's 25 spoken lines, derived from
- * src/content/explore.ts. Emily's voice in a Call is not pre-generated
+ * src/content/explore.ts, plus Guided Practice's two Situation greetings and
+ * four multi-expression replies from src/content/guided-practice.ts (a
+ * one-expression reply is an Explore line, already covered). Emily's voice in a Call is not pre-generated
  * — it is streamed live over the Realtime connection.
  *
  * Consumed by two places that must never drift apart:
@@ -17,6 +19,7 @@
  * `npm run generate:audio`).
  */
 import { EXPLORE_SECTIONS, EXPLORE_SECTION_ORDER, type Expression } from "@/content/explore";
+import { ASSEMBLED_RESPONSES, SITUATIONS } from "@/content/guided-practice";
 
 export type AudioManifestEntry = {
   id: string;
@@ -44,9 +47,22 @@ function entriesFor(expression: Expression): AudioManifestEntry[] {
 }
 
 /** One entry per spoken Explore line (main + Explore More): 25 in total. */
-export const AUDIO_MANIFEST: AudioManifestEntry[] = EXPLORE_SECTION_ORDER.flatMap((key) =>
+export const EXPLORE_AUDIO_ENTRIES: AudioManifestEntry[] = EXPLORE_SECTION_ORDER.flatMap((key) =>
   [...EXPLORE_SECTIONS[key].main, ...EXPLORE_SECTIONS[key].more].flatMap(entriesFor),
 );
+
+const exploreTexts = new Set(EXPLORE_AUDIO_ENTRIES.map((entry) => entry.text));
+
+/** Guided Practice's own lines: 2 Situation greetings + the 4 replies Explore doesn't already speak. */
+export const GUIDED_PRACTICE_AUDIO_ENTRIES: AudioManifestEntry[] = [
+  ...SITUATIONS.map((situation) => ({ id: `guided-greeting-${situation.id}`, text: situation.greeting })),
+  ...ASSEMBLED_RESPONSES.filter((response) => !exploreTexts.has(response.text)).map((response) => ({
+    id: `guided-response-${response.key}`,
+    text: response.text,
+  })),
+];
+
+export const AUDIO_MANIFEST: AudioManifestEntry[] = [...EXPLORE_AUDIO_ENTRIES, ...GUIDED_PRACTICE_AUDIO_ENTRIES];
 
 // speech-synthesis.ts looks up a pre-generated file by exact `text`, so two
 // entries sharing the same text would silently collide (whichever's audio

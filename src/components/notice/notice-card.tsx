@@ -40,9 +40,9 @@ function PhotoCircle({ side, tone }: { side: NoticeSide; tone: Tone }) {
       />
       <span
         aria-hidden
-        className={`absolute -right-1 -top-1 flex h-6 w-6 items-center justify-center rounded-full border-2 border-white ${TONE[tone].badge}`}
+        className={`absolute -right-1 -top-1 flex h-8 w-8 items-center justify-center rounded-full border-2 border-white ${TONE[tone].badge}`}
       >
-        <NoticeIcon name={side.icon} className="h-3.5 w-3.5" />
+        <NoticeIcon name={side.icon} className="h-[22px] w-[22px]" />
       </span>
     </span>
   );
@@ -62,23 +62,22 @@ function SidePanel({
   const hasCues = cardId === "conversation-cues";
 
   return (
-    <div className={`flex min-w-0 flex-1 flex-col gap-2 rounded-card p-3 ${t.panel}`}>
-      {showBigIcon ? <NoticeIcon name={side.icon} className={`h-9 w-9 ${t.title}`} /> : null}
-      <div className="flex flex-col">
-        <span className={`text-body font-semibold ${t.title}`}>{side.titleEn}</span>
+    <div className={`flex min-w-0 flex-1 flex-col items-center gap-2 rounded-card p-3 text-center ${t.panel}`}>
+      <div className="flex flex-col items-center">
+        <span className={`text-[13px] leading-5 font-bold whitespace-nowrap ${t.title}`}>{side.titleEn}</span>
         <span className={`text-body-sm ${t.title}`}>{side.titleZh}</span>
       </div>
       {showBigIcon || hasCues ? <hr className="border-0 border-t border-black/10" /> : null}
       {side.description ? <p className="text-body-sm text-foreground">{side.description}</p> : null}
       {side.items && !hasCues ? (
-        <ul className="grid grid-cols-3 gap-1">
+        <ul className="grid w-full grid-cols-3 gap-1">
           {side.items.map((item) => (
             <li
               key={item.label}
-              className={`flex min-w-0 flex-col items-center gap-1 rounded-lg px-1 py-2 ${t.tile}`}
+              className={`flex min-w-0 flex-col items-center gap-1 rounded-lg px-0.5 py-2 ${t.tile}`}
             >
-              <NoticeIcon name={item.icon} className="h-5 w-5" />
-              <span className="text-caption text-foreground">{item.label}</span>
+              <NoticeIcon name={item.icon} className="h-[22px] w-[22px]" />
+              <span className="text-[11px] leading-4 whitespace-nowrap text-foreground">{item.label}</span>
             </li>
           ))}
         </ul>
@@ -86,7 +85,7 @@ function SidePanel({
       {side.items && hasCues ? (
         <ul className="flex flex-col gap-2">
           {side.items.map((item) => (
-            <li key={item.label} className="flex items-center gap-2">
+            <li key={item.label} className="flex items-center justify-center gap-2">
               <span
                 aria-hidden
                 className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${t.tile}`}
@@ -106,8 +105,7 @@ function SidePanel({
  * One Notice Card: a numbered header showing the card's question and, while
  * collapsed, two circular photos around "VS"; expanded, a two-panel contrast
  * (green left / pink right) and a tip bar. `open` and `onToggle` come from
- * NoticePageContent, which keeps per-card state so any number of cards can
- * be open at once.
+ * NoticePageContent, which keeps a single open card (accordion).
  *
  * Keeps the `{id}`, `{id}-header` (aria-expanded/aria-controls) and
  * `{id}-body` testids plus `data-state="expanded"|"collapsed"`.
@@ -138,7 +136,9 @@ export function NoticeCard({ index, card, open, onToggle }: NoticeCardProps) {
         </span>
 
         <span className="flex min-w-0 flex-1 flex-col gap-3">
-          <span className="text-h3 text-foreground">{card.question}</span>
+          <span className="text-[16px] leading-6 font-bold text-foreground">
+            {card.question}
+          </span>
           {!open ? (
             <span aria-hidden className="flex w-full items-center justify-center gap-3">
               <PhotoCircle side={card.left} tone="left" />
@@ -168,7 +168,7 @@ export function NoticeCard({ index, card, open, onToggle }: NoticeCardProps) {
             </span>
             <SidePanel side={card.right} tone="right" cardId={card.id} />
           </div>
-          <p className="flex items-start gap-2 rounded-card bg-accent-soft px-3 py-3 text-body-sm text-foreground">
+          <p className="flex items-start justify-center gap-2 rounded-card bg-accent-soft px-3 py-3 text-center text-body-sm text-foreground">
             <LightbulbIcon aria-hidden className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
             <span>{card.tip}</span>
           </p>

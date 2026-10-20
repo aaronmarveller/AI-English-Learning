@@ -64,15 +64,9 @@ export function MissionCard() {
         className="aspect-[4/3] w-2/5 shrink-0 rounded-card object-cover object-center"
       />
 
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <div className="flex items-center gap-1">
-          <span
-            aria-hidden
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent-soft text-xs"
-          >
-            👋
-          </span>
-          <h2 className="text-body font-semibold whitespace-nowrap">{course.nameEn}</h2>
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <div className="flex flex-col items-start gap-2">
+          <h2 className="text-[19px] leading-7 font-semibold whitespace-nowrap">{course.nameEn}</h2>
         </div>
         <p className="text-caption text-muted">{course.objectivesIntro}</p>
         <ul className="flex flex-col gap-0.5 text-caption text-muted">

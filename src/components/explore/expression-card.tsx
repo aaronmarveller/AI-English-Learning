@@ -40,10 +40,12 @@ export function ExpressionCard({ id, lines, zh, pill, tint }: ExpressionCardProp
           />
         </div>
       ))}
-      <p className="text-body-sm text-muted">{zh}</p>
-      <span className="mt-1 w-fit rounded-button bg-white/70 px-2 py-1 text-caption text-foreground">
-        {pill}
-      </span>
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-body-sm text-muted">{zh}</p>
+        <span className="w-fit rounded-button bg-white/70 px-2 py-1 text-caption text-foreground">
+          {pill}
+        </span>
+      </div>
     </div>
   );
 }

@@ -10,6 +10,8 @@ type PronunciationButtonProps = {
   label?: string;
   testId?: string;
   className?: string;
+  /** Greyed out and unclickable (Guided Practice, before a Situation is picked). */
+  disabled?: boolean;
 };
 
 /**
@@ -28,6 +30,7 @@ export function PronunciationButton({
   label,
   testId,
   className = "",
+  disabled = false,
 }: PronunciationButtonProps) {
   const [isPlaying, setIsPlaying] = useState(false);
 
@@ -46,7 +49,8 @@ export function PronunciationButton({
       aria-label={label ?? `播放发音 Play pronunciation: ${text}`}
       data-testid={testId}
       data-state={isPlaying ? "playing" : "idle"}
-      className={`btn-icon-pressed inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-button bg-accent-soft text-accent ${className}`.trim()}
+      disabled={disabled}
+      className={`btn-icon-pressed inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-button bg-accent-soft text-accent disabled:cursor-not-allowed disabled:bg-[#eef0f3] disabled:text-muted disabled:opacity-60 ${className}`.trim()}
       onClick={activate}
     >
       <span aria-hidden>{isPlaying ? "🔊" : "🔈"}</span>

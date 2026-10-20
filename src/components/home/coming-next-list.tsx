@@ -39,7 +39,7 @@ export function ComingNextList() {
               >
                 {item.icon}
               </span>
-              <div className="flex flex-1 flex-col">
+              <div className="flex flex-1 items-baseline gap-2">
                 <span className="text-body font-medium text-foreground">{item.nameEn}</span>
                 <span className="text-body-sm text-muted">{item.nameZh}</span>
               </div>

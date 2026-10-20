@@ -10,8 +10,7 @@ import { NOTICE_CARDS, NOTICE_HEADLINE } from "@/content/notice";
 /**
  * Notice page body: three Notice Cards about what a greeting means (#78).
  *
- * Every card toggles independently — all start collapsed and any number can
- * be open at once. Continue is always reachable; nothing gates it.
+ * Accordion — all cards start collapsed and opening one collapses the others. Continue is always reachable; nothing gates it.
  *
  * `asHeading` on StageTag makes the "Notice" pill the page's accessible h1,
  * matching Explore/Observe.
@@ -20,14 +19,10 @@ import { NOTICE_CARDS, NOTICE_HEADLINE } from "@/content/notice";
  * `metadata`) because the open/closed state needs a Client Component.
  */
 export function NoticePageContent() {
-  const [openIds, setOpenIds] = useState<ReadonlySet<string>>(new Set());
+  const [openId, setOpenId] = useState<string | null>(null);
 
   function toggle(id: string) {
-    setOpenIds((prev) => {
-      const next = new Set(prev);
-      if (!next.delete(id)) next.add(id);
-      return next;
-    });
+    setOpenId((prev) => (prev === id ? null : id));
   }
 
   return (
@@ -35,7 +30,7 @@ export function NoticePageContent() {
       <div className="flex flex-col gap-2">
         <StageTag label="Notice" icon="💡" asHeading />
         <CourseProgressChip />
-        <h2 className="text-display text-foreground">{NOTICE_HEADLINE.en}</h2>
+        <h2 className="text-[min(24px,5.5vw)] leading-8 font-bold whitespace-nowrap text-foreground">{NOTICE_HEADLINE.en}</h2>
         <p className="text-body text-muted">{NOTICE_HEADLINE.zh}</p>
       </div>
 
@@ -45,7 +40,7 @@ export function NoticePageContent() {
             key={card.id}
             index={index + 1}
             card={card}
-            open={openIds.has(card.id)}
+            open={openId === card.id}
             onToggle={() => toggle(card.id)}
           />
         ))}
