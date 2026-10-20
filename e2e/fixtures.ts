@@ -74,14 +74,24 @@ const PROGRESS_STORAGE_KEY = "greeting-somebody:progress";
  * the only place in the suite that knows the storage key and JSON shape. Call
  * after {@link resetStorage} (init scripts run in order); it re-applies on a
  * reload, so a test that needs progress to survive a reload by itself should
- * use {@link resetStorageOnce} instead of resetStorage.
+ * use {@link resetStorageOnce} instead of resetStorage. With `{ once: true }` it
+ * seeds only on the first document the page loads (pair it with resetStorageOnce),
+ * so progress the app changes afterwards is not overwritten by a later navigation.
  */
-export async function seedProgress(page: Page, steps: string[]): Promise<void> {
+export async function seedProgress(
+  page: Page,
+  steps: string[],
+  options: { once?: boolean } = {},
+): Promise<void> {
   await page.addInitScript(
-    ({ key, value }) => {
+    ({ key, value, once }) => {
+      if (once) {
+        if (window.sessionStorage.getItem("__e2e_progress_seeded") === "1") return;
+        window.sessionStorage.setItem("__e2e_progress_seeded", "1");
+      }
       window.localStorage.setItem(key, JSON.stringify({ completed: value }));
     },
-    { key: PROGRESS_STORAGE_KEY, value: steps },
+    { key: PROGRESS_STORAGE_KEY, value: steps, once: options.once === true },
   );
 }
 

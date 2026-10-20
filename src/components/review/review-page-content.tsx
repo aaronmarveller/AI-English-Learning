@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CourseProgressChip } from "@/components/course-progress";
 import { ReviewTypingIndicator } from "@/components/review/review-typing-indicator";
@@ -9,7 +9,7 @@ import { LEARNING_SUMMARY_HEADLINE } from "@/content/review";
 import { loadSummaryLines } from "@/lib/load-summary-lines";
 import type { SummaryLine } from "@/lib/learning-summary";
 import { resetPractice, usePractice } from "@/lib/practice-state";
-import { completeStep, useLearningFlow } from "@/lib/learning-flow";
+import { completeStep, restartFrom, useLearningFlow } from "@/lib/learning-flow";
 
 /**
  * Learning Summary body for the internal Review stage. Split out from
@@ -33,6 +33,17 @@ export function ReviewPageContent() {
   const [callsAtMount] = useState(calls);
   const [summaryLines, setSummaryLines] = useState<SummaryLine[] | null>(null);
   const [revealedCount, setRevealedCount] = useState(0);
+  const retryingRef = useRef(false);
+
+  // Clearing Practice's completion locks this very page, and the layout guard
+  // would bounce it to Home before the push to Practice lands. So Retry only
+  // navigates; the Learning Flow is restarted once Review has unmounted.
+  useEffect(
+    () => () => {
+      if (retryingRef.current) restartFrom("practice");
+    },
+    [],
+  );
 
   const isRevealing = summaryLines === null || revealedCount < summaryLines.length;
 
@@ -60,6 +71,7 @@ export function ReviewPageContent() {
     if (isRevealing) return;
     // Three Calls again, no transcripts (CONTEXT.md "Practice").
     resetPractice();
+    retryingRef.current = true;
     if (prev) router.push(prev);
   }
 

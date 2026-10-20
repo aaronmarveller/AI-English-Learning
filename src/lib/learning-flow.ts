@@ -18,7 +18,7 @@ import { useDebugFlag } from "@/lib/debug";
  * every route follow from it. No caller hardcodes a step route.
  *
  * Command / hook: `completeStep` marks a step complete and returns the next
- * route; `useLearningFlow` subscribes to the persisted store and reads the
+ * route; `restartFrom` clears a step and all later ones; `useLearningFlow` subscribes to the persisted store and reads the
  * pathname + debug flag. The store is internal; its localStorage key is
  * unchanged from the old progress module so existing progress survives. The
  * singleton / hydration / listener wiring lives in
@@ -108,6 +108,17 @@ export function completeStep(step: StepId): string {
   const current = store.getSnapshot();
   if (!current.includes(step)) store.persist([...current, step]);
   return completionRoute(step);
+}
+
+/**
+ * Clears completion for `step` and every step after it (earlier steps stay
+ * complete), persists it, and returns the steps still complete.
+ */
+export function restartFrom(step: StepId): readonly StepId[] {
+  const cutoff = STEP_IDS.indexOf(step);
+  const remaining = store.getSnapshot().filter((done) => STEP_IDS.indexOf(done) < cutoff);
+  store.persist(remaining);
+  return remaining;
 }
 
 /** A progress dot's state, by position in the flow. */

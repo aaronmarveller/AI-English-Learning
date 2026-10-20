@@ -6,7 +6,9 @@ import {
   installFakeCall,
   makeCall,
   resetStorage,
+  resetStorageOnce,
   seedPractice,
+  seedProgress,
 } from "./fixtures";
 
 /**
@@ -160,5 +162,32 @@ test.describe("Review — the Learning Summary", () => {
 
     await expect(page.getByTestId("retry-button")).toBeEnabled({ timeout: 15_000 });
     await expect(page.getByTestId("review-continue-button")).toBeEnabled();
+  });
+});
+
+test.describe("Review — Retry restarts the Learning Flow from Practice", () => {
+  test("after 重练, /review redirects to Home until Practice is completed again", async ({ page }) => {
+    await resetStorageOnce(page);
+    await seedProgress(page, ["observe", "notice", "explore", "guided-practice"], { once: true });
+    await installFakeCall(page);
+    await page.goto("/practice");
+    await makeCall(page, "Hello, Emily.", 1);
+    await page.getByTestId("view-summary-button").click();
+    await expect(page).toHaveURL(/\/review(\?|$)/);
+    await expect(page.getByTestId("retry-button")).toBeEnabled({ timeout: 15_000 });
+
+    await page.getByTestId("retry-button").click();
+    await expect(page).toHaveURL(/\/practice(\?|$)/);
+    await expect(page.getByTestId("call-counter")).toContainText("第 1 / 3 通");
+
+    // A full navigation drops the debug flag; Review is locked again.
+    await page.goto("/review");
+    await expect(page).toHaveURL(/\/$/);
+
+    // Completing Practice again unlocks Review.
+    await page.goto("/practice");
+    await makeCall(page, "I'm good.", 1);
+    await page.getByTestId("view-summary-button").click();
+    await expect(page).toHaveURL(/\/review(\?|$)/);
   });
 });

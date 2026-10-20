@@ -4,7 +4,9 @@ import {
   completionRoute,
   debugJumpLinks,
   entryRoute,
+  completeStep,
   flowAt,
+  restartFrom,
 } from "@/lib/learning-flow";
 
 describe("step order", () => {
@@ -120,5 +122,41 @@ describe("debugJumpLinks", () => {
       { label: "Practice", href: "/practice?debug=1" },
       { label: "Learning Summary", href: "/review?debug=1" },
     ]);
+  });
+});
+
+describe("restartFrom", () => {
+  function completeAll() {
+    restartFrom("observe");
+    for (const step of STEP_IDS) completeStep(step);
+  }
+
+  it("clears that step and every later step, keeping the earlier ones complete", () => {
+    completeAll();
+    expect(restartFrom("practice")).toEqual(["observe", "notice", "explore", "guided-practice"]);
+  });
+
+  it("from the first step clears everything", () => {
+    completeAll();
+    expect(restartFrom("observe")).toEqual([]);
+  });
+
+  it("from the last step clears only that step", () => {
+    completeAll();
+    expect(restartFrom("review")).toEqual(["observe", "notice", "explore", "guided-practice", "practice"]);
+  });
+
+  it("makes the cleared steps locked again, so Review is not reachable until Practice is completed", () => {
+    completeAll();
+    const completed = restartFrom("practice");
+    expect(flowAt("review", completed, { debug: false }).unlocked).toBe(false);
+    expect(flowAt("practice", completed, { debug: false }).unlocked).toBe(true);
+  });
+
+  it("leaves steps that were not complete alone", () => {
+    restartFrom("observe");
+    completeStep("observe");
+    completeStep("notice");
+    expect(restartFrom("explore")).toEqual(["observe", "notice"]);
   });
 });
