@@ -24,39 +24,32 @@ scale, radii) are documented and visualized on
 - `npm run typecheck` — TypeScript, no emit
 - `npm run test:e2e` — Playwright E2E suite (builds and serves the app first)
 
-## Judgment quality eval (manual only)
+## Live Calls
 
-`npm run eval:judgment` runs a fixed table of learner utterances against the
-Practice conversation judge (`src/lib/practice-judge.ts`) over the **real**
-Anthropic API — the same code path `src/app/api/practice/turn/route.ts` uses
-in production. It checks whether the model reliably accepts natural
-phrasing outside each conversation state's whitelist (e.g. "Yeah, doing
-alright" during Check-in), which the E2E suite can't verify since it stubs
-the model entirely.
+Practice is a live voice Call with Emily: the browser connects to OpenAI's
+Realtime API over WebRTC, using a short-lived client secret minted by
+`src/app/api/realtime/session/route.ts` (`OPENAI_API_KEY` never reaches the
+client). The rules of a Call — Turn-Taking, the Handoff Gap, the 45-second
+limit and the wind-down — live in `src/lib/call-engine.ts`. The Learning
+Summary is written by Claude from everything the learner said
+(`src/app/api/realtime/summary/route.ts`, `ANTHROPIC_API_KEY` server-only).
 
-Requires `ANTHROPIC_API_KEY` in `.env.local` (see `.env.example`). It is
-**never invoked automatically** — not by `test:e2e`, not by any CI (this
-repo has none) — because each run makes real, non-deterministic, billed
-model calls. Run it by hand, and re-run it whenever
-`src/content/practice.ts`'s system-prompt copy changes.
+Browsers only expose the microphone on HTTPS or localhost. To try Practice from
+a phone on your LAN, run `npm run dev:https` (see `scripts/gen-dev-cert.sh`).
+The E2E suite fakes the Realtime connection and the summary, so it never calls
+OpenAI or Anthropic.
 
 ## Pre-generated audio (manual only)
 
-`npm run generate:audio` pre-generates `public/audio/*.mp3` for every fixed
-English line listed in `src/lib/audio-manifest.ts` — Emily's opening line, the
-Check-in / Response / Closing / Completion pools, the `greeting` and `response`
-steer pools, every line of the per-Goal two-tier Recovery, the silence nudge,
-and Explore's 13 expressions/combo sentence — via a
-real TTS provider (OpenAI's `tts-1` by default). Since issue #16 the model only
-*judges* the learner's message; the client picks Emily's reply from those fixed
-pools, so every line she speaks is pre-generated. `src/lib/speech-synthesis.ts`
-plays the pre-generated file that matches, falling back to browser speech
-synthesis otherwise — the only text that needs the fallback is dynamic content
-with no fixed pool, such as a Chinese help follow-up.
+`npm run generate:audio` pre-generates `public/audio/*.mp3` for Explore's
+English expressions and combo sentence, listed in `src/lib/audio-manifest.ts`,
+via a real TTS provider (OpenAI's `gpt-4o-mini-tts` by default).
+`src/lib/speech-synthesis.ts` plays the pre-generated file that matches,
+falling back to browser speech synthesis otherwise.
 
 Requires `OPENAI_API_KEY` in `.env.local` (see `.env.example`; `TTS_PROVIDER`
 picks the provider — only `openai` is implemented so far). Not required to
 run or demo the app: with no `public/audio/*.mp3` files at all, every line
 just falls back to browser synthesis. Already-generated files are skipped
 on re-run, so this only costs money for genuinely new/changed manifest
-entries. Manual only, same reasoning as `eval:judgment` above.
+entries. Manual only, because every run is billed API usage.

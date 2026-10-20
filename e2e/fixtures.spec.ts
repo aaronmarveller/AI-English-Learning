@@ -1,12 +1,10 @@
 import { test, expect } from "@playwright/test";
-import { mockApiRoute, mockSpeechApis, type MockAudioController } from "./fixtures";
+import { emit, installFakeCall, mockApiRoute } from "./fixtures";
 
 /**
- * Smoke tests for the reusable stub fixtures ticket 03 hands to tickets
- * 08/09 (LLM proxy route + Web Speech API aren't built yet — those tickets
- * will point these helpers at their real routes/consumers). These only
- * prove the fixtures themselves behave as documented in ./fixtures.ts;
- * they don't stand in for ticket-08/09-specific coverage.
+ * Smoke tests for the reusable stub fixtures. These only prove the fixtures
+ * themselves behave as documented in ./fixtures.ts; they don't stand in for
+ * Practice's own coverage.
  */
 
 test.describe("reusable E2E fixtures", () => {
@@ -22,104 +20,48 @@ test.describe("reusable E2E fixtures", () => {
     expect(body).toEqual({ ok: true, echoed: "example" });
   });
 
-  test("mockSpeechApis installs a controllable SpeechRecognition stub", async ({ page }) => {
-    await mockSpeechApis(page);
+  test("installFakeCall replaces the microphone and the peer connection with controllable fakes", async ({ page }) => {
+    await installFakeCall(page);
     await page.goto("/");
 
-    const transcript = await page.evaluate(() => {
-      type MockRecognition = {
-        onresult: ((event: { results: { transcript: string }[][] }) => void) | null;
-        start: () => void;
-      };
-      type MockRecognitionCtor = new () => MockRecognition;
-      type MockController = {
-        emitResult: (transcript: string, options?: { isFinal?: boolean }) => void;
-      };
-
-      return new Promise<string>((resolve) => {
-        const Recognition = (window as unknown as { SpeechRecognition: MockRecognitionCtor })
-          .SpeechRecognition;
-        const recognition = new Recognition();
-        recognition.onresult = (event) => resolve(event.results[0][0].transcript);
-        recognition.start();
-
-        const controller = (window as unknown as { __mockSpeechRecognition?: MockController })
-          .__mockSpeechRecognition;
-        controller?.emitResult("hello Emily", { isFinal: true });
-      });
+    const received = await page.evaluate(async () => {
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+      const pc = new RTCPeerConnection();
+      const channel = pc.createDataChannel("oai-events");
+      const messages: string[] = [];
+      channel.onmessage = (e) => messages.push(e.data);
+      await pc.setRemoteDescription({ type: "answer", sdp: "x" });
+      window.__fakeCall?.emit({ type: "response.created" });
+      return { messages, micRequests: window.__fakeCall?.micRequests, connections: window.__fakeCall?.connections };
     });
 
-    expect(transcript).toBe("hello Emily");
+    expect(received).toEqual({
+      messages: [JSON.stringify({ type: "response.created" })],
+      micRequests: 1,
+      connections: 1,
+    });
   });
 
-  test("mockSpeechApis installs a controllable speechSynthesis stub", async ({ page }) => {
-    await mockSpeechApis(page);
+  test("installFakeCall blocks any request that would reach OpenAI or Anthropic", async ({ page }) => {
+    const network = await installFakeCall(page);
     await page.goto("/");
 
-    const voiceCount = await page.evaluate(() => window.speechSynthesis.getVoices().length);
-    expect(voiceCount).toBeGreaterThan(0);
-
-    const utteranceEnded = await page.evaluate(() => {
-      return new Promise<boolean>((resolve) => {
-        const utterance = { onend: () => resolve(true) } as unknown as SpeechSynthesisUtterance;
-        window.speechSynthesis.speak(utterance);
-      });
+    const outcome = await page.evaluate(async () => {
+      try {
+        await fetch("https://api.anthropic.com/v1/messages", { method: "POST", body: "{}" });
+        return "reached";
+      } catch {
+        return "blocked";
+      }
     });
 
-    expect(utteranceEnded).toBe(true);
+    expect(outcome).toBe("blocked");
+    expect(network.unexpectedRequests).toEqual(["https://api.anthropic.com/v1/messages"]);
   });
 
-  test("mockSpeechApis records a user-unlocked audio source and can end its playback", async ({ page }) => {
-    await mockSpeechApis(page);
+  test("emit delivers nothing before a data channel exists, without throwing", async ({ page }) => {
+    await installFakeCall(page);
     await page.goto("/");
-    await page.evaluate(() => {
-      const button = document.createElement("button");
-      button.textContent = "Play fixture audio";
-      button.addEventListener("click", () => {
-        const audio = new Audio("/audio/fixture-success.mp3");
-        audio.addEventListener("ended", () => {
-          document.body.dataset.audioOutcome = "ended";
-        });
-        void audio.play();
-      });
-      document.body.append(button);
-    });
-
-    await page.getByRole("button", { name: "Play fixture audio" }).click();
-    const playback = await page.evaluate(() => {
-      const controller: MockAudioController | undefined = window.__mockAudio;
-      return {
-        sources: controller?.getPlayedSources() ?? [],
-        unlocked: controller?.isUnlocked() ?? false,
-      };
-    });
-    expect(playback.sources).toHaveLength(1);
-    expect(playback.sources[0]).toMatch(/\/audio\/fixture-success\.mp3$/);
-    expect(playback.unlocked).toBe(true);
-
-    await page.evaluate(() => window.__mockAudio?.endCurrent());
-    await expect.poll(() => page.evaluate(() => document.body.dataset.audioOutcome)).toBe("ended");
-    expect(await page.evaluate(() => window.__mockAudio?.isUnlocked())).toBe(true);
-  });
-
-  test("mockSpeechApis can fail the current audio playback", async ({ page }) => {
-    await mockSpeechApis(page);
-    await page.goto("/");
-    await page.evaluate(() => {
-      const button = document.createElement("button");
-      button.textContent = "Play failing audio";
-      button.addEventListener("click", () => {
-        const audio = new Audio("/audio/fixture-failure.mp3");
-        audio.addEventListener("error", () => {
-          document.body.dataset.audioOutcome = "error";
-        });
-        void audio.play();
-      });
-      document.body.append(button);
-    });
-
-    await page.getByRole("button", { name: "Play failing audio" }).click();
-    await page.evaluate(() => window.__mockAudio?.failCurrent());
-    await expect.poll(() => page.evaluate(() => document.body.dataset.audioOutcome)).toBe("error");
+    await emit(page, { type: "response.created" });
   });
 });

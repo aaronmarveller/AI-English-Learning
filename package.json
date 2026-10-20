@@ -4,15 +4,14 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:https": "next dev --experimental-https --experimental-https-key certificates/dev-key.pem --experimental-https-cert certificates/dev-cert.pem",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test:e2e": "playwright test",
     "test:unit": "vitest run",
-    "eval:judgment": "tsx scripts/eval-judgment.ts",
-    "generate:audio": "tsx scripts/generate-audio.ts",
-    "sample:voices": "tsx scripts/sample-tts-voices.ts"
+    "generate:audio": "tsx scripts/generate-audio.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",

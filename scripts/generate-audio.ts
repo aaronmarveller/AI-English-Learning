@@ -1,11 +1,8 @@
 /**
- * Pre-generated audio for Emily's fixed lines and Explore's expressions
- * (ticket 13; spec.md user story 85: "Emily 的固定台词能预生成成音频文件").
+ * Pre-generated audio for Explore's English expressions.
  *
  * Iterates src/lib/audio-manifest.ts (the single source of truth for what
- * counts as "fixed" text — see that file's doc comment for why Practice's
- * live-generated conversation replies are deliberately NOT in scope here)
- * and writes `public/audio/<id>.mp3` for each entry via a TTS provider.
+ * gets pre-generated) and writes `public/audio/<id>.mp3` for each entry via a TTS provider.
  * Already-generated files are skipped, so re-running only fills in gaps
  * (new manifest entries, or files deleted to force a re-generate) instead
  * of re-paying for unchanged audio.
@@ -66,10 +63,8 @@ const openaiProvider: TtsProvider = {
   async synthesize(text) {
     const apiKey = requireEnv("OPENAI_API_KEY");
     const model = process.env.OPENAI_TTS_MODEL ?? "gpt-4o-mini-tts";
-    // Must match src/app/api/practice/speak/route.ts's own fallback — see
-    // that file's top doc comment for why the two need to agree. "coral" was
-    // selected after comparing the candidate voices with both English and
-    // Chinese samples (issue #24).
+    // "coral" was selected after comparing the candidate voices with both
+    // English and Chinese samples (issue #24).
     const voice = process.env.OPENAI_TTS_VOICE ?? "coral";
 
     const response = await fetch("https://api.openai.com/v1/audio/speech", {

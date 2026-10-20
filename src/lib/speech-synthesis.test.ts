@@ -89,664 +89,116 @@ describe("pickBestVoiceFrom", () => {
   });
 });
 
-describe("speech playback", () => {
+
+describe("speak", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.resetModules();
   });
 
-  it("plays a sequence's lines in order and holds the floor until the last one (issue #48)", async () => {
-    vi.useFakeTimers();
-
-    class FakeAudio extends EventTarget {
-      static instance: FakeAudio;
-      src = "";
-      muted = false;
-      playbackRate = 1;
-      readonly playedSources: string[] = [];
-      constructor() {
-        super();
-        FakeAudio.instance = this;
-      }
-      pause(): void {}
-      play(): Promise<void> {
-        this.playedSources.push(this.src);
-        return Promise.resolve();
-      }
+  class FakeAudio extends EventTarget {
+    static instance: FakeAudio;
+    src = "";
+    muted = false;
+    playbackRate = 1;
+    readonly playedSources: string[] = [];
+    constructor() {
+      super();
+      FakeAudio.instance = this;
     }
-
-    const documentTarget = new EventTarget();
-    vi.stubGlobal("window", {});
-    vi.stubGlobal("document", documentTarget);
-    vi.stubGlobal("Audio", FakeAudio);
-    vi.resetModules();
-
-    const { HANDOFF_GAP_MS, getTurnTakingSnapshot, speakLinesAssertively } = await import(
-      "@/lib/speech-synthesis"
-    );
-    // Two lines that both have a pre-generated file: Explore's two short
-    // greeting expressions (the opening pool is a single self-introduction
-    // since ADR-0013, so it can no longer supply a pair).
-    const cleanUp = speakLinesAssertively(["Hi!", "Hello."]);
-    expect(getTurnTakingSnapshot()).toBe("speaking");
-
-    await vi.advanceTimersByTimeAsync(0);
-    FakeAudio.instance.dispatchEvent(new Event("ended"));
-
-    // The beat between Emily's two lines: still no floor for the learner, and
-    // the second line has not started.
-    expect(getTurnTakingSnapshot()).toBe("speaking");
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(FakeAudio.instance.playedSources).toEqual([
-      "/audio/greeting-hi.mp3",
-      "/audio/greeting-hello.mp3",
-    ]);
-
-    FakeAudio.instance.dispatchEvent(new Event("ended"));
-    await vi.advanceTimersByTimeAsync(0);
-
-    // One Handoff Gap for the whole sequence, not one per line.
-    expect(getTurnTakingSnapshot()).toBe("handoff-gap");
-    await vi.advanceTimersByTimeAsync(HANDOFF_GAP_MS);
-    expect(getTurnTakingSnapshot()).toBe("idle");
-
-    cleanUp();
-  });
-
-  it("plays each line of a multi-line reply through its own pre-generated file (the 🔊 replay path)", async () => {
-    // Issue #48: a Turn's two lines are two Conversation Script lines, so the
-    // replay button must speak them one at a time from the manifest. Handing
-    // their joined text to `speak()` matches no manifest entry by
-    // construction, which is what sent a two-line replay to the live TTS route
-    // instead of the files ADR-0005 guarantees.
-    vi.useFakeTimers();
-
-    class FakeAudio extends EventTarget {
-      static instance: FakeAudio;
-      src = "";
-      muted = false;
-      playbackRate = 1;
-      readonly playedSources: string[] = [];
-      constructor() {
-        super();
-        FakeAudio.instance = this;
-      }
-      pause(): void {}
-      play(): Promise<void> {
-        this.playedSources.push(this.src);
-        return Promise.resolve();
-      }
+    pause(): void {}
+    play(): Promise<void> {
+      this.playedSources.push(this.src);
+      return Promise.resolve();
     }
+  }
 
+  it("plays the pre-generated file when the text is in the audio manifest", async () => {
     vi.stubGlobal("window", {});
     vi.stubGlobal("Audio", FakeAudio);
     vi.resetModules();
 
-    const { speakLines } = await import("@/lib/speech-synthesis");
-    const playback = speakLines(["I'm good too, thanks!", "See you!"]);
-    await vi.advanceTimersByTimeAsync(0);
-    expect(FakeAudio.instance.playedSources).toEqual(["/audio/response-script-askback-1.mp3"]);
-
-    FakeAudio.instance.dispatchEvent(new Event("ended"));
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(FakeAudio.instance.playedSources).toEqual([
-      "/audio/response-script-askback-1.mp3",
-      // "See you!" is verbatim-identical to Explore's closing expression, so
-      // it reuses that recording rather than getting one of its own.
-      "/audio/closing-see-you.mp3",
-    ]);
-
-    FakeAudio.instance.dispatchEvent(new Event("ended"));
-    await expect(playback).resolves.toBe(true);
-  });
-
-  it("speaks one line for a single-line reply, exactly as speak() always did", async () => {
-    class FakeAudio extends EventTarget {
-      static instance: FakeAudio;
-      src = "";
-      muted = false;
-      playbackRate = 1;
-      readonly playedSources: string[] = [];
-      constructor() {
-        super();
-        FakeAudio.instance = this;
-      }
-      pause(): void {}
-      play(): Promise<void> {
-        this.playedSources.push(this.src);
-        return Promise.resolve();
-      }
-    }
-
-    vi.stubGlobal("window", {});
-    vi.stubGlobal("Audio", FakeAudio);
-    vi.resetModules();
-
-    const { speakLines } = await import("@/lib/speech-synthesis");
-    const playback = speakLines(["Hi!"]);
+    const { AUDIO_MANIFEST } = await import("@/lib/audio-manifest");
+    const { speak } = await import("@/lib/speech-synthesis");
+    const entry = AUDIO_MANIFEST[0];
+    const playback = speak(entry.text);
     await Promise.resolve();
 
+    expect(FakeAudio.instance.playedSources).toEqual([`/audio/${entry.id}.mp3`]);
     FakeAudio.instance.dispatchEvent(new Event("ended"));
     await expect(playback).resolves.toBe(true);
-    expect(FakeAudio.instance.playedSources).toEqual(["/audio/greeting-hi.mp3"]);
   });
 
-  it("speaks nothing, and never takes the floor, for an empty sequence", async () => {
-    class FakeAudio extends EventTarget {
-      src = "";
-      muted = false;
-      playbackRate = 1;
-      constructor() {
-        super();
-        throw new Error("an empty sequence must not create an audio element");
-      }
-      pause(): void {}
-      play(): Promise<void> {
-        return Promise.resolve();
-      }
-    }
-
+  it("resolves false, without throwing, when there is no pre-generated file and no browser synthesis", async () => {
     vi.stubGlobal("window", {});
-    vi.stubGlobal("Audio", FakeAudio);
-    vi.resetModules();
-
-    const { getTurnTakingSnapshot, speakLinesAssertively } = await import("@/lib/speech-synthesis");
-    const cleanUp = speakLinesAssertively([]);
-
-    expect(getTurnTakingSnapshot()).toBe("idle");
-    cleanUp();
-  });
-
-  it("reuses the audio element unlocked by the first gesture for later programmatic playback", async () => {
-    class FakeAudio extends EventTarget {
-      static instances: FakeAudio[] = [];
-      src = "";
-      muted = false;
-      playbackRate = 1;
-      readonly plays: Array<{ muted: boolean; src: string }> = [];
-
-      constructor(src = "") {
-        super();
-        this.src = src;
-        FakeAudio.instances.push(this);
-      }
-
-      pause(): void {}
-
-      play(): Promise<void> {
-        this.plays.push({ muted: this.muted, src: this.src });
-        return Promise.resolve();
-      }
-    }
-
-    const documentTarget = new EventTarget();
-    vi.stubGlobal("window", {});
-    vi.stubGlobal("document", documentTarget);
     vi.stubGlobal("Audio", FakeAudio);
     vi.resetModules();
 
     const { speak } = await import("@/lib/speech-synthesis");
-
-    documentTarget.dispatchEvent(new Event("click"));
-    expect(FakeAudio.instances).toHaveLength(1);
-    expect(FakeAudio.instances[0].plays[0]).toMatchObject({ muted: true });
-
-    const playback = speak("Hi!");
-    await Promise.resolve();
-    FakeAudio.instances[0].dispatchEvent(new Event("ended"));
-
-    await expect(playback).resolves.toBe(true);
-    expect(FakeAudio.instances).toHaveLength(1);
-    expect(FakeAudio.instances[0].plays.at(-1)).toEqual({
-      muted: false,
-      src: "/audio/greeting-hi.mp3",
-    });
-  });
-
-  it("lets a microphone gesture unlock audio without replaying the blocked line", async () => {
-    let gestureActive = false;
-
-    class FakeAudio extends EventTarget {
-      static instances: FakeAudio[] = [];
-      src = "";
-      muted = false;
-      playbackRate = 1;
-      unlocked = false;
-      readonly successfulPlays: Array<{ muted: boolean; src: string }> = [];
-
-      constructor() {
-        super();
-        FakeAudio.instances.push(this);
-      }
-
-      pause(): void {}
-
-      play(): Promise<void> {
-        if (gestureActive) this.unlocked = true;
-        if (!this.unlocked) return Promise.reject(new DOMException("blocked", "NotAllowedError"));
-        this.successfulPlays.push({ muted: this.muted, src: this.src });
-        return Promise.resolve();
-      }
-    }
-
-    class FakeElement {
-      closest(selector: string): FakeElement | null {
-        return selector === "[data-audio-unlock-exempt]" ? this : null;
-      }
-    }
-
-    const documentTarget = new EventTarget();
-    vi.stubGlobal("window", {});
-    vi.stubGlobal("document", documentTarget);
-    vi.stubGlobal("Audio", FakeAudio);
-    vi.stubGlobal("Element", FakeElement);
-    vi.resetModules();
-
-    const { speakAssertively } = await import("@/lib/speech-synthesis");
-    const cleanUp = speakAssertively("Hi!");
-    await Promise.resolve();
-
-    const micClick = new Event("click");
-    Object.defineProperty(micClick, "target", { value: new FakeElement() });
-    gestureActive = true;
-    documentTarget.dispatchEvent(micClick);
-    gestureActive = false;
-
-    expect(FakeAudio.instances).toHaveLength(1);
-    expect(FakeAudio.instances[0].successfulPlays).toEqual([
-      { muted: true, src: "/audio/opening-1.mp3" },
-    ]);
-    cleanUp();
-  });
-
-  it("keeps Emily suppressed until every microphone owner releases", async () => {
-    class FakeAudio extends EventTarget {
-      static instances: FakeAudio[] = [];
-      src = "";
-      muted = false;
-      playbackRate = 1;
-      constructor() {
-        super();
-        FakeAudio.instances.push(this);
-      }
-      pause(): void {}
-      play(): Promise<void> {
-        return Promise.resolve();
-      }
-    }
-
-    vi.stubGlobal("window", {});
-    vi.stubGlobal("Audio", FakeAudio);
-    vi.resetModules();
-
-    const { acquireMicListening, cancelSpeech, releaseMicListening, speak } = await import(
-      "@/lib/speech-synthesis"
-    );
-    const practiceOwner = acquireMicListening();
-    const helpOwner = acquireMicListening();
-
-    releaseMicListening(helpOwner);
-    await expect(speak("Hi!")).resolves.toBe(false);
-    expect(FakeAudio.instances).toHaveLength(0);
-
-    releaseMicListening(practiceOwner);
-    const playback = speak("Hi!");
-    expect(FakeAudio.instances).toHaveLength(1);
-    cancelSpeech();
-    await expect(playback).resolves.toBe(false);
-  });
-
-  it("publishes speaking state until playback ends", async () => {
-    class FakeAudio extends EventTarget {
-      static instances: FakeAudio[] = [];
-      src = "";
-      muted = false;
-      playbackRate = 1;
-      constructor() {
-        super();
-        FakeAudio.instances.push(this);
-      }
-      pause(): void {}
-      play(): Promise<void> {
-        return Promise.resolve();
-      }
-    }
-
-    vi.stubGlobal("window", {});
-    vi.stubGlobal("Audio", FakeAudio);
-    vi.resetModules();
-
-    const { getSpeakingSnapshot, speak, subscribeToSpeaking } = await import("@/lib/speech-synthesis");
-    const snapshots: boolean[] = [];
-    const unsubscribe = subscribeToSpeaking(() => snapshots.push(getSpeakingSnapshot()));
-
-    const playback = speak("Hi!");
-    expect(getSpeakingSnapshot()).toBe(true);
-    expect(snapshots).toEqual([true]);
-
-    await Promise.resolve();
-    FakeAudio.instances[0].dispatchEvent(new Event("ended"));
-    await expect(playback).resolves.toBe(true);
-    expect(getSpeakingSnapshot()).toBe(false);
-    expect(snapshots).toEqual([true, false]);
-
-    unsubscribe();
-  });
-
-  it("enters the Handoff Gap after audible playback, then releases it after two seconds", async () => {
-    vi.useFakeTimers();
-
-    class FakeAudio extends EventTarget {
-      static instance: FakeAudio;
-      src = "";
-      muted = false;
-      playbackRate = 1;
-      constructor() {
-        super();
-        FakeAudio.instance = this;
-      }
-      pause(): void {}
-      play(): Promise<void> {
-        return Promise.resolve();
-      }
-    }
-
-    vi.stubGlobal("window", {});
-    vi.stubGlobal("Audio", FakeAudio);
-    vi.resetModules();
-
-    const {
-      HANDOFF_GAP_MS,
-      getTurnTakingSnapshot,
-      speak,
-    } = await import("@/lib/speech-synthesis");
-    const playback = speak("Hi!");
-    expect(getTurnTakingSnapshot()).toBe("speaking");
-
-    await Promise.resolve();
-    FakeAudio.instance.dispatchEvent(new Event("ended"));
-    await expect(playback).resolves.toBe(true);
-    expect(getTurnTakingSnapshot()).toBe("handoff-gap");
-
-    await vi.advanceTimersByTimeAsync(HANDOFF_GAP_MS);
-    expect(getTurnTakingSnapshot()).toBe("idle");
-  });
-
-  it("does not impose a Handoff Gap when playback never starts", async () => {
-    vi.useFakeTimers();
-
-    class FakeAudio {
-      src = "";
-      muted = false;
-      playbackRate = 1;
-      pause(): void {}
-      addEventListener(): void {}
-      removeEventListener(): void {}
-      play(): Promise<void> {
-        return Promise.reject(new DOMException("blocked", "NotAllowedError"));
-      }
-    }
-
-    vi.stubGlobal("window", {});
-    vi.stubGlobal("Audio", FakeAudio);
-    vi.resetModules();
-
-    const { getTurnTakingSnapshot, speak } = await import("@/lib/speech-synthesis");
-    await expect(speak("Hi!")).resolves.toBe(false);
-    expect(getTurnTakingSnapshot()).toBe("idle");
-  });
-
-  it("keeps the Handoff Gap when audible playback is cancelled", async () => {
-    vi.useFakeTimers();
-
-    class FakeAudio extends EventTarget {
-      src = "";
-      muted = false;
-      playbackRate = 1;
-      pause(): void {}
-      play(): Promise<void> {
-        return Promise.resolve();
-      }
-    }
-
-    vi.stubGlobal("window", {});
-    vi.stubGlobal("Audio", FakeAudio);
-    vi.resetModules();
-
-    const { cancelSpeech, getTurnTakingSnapshot, speak } = await import("@/lib/speech-synthesis");
-    const playback = speak("Hi!");
-    await Promise.resolve();
-    cancelSpeech();
-
-    await expect(playback).resolves.toBe(false);
-    expect(getTurnTakingSnapshot()).toBe("handoff-gap");
-  });
-
-  it("releases speaking state immediately when playback is cancelled", async () => {
-    class FakeAudio extends EventTarget {
-      src = "";
-      muted = false;
-      playbackRate = 1;
-      pause(): void {}
-      play(): Promise<void> {
-        return new Promise(() => {});
-      }
-    }
-
-    vi.stubGlobal("window", {});
-    vi.stubGlobal("Audio", FakeAudio);
-    vi.resetModules();
-
-    const { cancelSpeech, getSpeakingSnapshot, speak } = await import("@/lib/speech-synthesis");
-    const playback = speak("Hi!");
-    expect(getSpeakingSnapshot()).toBe(true);
-
-    cancelSpeech();
-
-    expect(getSpeakingSnapshot()).toBe(false);
-    await expect(playback).resolves.toBe(false);
-  });
-
-  it("does not let a cancelled playback release the newer playback owner", async () => {
-    class FakeAudio extends EventTarget {
-      static instance: FakeAudio;
-      src = "";
-      muted = false;
-      playbackRate = 1;
-      constructor() {
-        super();
-        FakeAudio.instance = this;
-      }
-      pause(): void {}
-      play(): Promise<void> {
-        return Promise.resolve();
-      }
-    }
-
-    vi.stubGlobal("window", {});
-    vi.stubGlobal("Audio", FakeAudio);
-    vi.resetModules();
-
-    const { getSpeakingSnapshot, speak } = await import("@/lib/speech-synthesis");
-    const olderPlayback = speak("Hi!");
-    const newerPlayback = speak("Hello!");
-
-    await expect(olderPlayback).resolves.toBe(false);
-    expect(getSpeakingSnapshot()).toBe(true);
-
-    FakeAudio.instance.dispatchEvent(new Event("ended"));
-    await expect(newerPlayback).resolves.toBe(true);
-    expect(getSpeakingSnapshot()).toBe(false);
-  });
-
-  it("releases speaking state when playback fails", async () => {
-    class FakeAudio extends EventTarget {
-      static instance: FakeAudio;
-      src = "";
-      muted = false;
-      playbackRate = 1;
-      constructor() {
-        super();
-        FakeAudio.instance = this;
-      }
-      pause(): void {}
-      play(): Promise<void> {
-        return Promise.resolve();
-      }
-    }
-
-    vi.stubGlobal("window", {});
-    vi.stubGlobal("Audio", FakeAudio);
-    vi.resetModules();
-
-    const { getSpeakingSnapshot, speak } = await import("@/lib/speech-synthesis");
-    const playback = speak("A newly generated line");
-    await Promise.resolve();
-    FakeAudio.instance.dispatchEvent(new Event("error"));
-
-    await expect(playback).resolves.toBe(false);
-    expect(getSpeakingSnapshot()).toBe(false);
-  });
-
-  it("times out stalled playback and releases speaking state", async () => {
-    vi.useFakeTimers();
-
-    class FakeAudio extends EventTarget {
-      src = "";
-      muted = false;
-      playbackRate = 1;
-      pause(): void {}
-      play(): Promise<void> {
-        return new Promise(() => {});
-      }
-    }
-
-    vi.stubGlobal("window", {});
-    vi.stubGlobal("Audio", FakeAudio);
-    vi.resetModules();
-
-    const { getSpeakingSnapshot, speak } = await import("@/lib/speech-synthesis");
-    const playback = speak("A stalled generated line");
-    expect(getSpeakingSnapshot()).toBe(true);
-
-    await vi.advanceTimersByTimeAsync(30_000);
-
-    expect(getSpeakingSnapshot()).toBe(false);
-    await expect(playback).resolves.toBe(false);
-  });
-
-  it("does not time out a long line after playback has started", async () => {
-    vi.useFakeTimers();
-
-    class FakeAudio extends EventTarget {
-      static instance: FakeAudio;
-      src = "";
-      muted = false;
-      playbackRate = 1;
-      pauseCalls = 0;
-      constructor() {
-        super();
-        FakeAudio.instance = this;
-      }
-      pause(): void {
-        this.pauseCalls += 1;
-      }
-      play(): Promise<void> {
-        return Promise.resolve();
-      }
-    }
-
-    vi.stubGlobal("window", {});
-    vi.stubGlobal("Audio", FakeAudio);
-    vi.resetModules();
-
-    const { getSpeakingSnapshot, speak } = await import("@/lib/speech-synthesis");
-    const playback = speak("A legitimately long generated line");
-    await Promise.resolve();
-
-    await vi.advanceTimersByTimeAsync(30_000);
-
-    expect(getSpeakingSnapshot()).toBe(true);
-    expect(FakeAudio.instance.pauseCalls).toBe(0);
-
-    FakeAudio.instance.dispatchEvent(new Event("ended"));
-    await expect(playback).resolves.toBe(true);
-    expect(getSpeakingSnapshot()).toBe(false);
+    await expect(speak("A sentence that has no recording.")).resolves.toBe(false);
   });
 
   it("keeps slash-delimited text intact by default", async () => {
-    class FakeAudio extends EventTarget {
-      static instance: FakeAudio;
-      src = "";
-      muted = false;
-      playbackRate = 1;
-      readonly playedSources: string[] = [];
-      constructor() {
-        super();
-        FakeAudio.instance = this;
-      }
-      pause(): void {}
-      play(): Promise<void> {
-        this.playedSources.push(this.src);
-        return Promise.resolve();
-      }
+    const spoken: string[] = [];
+    class FakeUtterance {
+      lang = "";
+      voice: unknown = null;
+      rate = 1;
+      onend: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      constructor(readonly text: string) {}
     }
-
-    vi.stubGlobal("window", {});
+    vi.stubGlobal("window", {
+      speechSynthesis: {
+        getVoices: () => [{ name: "Test", lang: "zh-CN" }],
+        cancel: () => {},
+        speak: (utterance: FakeUtterance) => {
+          spoken.push(utterance.text);
+          utterance.onend?.();
+        },
+      },
+      SpeechSynthesisUtterance: FakeUtterance,
+    });
+    vi.stubGlobal("SpeechSynthesisUtterance", FakeUtterance);
     vi.stubGlobal("Audio", FakeAudio);
     vi.resetModules();
 
     const { speak } = await import("@/lib/speech-synthesis");
-    const playback = speak("上午/下午都可以说");
-    await Promise.resolve();
-
-    expect(FakeAudio.instance.playedSources).toEqual([
-      "/api/practice/speak?text=%E4%B8%8A%E5%8D%88%2F%E4%B8%8B%E5%8D%88%E9%83%BD%E5%8F%AF%E4%BB%A5%E8%AF%B4",
-    ]);
-    FakeAudio.instance.dispatchEvent(new Event("ended"));
-    await expect(playback).resolves.toBe(true);
+    await speak("上午/下午都可以说", { lang: "zh-CN" });
+    expect(spoken).toEqual(["上午/下午都可以说"]);
   });
 
   it("splits slash-delimited text only when explicitly requested", async () => {
     vi.useFakeTimers();
-
-    class FakeAudio extends EventTarget {
-      static instance: FakeAudio;
-      src = "";
-      muted = false;
-      playbackRate = 1;
-      readonly playedSources: string[] = [];
-      constructor() {
-        super();
-        FakeAudio.instance = this;
-      }
-      pause(): void {}
-      play(): Promise<void> {
-        this.playedSources.push(this.src);
-        return Promise.resolve();
-      }
+    const spoken: string[] = [];
+    class FakeUtterance {
+      lang = "";
+      voice: unknown = null;
+      rate = 1;
+      onend: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      constructor(readonly text: string) {}
     }
-
-    vi.stubGlobal("window", {});
+    vi.stubGlobal("window", {
+      speechSynthesis: {
+        getVoices: () => [{ name: "Test", lang: "zh-CN" }],
+        cancel: () => {},
+        speak: (utterance: FakeUtterance) => {
+          spoken.push(utterance.text);
+          utterance.onend?.();
+        },
+      },
+      SpeechSynthesisUtterance: FakeUtterance,
+    });
+    vi.stubGlobal("SpeechSynthesisUtterance", FakeUtterance);
     vi.stubGlobal("Audio", FakeAudio);
     vi.resetModules();
 
     const { speak } = await import("@/lib/speech-synthesis");
-    const playback = speak("上午/下午", { splitOnSlash: true });
-    await Promise.resolve();
-    expect(FakeAudio.instance.playedSources).toEqual([
-      "/api/practice/speak?text=%E4%B8%8A%E5%8D%88",
-    ]);
-
-    FakeAudio.instance.dispatchEvent(new Event("ended"));
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(FakeAudio.instance.playedSources).toEqual([
-      "/api/practice/speak?text=%E4%B8%8A%E5%8D%88",
-      "/api/practice/speak?text=%E4%B8%8B%E5%8D%88",
-    ]);
-
-    FakeAudio.instance.dispatchEvent(new Event("ended"));
+    const playback = speak("上午/下午", { lang: "zh-CN", splitOnSlash: true });
+    await vi.advanceTimersByTimeAsync(2_000);
     await expect(playback).resolves.toBe(true);
+    expect(spoken).toEqual(["上午", "下午"]);
   });
 });

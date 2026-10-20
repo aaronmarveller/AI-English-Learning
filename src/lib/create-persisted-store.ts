@@ -10,7 +10,7 @@
  * around localStorage access. It deliberately knows nothing about *shape*
  * validation — each store still supplies its own `serialize`/`deserialize`,
  * which is where real domain logic like `isStepId`/`isPracticeMessage`
- * corrupt-storage recovery lives (that's correctness logic, not boilerplate,
+ * corrupt-storage handling lives (that's correctness logic, not boilerplate,
  * and stays per-store).
  *
  * Not a general state-management library — just enough for "a few small
@@ -37,7 +37,7 @@ export type PersistedStoreConfig<T> = {
    * `JSON.parse` on malformed data) — the factory catches that and falls
    * back to `initialState`. For validation short of a hard parse failure
    * (wrong shape, unexpected field types), return a sanitized/fallback `T`
-   * instead of throwing; that's normal recovery, not exceptional.
+   * instead of throwing; that's normal fallback, not exceptional.
    */
   deserialize: (raw: string) => T;
 };

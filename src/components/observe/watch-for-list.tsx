@@ -1,10 +1,9 @@
-import { CONVERSATION_STAGE_LABELS } from "@/content/conversation-stages";
+import { LESSON_STAGE_LABELS, type LessonStage } from "@/content/lesson-stages";
 import { OBSERVE_CONTENT } from "@/content/observe";
-import type { ActiveConversationState } from "@/lib/conversation-state-machine";
 
 /** Per-stage emoji + icon-circle tint (UI draft, 2026-08-07 review) — same
  * "pastel badge" pattern as Home's Coming Next rows. */
-const STAGE_ICON: Record<ActiveConversationState, { emoji: string; bg: string }> = {
+const STAGE_ICON: Record<LessonStage, { emoji: string; bg: string }> = {
   greeting: { emoji: "👋", bg: "bg-amber-100" },
   checkin: { emoji: "😄", bg: "bg-orange-100" },
   response: { emoji: "💬", bg: "bg-violet-100" },
@@ -41,7 +40,7 @@ export function WatchForList() {
 
       <ul className="grid grid-cols-2 gap-3">
         {OBSERVE_CONTENT.watchFor.map((item) => {
-          const label = CONVERSATION_STAGE_LABELS[item.key];
+          const label = LESSON_STAGE_LABELS[item.key];
           const icon = STAGE_ICON[item.key];
           return (
             <li

@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { installScriptedPracticeApi, resetStorage } from "./fixtures";
+import { hangUp, installFakeCall, learnerSpeaks, resetStorage, startCallAndGreet } from "./fixtures";
 import { STEP_IDS, STEP_ROUTES, type StepId } from "@/lib/progress";
 
 /**
@@ -19,43 +19,19 @@ function expectedDotState(dotStep: StepId, currentStep: StepId): "current" | "co
 }
 
 /**
- * Advances past the Practice page's real conversation core (ticket 08).
- * Unlike every other step, Practice has no simple "Continue" button —
- * its primary action ("查看学习总结") only unlocks once its own inner
- * 4-step Greeting→Check-in→Response→Closing conversation completes. This
- * stubs the LLM proxy route to accept each Turn, drives all 4 turns, then
- * clicks View Summary — the walkthrough's equivalent of "click Continue"
+ * Advances past the Practice page. Unlike every other step, Practice has no
+ * simple "Continue" button — its primary action ("查看学习总结") only unlocks
+ * once a Call has ended in which the learner said something in English or
+ * Chinese. This makes one short Call (the Realtime connection is faked by the
+ * test, before navigating), hangs up,
+ * then clicks View Summary — the walkthrough's equivalent of "click Continue"
  * for this one step.
- *
- * Issue #47 (ADR-0012): a scripted Turn is a Goal Report now, not a Verdict —
- * one entry per Turn, each naming the Goal that reply communicates. The loop
- * below answers Emily in canonical order, one Goal per Turn, exactly as a
- * learner following her lines would, so entry *n* is Goal *n*.
- *
- * Uses the shared `installScriptedPracticeApi` stub (e2e/fixtures.ts)
- * rather than its own inline `page.route` (as this predates issue #10's
- * consolidation of the other four Practice-adjacent spec files) so this
- * walkthrough stays in sync with the real route's wire format automatically
- * — see that helper's doc comment for why (issue #5).
  */
-async function completePracticeConversation(page: Page): Promise<void> {
-  await installScriptedPracticeApi(page, [
-    { goalReport: { greeting: "achieved" } },
-    { goalReport: { checkin: "achieved" } },
-    { goalReport: { response: "achieved" } },
-    { goalReport: { closing: "achieved" } },
-  ]);
-
-  // Ticket 09 made the microphone the default input mode; this walkthrough
-  // isn't concerned with voice, so it switches to the (always-available)
-  // text fallback once and then drives the conversation exactly as before.
-  await page.getByTestId("practice-input-mode-toggle").click();
-
-  for (let i = 0; i < 4; i++) {
-    await expect(page.getByTestId("practice-text-input")).toBeEnabled();
-    await page.getByTestId("practice-text-input").fill("Hi there!");
-    await page.getByTestId("practice-send-button").click();
-  }
+async function completePractice(page: Page): Promise<void> {
+  await startCallAndGreet(page);
+  await learnerSpeaks(page, "u1", "Hi there!");
+  await expect(page.getByTestId("learner-message-bubble")).toHaveText("Hi there!");
+  await hangUp(page);
 
   const viewSummaryButton = page.getByTestId("view-summary-button");
   await expect(viewSummaryButton).toBeEnabled();
@@ -67,6 +43,7 @@ test.describe("navigation spine", () => {
     page,
   }) => {
     await resetStorage(page);
+    await installFakeCall(page);
     // observe has no prerequisite, so it's the flow's real entry point
     // today (Home's own "Start Lesson" card lands in ticket 04).
     await page.goto(STEP_ROUTES.observe);
@@ -82,7 +59,7 @@ test.describe("navigation spine", () => {
       }
 
       if (step === "practice") {
-        await completePracticeConversation(page);
+        await completePractice(page);
         continue;
       }
 
