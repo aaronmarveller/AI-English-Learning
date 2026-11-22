@@ -97,7 +97,7 @@ export const NOTICE_CARDS: NoticeCard[] = [
         { icon: "users", label: "朋友" },
       ],
     },
-    tip: "这只是常见例子。聊多久，还要看彼此的关系、当下的情况和对方的反应。",
+    tip: "对话长短不只看场景，还要看双方关系、当时的情况和回应。",
   },
   {
     id: "conversation-cues",
