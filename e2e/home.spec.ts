@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { test, expect, type Page } from "@playwright/test";
 import { resetStorage } from "./fixtures";
 import { HOME_CONTENT } from "@/content/home";
@@ -144,7 +145,9 @@ test.describe("Home page", () => {
       await expect(card.getByText("邻里问候", { exact: true })).toHaveCount(0);
       await expect(card.getByText("日常社交")).toHaveCount(0);
       await expect(card.getByText("🌐")).toHaveCount(0);
-      await expect(card.getByText("👋")).toBeVisible();
+      // Follows the requirements doc's Home screenshot (docx-images/image1.png):
+      // the mission card has no 👋, so it is asserted absent (batch 2).
+      await expect(card.getByText("👋")).toHaveCount(0);
     });
 
     test("keeps the card's accessible name and names the button 开始学习", async ({ page }) => {
@@ -183,21 +186,39 @@ test.describe("Home page", () => {
     await expect(page).toHaveURL(/\/observe$/);
   });
 
-  test("header shows only a non-interactive Home tab, with no Progress or Profile control", async ({
-    page,
-  }) => {
+  // Batch 2: the requirements doc's Home screenshot has no Home tab (nor
+  // Progress/Profile), so this no longer expects one.
+  test("has no main navigation, Progress or Profile control", async ({ page }) => {
     await resetStorage(page);
     await page.goto("/");
 
-    const nav = page.getByRole("navigation", { name: /main navigation/i });
-    await expect(nav.getByText("Home", { exact: true })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: /main navigation/i })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^(Progress|Profile)$/ })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: /^(Progress|Profile)$/ })).toHaveCount(0);
     await expect(page.getByText("Progress", { exact: true })).toHaveCount(0);
     await expect(page.getByText("Profile", { exact: true })).toHaveCount(0);
-    await expect(nav.getByRole("button")).toHaveCount(0);
-    await expect(nav.getByRole("link")).toHaveCount(0);
-
-    await nav.getByText("Home", { exact: true }).click();
     await expect(page).toHaveURL(/\/$/);
+  });
+
+  test("shows the doc hero and mission images, served byte-for-byte", async ({ page, request }) => {
+    await resetStorage(page);
+    await page.goto("/");
+
+    await expect(
+      page.getByTestId("mission-card").locator('img[src="/assets/home/mission-thumb.jpg"]'),
+    ).toBeVisible();
+    await expect(page.locator('img[src="/assets/home/hero.jpg"]')).toHaveCount(1);
+
+    const sha = async (url: string) =>
+      createHash("sha256")
+        .update(await (await request.get(url)).body())
+        .digest("hex");
+    expect(await sha("/assets/home/mission-thumb.jpg")).toBe(
+      "bdf683fbe99d8ccf9f91d2740520e42d4a44c05b948d03efec101398c4c897ff",
+    );
+    expect(await sha("/assets/home/hero.jpg")).toBe(
+      "927ee632a6890f658f94ad3c1bc661209dadd474d87caf6ffc4cba662578a479",
+    );
   });
 
   test("clicking a locked Coming Next item does not navigate anywhere", async ({ page }) => {
