@@ -58,7 +58,8 @@ export default function ObservePage() {
             <SceneVideoPlayer
               id={scene.id}
               src={scene.video.src}
-              captionsSrc={scene.video.captionsSrc}
+              captionsEnSrc={scene.video.captionsEnSrc}
+              captionsZhSrc={scene.video.captionsZhSrc}
               sceneName={scene.nameZh}
               poster={scene.video.poster}
             />

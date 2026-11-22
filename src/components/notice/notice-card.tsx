@@ -105,7 +105,8 @@ function SidePanel({
  * One Notice Card: a numbered header showing the card's question and, while
  * collapsed, two circular photos around "VS"; expanded, a two-panel contrast
  * (green left / pink right) and a tip bar. `open` and `onToggle` come from
- * NoticePageContent, which keeps a single open card (accordion).
+ * NoticePageContent, which tracks open cards independently (any number may be open).
+ * The body stays mounted when collapsed (zero height, inert, aria-hidden) so it can animate.
  *
  * Keeps the `{id}`, `{id}-header` (aria-expanded/aria-controls) and
  * `{id}-body` testids plus `data-state="expanded"|"collapsed"`.
@@ -118,7 +119,7 @@ export function NoticeCard({ index, card, open, onToggle }: NoticeCardProps) {
     <section
       data-testid={testId}
       data-state={open ? "expanded" : "collapsed"}
-      className="rounded-card border border-border bg-card"
+      className={`rounded-card border bg-card ${open ? "border-accent" : "border-border"}`}
     >
       <button
         type="button"
@@ -159,21 +160,35 @@ export function NoticeCard({ index, card, open, onToggle }: NoticeCardProps) {
         </span>
       </button>
 
-      {open ? (
-        <div id={bodyId} data-testid={bodyId} className="flex min-w-0 flex-col gap-3 px-4 pb-4">
-          <div className="flex items-stretch gap-2">
-            <SidePanel side={card.left} tone="left" cardId={card.id} />
-            <span aria-hidden className="flex shrink-0 items-center text-caption text-muted">
-              VS
-            </span>
-            <SidePanel side={card.right} tone="right" cardId={card.id} />
+      <div
+        id={bodyId}
+        data-testid={bodyId}
+        aria-hidden={!open}
+        inert={!open}
+        className={`grid transition-[grid-template-rows] duration-[220ms] ease-[ease-out] ${open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}
+      >
+        <div className="min-h-0 min-w-0 overflow-hidden">
+          <div className="flex min-w-0 flex-col gap-3 px-4 pb-4">
+            <div
+              data-testid={`${testId}-panels`}
+              className={`flex items-stretch gap-2 transition-opacity duration-200 ease-[ease-out] ${open ? "opacity-100" : "opacity-0"}`}
+            >
+              <SidePanel side={card.left} tone="left" cardId={card.id} />
+              <span aria-hidden className="flex shrink-0 items-center text-caption text-muted">
+                VS
+              </span>
+              <SidePanel side={card.right} tone="right" cardId={card.id} />
+            </div>
+            <p
+              data-testid={`${testId}-insight`}
+              className={`flex items-start justify-center gap-2 rounded-card bg-accent-soft px-3 py-3 text-center text-body-sm text-foreground transition-opacity duration-200 ease-[ease-out] ${open ? "opacity-100 delay-100" : "opacity-0 delay-0"}`}
+            >
+              <LightbulbIcon aria-hidden className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
+              <span>{card.tip}</span>
+            </p>
           </div>
-          <p className="flex items-start justify-center gap-2 rounded-card bg-accent-soft px-3 py-3 text-center text-body-sm text-foreground">
-            <LightbulbIcon aria-hidden className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
-            <span>{card.tip}</span>
-          </p>
         </div>
-      ) : null}
+      </div>
     </section>
   );
 }

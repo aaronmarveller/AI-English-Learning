@@ -101,16 +101,29 @@ export function GuidedPracticeContent() {
               <li
                 key={expression.id}
                 data-testid={`guided-expression-${expression.id}`}
-                className={`flex items-center gap-3 rounded-card border border-border bg-card p-3 ${disabled ? "opacity-60" : ""}`}
+                data-selected={checked}
+                className={`flex items-center gap-3 rounded-card border-2 bg-card p-3 transition-colors duration-[180ms] ${
+                  checked ? "border-accent" : "border-border"
+                } ${disabled ? "opacity-60" : ""}`}
               >
-                <label className={`flex min-w-0 flex-1 items-center gap-3 ${disabled ? "cursor-not-allowed" : "cursor-pointer"}`}>
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    disabled={disabled}
-                    onChange={() => toggleExpression(expression.id)}
-                    className="h-6 w-6 shrink-0 cursor-[inherit] accent-[#2fae60]"
-                  />
+                {/* ARIA checkbox (no native input): the green border + ✓ show the selection. */}
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={checked}
+                  disabled={disabled}
+                  onClick={() => toggleExpression(expression.id)}
+                  className={`flex min-w-0 flex-1 items-center gap-3 text-left ${disabled ? "cursor-not-allowed" : "cursor-pointer"}`}
+                >
+                  <span
+                    aria-hidden
+                    data-testid={`guided-check-${expression.id}`}
+                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 text-caption font-bold transition-colors duration-[180ms] ${
+                      checked ? "border-accent bg-accent text-white" : "border-border bg-card text-transparent"
+                    }`}
+                  >
+                    {checked ? "✓" : ""}
+                  </span>
                   <span className="flex min-w-0 flex-1 flex-col items-start gap-1">
                     <span className="text-body-lg font-semibold text-foreground">{line}</span>
                     <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -122,7 +135,7 @@ export function GuidedPracticeContent() {
                       </span>
                     </span>
                   </span>
-                </label>
+                </button>
                 <PronunciationButton
                   text={line}
                   disabled={disabled}
@@ -146,8 +159,9 @@ export function GuidedPracticeContent() {
         </h3>
         <div className="flex items-center gap-2 rounded-card bg-[#eef0f3] p-3">
           <p
+            key={response}
             data-testid="your-response"
-            className={`min-w-0 flex-1 ${response ? "text-body-lg text-foreground" : "text-body-sm text-muted"}`}
+            className={`fade-in-180 min-w-0 flex-1 ${response ? "text-body-lg text-foreground" : "text-body-sm text-muted"}`}
           >
             {response || YOUR_RESPONSE_EMPTY}
           </p>
@@ -160,9 +174,10 @@ export function GuidedPracticeContent() {
         </div>
         {feedback ? (
           <div
+            key={`${situationId}:${feedback.en}`}
             data-testid="guided-feedback"
             aria-live="polite"
-            className="flex items-start gap-3 rounded-card bg-accent-soft p-4"
+            className="fade-in-220 flex items-start gap-3 rounded-card bg-accent-soft p-4"
           >
             <span
               aria-hidden
@@ -219,7 +234,7 @@ function SituationCard({
     <div
       data-testid={`situation-${situation.id}`}
       data-selected={selected}
-      className={`relative flex min-w-0 flex-col gap-2 rounded-card border-2 p-2 transition-colors ${
+      className={`relative flex min-w-0 flex-col gap-2 rounded-card border-2 p-2 transition-colors duration-[220ms] ${
         selected ? "border-accent bg-accent-soft/50" : "border-border bg-card"
       }`}
     >

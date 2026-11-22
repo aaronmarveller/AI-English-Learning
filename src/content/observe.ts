@@ -19,7 +19,7 @@ export type ObserveScene = {
   nameZh: string;
   emoji: string;
   tag: { en: string; zh: string; tone: "green" | "blue" };
-  video: { src: string; captionsSrc: string; poster: string };
+  video: { src: string; captionsEnSrc: string; captionsZhSrc: string; poster: string };
 };
 
 export const OBSERVE_CONTENT = {
@@ -39,13 +39,14 @@ export const OBSERVE_CONTENT = {
       nameZh: "咖啡店里打招呼",
       emoji: "☕",
       tag: { en: "Quick Greeting", zh: "简短问候", tone: "green" },
-      // Placeholder paths: the real clip, captions and poster drop in here
-      // later with no code change (the .vtt below is an empty stand-in so
-      // the <track> loads).
+      // The mp4 is a placeholder still. To swap in the real clip, replace it
+      // and update only the cue timings in the coffee-shop VTTs — see
+      // public/video/README.md.
       video: {
         src: "/video/greeting-coffee-shop.mp4",
-        captionsSrc: "/video/greeting-coffee-shop.vtt",
-        poster: "/assets/observe/coffee-shop-poster.jpg",
+        captionsEnSrc: "/video/greeting-coffee-shop.en.vtt",
+        captionsZhSrc: "/video/greeting-coffee-shop.zh.vtt",
+        poster: "/assets/observe/coffee-shop-poster.png",
       },
     },
     {
@@ -56,8 +57,9 @@ export const OBSERVE_CONTENT = {
       tag: { en: "Casual Small Talk", zh: "日常寒暄", tone: "blue" },
       video: {
         src: "/video/greeting-somebody-observe.mp4",
-        captionsSrc: "/video/greeting-somebody-observe.vtt",
-        poster: "/assets/home/mission-thumb.jpg",
+        captionsEnSrc: "/video/greeting-somebody-observe.en.vtt",
+        captionsZhSrc: "/video/greeting-somebody-observe.zh.vtt",
+        poster: "/assets/observe/neighbor-poster.jpg",
       },
     },
   ],

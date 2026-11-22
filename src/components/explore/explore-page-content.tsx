@@ -57,6 +57,13 @@ export function ExplorePageContent() {
     closing: false,
   });
 
+  // Conversation Formula highlight: which role's main Response card is lit (T-009).
+  const [formulaRole, setFormulaRole] = useState<FormulaRole | null>(null);
+
+  function selectFormulaRole(role: FormulaRole) {
+    setFormulaRole((prev) => (prev === role ? null : role));
+  }
+
   function toggleMore(key: ExploreSectionKey) {
     setOpenMore((prev) => ({ ...prev, [key]: !prev[key] }));
   }
@@ -93,9 +100,9 @@ export function ExplorePageContent() {
                 onToggle={() => toggleSection(key)}
                 testId={`section-${key}`}
               >
-                <div className="flex flex-col gap-3">
-                  {key === "response" && <ConversationFormula />}
-                  {renderCards(key, "main")}
+                <div className="flex flex-col gap-2">
+                  {key === "response" && <ConversationFormula selected={formulaRole} onSelect={selectFormulaRole} />}
+                  {renderCards(key, "main", formulaRole)}
                   <ExploreMore
                     open={openMore[key]}
                     onToggle={() => toggleMore(key)}
@@ -121,7 +128,7 @@ export function ExplorePageContent() {
 }
 
 /** Cards for one list; tint restarts from green per list (or follows the role in Response). */
-function renderCards(key: ExploreSectionKey, list: "main" | "more") {
+function renderCards(key: ExploreSectionKey, list: "main" | "more", highlightRole: FormulaRole | null = null) {
   if (key === "response") {
     return EXPLORE_SECTIONS.response[list].map((item) => (
       <ExpressionCard
@@ -131,6 +138,7 @@ function renderCards(key: ExploreSectionKey, list: "main" | "more") {
         zh={item.zh}
         pill={ROLE_LABEL[item.role]}
         tint={ROLE_TINT[item.role]}
+        highlighted={list === "main" && item.role === highlightRole}
       />
     ));
   }

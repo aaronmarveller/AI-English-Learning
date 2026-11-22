@@ -18,18 +18,28 @@ type ExpressionCardProps = {
   /** Pill text: the Chinese tag, or "<Role> · <中文>" in Response & Keep It Going. */
   pill: string;
   tint: ExpressionTint;
+  /** Conversation Formula highlight (T-009): light-green tint + 2px accent border. */
+  highlighted?: boolean;
 };
 
 /**
  * One text expression card: bold English line(s) each with its own audio
  * button, then one shared Chinese translation and a small pill.
  */
-export function ExpressionCard({ id, lines, zh, pill, tint }: ExpressionCardProps) {
+export function ExpressionCard({ id, lines, zh, pill, tint, highlighted = false }: ExpressionCardProps) {
   return (
     <div
       data-testid={`expression-card-${id}`}
       data-tint={tint}
-      className={`flex flex-col gap-1 rounded-card p-4 ${TINT_CLASSES[tint]}`}
+      data-highlighted={highlighted}
+      // Border is always present (1px transparent) so highlight/playing never shifts layout;
+      // the highlighted 2px border gives back 1px of padding. A playing line (T-008) gets a
+      // 1px green border via :has(), distinct from the highlight's tint + 2px border.
+      className={`flex flex-col gap-1 rounded-card transition-[background-color,border-color] duration-[220ms] ${
+        highlighted
+          ? "border-2 border-accent bg-[#d6f2e1] p-[11px]"
+          : `border border-transparent p-3 has-[[data-state=playing]]:border-accent ${TINT_CLASSES[tint]}`
+      }`}
     >
       {lines.map((line, index) => (
         <div key={line} className="flex items-center justify-between gap-2">

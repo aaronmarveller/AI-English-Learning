@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { resetStorage } from "./fixtures";
 
 /**
@@ -42,7 +42,7 @@ const CARD_COPY: Record<(typeof CARD_IDS)[number], { question: string; texts: st
       "同事",
       "邻居",
       "朋友",
-      "这只是常见例子。聊多久，还要看彼此的关系、当下的情况和对方的反应。",
+      "对话长短不只看场景，还要看双方关系、当时的情况和回应。",
     ],
   },
   "conversation-cues": {
@@ -142,5 +142,88 @@ test.describe("Notice page", () => {
       () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
     );
     expect(overflow).toBe(false);
+  });
+
+  test.describe("T-006 motion and border", () => {
+    const css = (page: Page, testId: string, prop: string) =>
+      page.getByTestId(testId).evaluate((el, p) => getComputedStyle(el).getPropertyValue(p), prop);
+    const ms = (v: string) => parseFloat(v) * (v.endsWith("ms") ? 1 : 1000);
+
+    test("collapsed body stays mounted, hidden and inert; expanded is visible and accessible", async ({ page }) => {
+      await resetStorage(page);
+      await page.goto(NOTICE_URL);
+      const id = "greeting-intention";
+      const body = page.getByTestId(`${id}-body`);
+      await expect(body).toHaveCount(1);
+      await expect(body).not.toBeVisible();
+      await expect(body).toHaveAttribute("aria-hidden", "true");
+      await expect(body).toHaveAttribute("inert", "");
+      await page.getByTestId(`${id}-header`).click();
+      await expect(body).toBeVisible();
+      await expect(body).toHaveAttribute("aria-hidden", "false");
+      await expect(body).not.toHaveAttribute("inert", "");
+    });
+
+    test("expand motion: durations, ease-out, insight delay on open only", async ({ page }) => {
+      await resetStorage(page);
+      await page.goto(NOTICE_URL);
+      const id = "conversation-length";
+      await page.getByTestId(`${id}-header`).click();
+      await expect(page.getByTestId(`${id}-body`)).toBeVisible();
+
+      for (const t of ["body", "panels", "insight"]) {
+        const d = ms(await css(page, `${id}-${t}`, "transition-duration"));
+        expect(d).toBeGreaterThanOrEqual(190);
+        expect(d).toBeLessThanOrEqual(260);
+      }
+      expect(await css(page, `${id}-body`, "transition-timing-function")).toBe("ease-out");
+      const delay = ms(await css(page, `${id}-insight`, "transition-delay"));
+      expect(delay).toBeGreaterThanOrEqual(90);
+      expect(delay).toBeLessThanOrEqual(110);
+      expect(ms(await css(page, `${id}-panels`, "transition-delay"))).toBe(0);
+
+      await page.getByTestId(`${id}-header`).click();
+      await expect(page.getByTestId(id)).toHaveAttribute("data-state", "collapsed");
+      expect(ms(await css(page, `${id}-insight`, "transition-delay"))).toBe(0);
+      expect(ms(await css(page, `${id}-body`, "transition-delay"))).toBe(0);
+      expect(ms(await css(page, `${id}-panels`, "transition-delay"))).toBe(0);
+    });
+
+    test("expanded border is accent green, collapsed is the default grey", async ({ page }) => {
+      await resetStorage(page);
+      await page.goto(NOTICE_URL);
+      const id = "greeting-intention";
+      expect(await css(page, id, "border-top-color")).toBe("rgb(229, 225, 216)");
+      await page.getByTestId(`${id}-header`).click();
+      await expect(page.getByTestId(id)).toHaveCSS("border-top-color", "rgb(47, 174, 96)");
+      expect(await css(page, id, "border-top-width")).toBe("1px");
+      await page.getByTestId(`${id}-header`).click();
+      await expect(page.getByTestId(id)).toHaveCSS("border-top-color", "rgb(229, 225, 216)");
+    });
+
+    test("opening a second card keeps the first open and animates the same way", async ({ page }) => {
+      await resetStorage(page);
+      await page.goto(NOTICE_URL);
+      await page.getByTestId("greeting-intention-header").click();
+      await page.getByTestId("conversation-cues-header").click();
+      await expect(page.getByTestId("greeting-intention")).toHaveAttribute("data-state", "expanded");
+      const id = "conversation-cues";
+      await expect(page.getByTestId(`${id}-body`)).toBeVisible();
+      await expect(page.getByTestId(id)).toHaveCSS("border-top-color", "rgb(47, 174, 96)");
+      expect(ms(await css(page, `${id}-body`, "transition-duration"))).toBe(220);
+      expect(await css(page, `${id}-body`, "transition-timing-function")).toBe("ease-out");
+      expect(ms(await css(page, `${id}-panels`, "transition-duration"))).toBe(200);
+      expect(ms(await css(page, `${id}-insight`, "transition-duration"))).toBe(200);
+      expect(ms(await css(page, `${id}-insight`, "transition-delay"))).toBe(100);
+    });
+  });
+
+  test("T-004 Card 2 tip replaces the old sentence", async ({ page }) => {
+    await resetStorage(page);
+    await page.goto(NOTICE_URL);
+    await page.getByTestId("conversation-length-header").click();
+    const body = page.getByTestId("conversation-length-body");
+    await expect(body).toContainText("对话长短不只看场景，还要看双方关系、当时的情况和回应。");
+    await expect(body).not.toContainText("这只是常见例子。聊多久，还要看彼此的关系、当下的情况和对方的反应。");
   });
 });

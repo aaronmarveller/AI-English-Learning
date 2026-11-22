@@ -1,16 +1,23 @@
 import { Fragment } from "react";
-import { CONVERSATION_FORMULA } from "@/content/explore";
+import { CONVERSATION_FORMULA, type FormulaRole } from "@/content/explore";
 
 /**
  * The Conversation Formula panel shown at the top of Response & Keep It Going:
- * three numbered steps joined by → arrows. Taught only — nothing here is
- * clickable or audible. The steps always share one row, shrinking to fit narrow screens.
+ * three numbered steps joined by → arrows. Each step is a button that highlights its
+ * matching Response card (state lives in the page); it never plays audio. The steps
+ * always share one row, shrinking to fit narrow screens.
  */
-export function ConversationFormula() {
+export function ConversationFormula({
+  selected,
+  onSelect,
+}: {
+  selected: FormulaRole | null;
+  onSelect: (role: FormulaRole) => void;
+}) {
   return (
     <div
       data-testid="conversation-formula"
-      className="flex flex-col gap-3 rounded-card bg-accent-soft p-4"
+      className="flex flex-col gap-2 rounded-card bg-accent-soft p-3"
     >
       <h3 className="text-h3 font-semibold text-foreground">Conversation Formula 交流公式</h3>
       <div className="flex flex-nowrap items-stretch gap-x-1">
@@ -21,9 +28,14 @@ export function ConversationFormula() {
                 →
               </span>
             )}
-            <div
+            <button
+              type="button"
+              aria-pressed={selected === step.role}
               data-testid={`formula-step-${step.order}`}
-              className="flex min-w-0 flex-1 basis-0 flex-col items-center gap-1 rounded-card bg-white/70 px-1 py-2 text-center"
+              onClick={() => onSelect(step.role)}
+              className={`flex min-w-0 flex-1 basis-0 flex-col items-center gap-1 rounded-card border-2 px-1 py-2 text-center transition-colors duration-[220ms] active:brightness-95 ${
+                selected === step.role ? "border-accent bg-white" : "border-transparent bg-white/70"
+              }`}
             >
               <span
                 data-testid="formula-number"
@@ -43,7 +55,7 @@ export function ConversationFormula() {
               >
                 {step.hint}
               </span>
-            </div>
+            </button>
           </Fragment>
         ))}
       </div>

@@ -10,7 +10,7 @@ import { NOTICE_CARDS, NOTICE_HEADLINE } from "@/content/notice";
 /**
  * Notice page body: three Notice Cards about what a greeting means (#78).
  *
- * Accordion — all cards start collapsed and opening one collapses the others. Continue is always reachable; nothing gates it.
+ * Cards expand independently — all start collapsed and any number (0–3) may be open at once. Continue is always reachable; nothing gates it.
  *
  * `asHeading` on StageTag makes the "Notice" pill the page's accessible h1,
  * matching Explore/Observe.
@@ -19,10 +19,14 @@ import { NOTICE_CARDS, NOTICE_HEADLINE } from "@/content/notice";
  * `metadata`) because the open/closed state needs a Client Component.
  */
 export function NoticePageContent() {
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openIds, setOpenIds] = useState<Set<string>>(new Set());
 
   function toggle(id: string) {
-    setOpenId((prev) => (prev === id ? null : id));
+    setOpenIds((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
   }
 
   return (
@@ -40,7 +44,7 @@ export function NoticePageContent() {
             key={card.id}
             index={index + 1}
             card={card}
-            open={openId === card.id}
+            open={openIds.has(card.id)}
             onToggle={() => toggle(card.id)}
           />
         ))}
