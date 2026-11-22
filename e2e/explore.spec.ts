@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { resetStorage } from "./fixtures";
+import { installControllableSpeechStub, resetStorage } from "./fixtures";
 
 /**
  * E2E coverage for the Explore page (ticket 06, reworked by #82). Per
@@ -15,71 +15,6 @@ import { resetStorage } from "./fixtures";
  */
 
 const EXPLORE_URL = "/explore?debug=1";
-
-/**
- * A self-contained, controllable `window.speechSynthesis` stub, installed
- * only for the tests that need to observe the transient "playing" state
- * deterministically.
- *
- * This is intentionally NOT added to e2e/fixtures.ts's shared
- * `mockSpeechApis`: that helper's existing stub resolves `onend` on a
- * microtask (see e2e/fixtures.ts and the "mockSpeechApis installs a
- * controllable speechSynthesis stub" test in e2e/fixtures.spec.ts, which
- * asserts exactly that auto-resolve behavior) — fine for that fixture's own
- * purpose, but too fast for Playwright to reliably observe an intermediate
- * "playing" attribute before it flips back. Real browser speech synthesis
- * is equally unusable here: headless environments often have no system TTS
- * voices, so `speechSynthesis.speak()` can hang or error unpredictably.
- */
-async function installControllableSpeechStub(page: Page): Promise<void> {
-  await page.addInitScript(() => {
-    // Pre-generated mp3s must not take part: make <audio> playback fail at once
-    // so speak() always falls through to the controllable synthesis stub below,
-    // whether or not public/audio holds a file for the line.
-    HTMLMediaElement.prototype.play = () => Promise.reject(new Error("audio disabled in test"));
-
-    type FakeUtterance = { onstart?: () => void; onend?: () => void };
-    let resolveCurrent: (() => void) | null = null;
-
-    const fakeSynthesis = {
-      speaking: false,
-      pending: false,
-      paused: false,
-      speak(utterance: FakeUtterance) {
-        utterance.onstart?.();
-        resolveCurrent = () => utterance.onend?.();
-      },
-      cancel() {
-        resolveCurrent?.();
-        resolveCurrent = null;
-      },
-      pause() {},
-      resume() {},
-      getVoices() {
-        return [];
-      },
-    };
-
-    Object.defineProperty(window, "speechSynthesis", {
-      value: fakeSynthesis,
-      configurable: true,
-      writable: true,
-    });
-
-    Object.assign(window, {
-      __resolveSpeech: () => {
-        resolveCurrent?.();
-        resolveCurrent = null;
-      },
-    });
-  });
-}
-
-declare global {
-  interface Window {
-    __resolveSpeech?: () => void;
-  }
-}
 
 type Row = { id: string; en: string[]; zh: string; pill: string; tint: "green" | "blue" | "yellow" };
 
@@ -176,17 +111,33 @@ const HEADERS: Record<string, string> = {
 
 const SECTIONS = ["greeting", "checkin", "response", "closing"] as const;
 
-async function openAllMore(page: Page): Promise<void> {
-  for (const key of SECTIONS) {
-    await page.getByTestId(`explore-more-${key}-toggle`).click();
-  }
-}
-
-/** Greeting starts open; this opens the other three. */
-async function openAll(page: Page): Promise<void> {
-  for (const key of SECTIONS.slice(1)) {
+/**
+ * Sections are an exclusive accordion (opening one closes the others, and a closed body is
+ * unmounted), so tests can only look at ONE section's content at a time. This opens the named
+ * section (closing whichever was open) and waits for its body. It replaces the old `openAll()`,
+ * which clicked checkin → response → closing and so left only Closing mounted.
+ */
+async function openSection(page: Page, key: (typeof SECTIONS)[number]): Promise<void> {
+  const section = page.getByTestId(`section-${key}`);
+  if ((await section.getAttribute("data-state")) !== "expanded") {
     await page.getByTestId(`section-${key}-header`).click();
   }
+  await expect(section).toHaveAttribute("data-state", "expanded");
+  await expect(page.getByTestId(`section-${key}-body`)).toBeVisible();
+}
+
+/** Opens `key`'s Explore More (inside its already-open section) and waits for the body. */
+async function openMore(page: Page, key: (typeof SECTIONS)[number]): Promise<void> {
+  const more = page.getByTestId(`explore-more-${key}`);
+  if ((await more.getAttribute("data-state")) !== "expanded") {
+    await page.getByTestId(`explore-more-${key}-toggle`).click();
+  }
+  await expect(more).toHaveAttribute("data-state", "expanded");
+  await expect(page.getByTestId(`explore-more-${key}-body`)).toBeVisible();
+}
+
+async function hasHorizontalScroll(page: Page): Promise<boolean> {
+  return page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
 }
 
 test.describe("Explore page", () => {
@@ -246,9 +197,9 @@ test.describe("Explore page", () => {
   test("every main expression shows its English, Chinese and tag or role word for word", async ({ page }) => {
     await resetStorage(page);
     await page.goto(EXPLORE_URL);
-    await openAll(page);
 
     for (const key of SECTIONS) {
+      await openSection(page, key);
       for (const row of MAIN[key]) {
         const card = page.getByTestId(`expression-card-${row.id}`);
         for (const line of row.en) await expect(card.getByText(line, { exact: true })).toBeVisible();
@@ -277,9 +228,9 @@ test.describe("Explore page", () => {
   test("card tints cycle green, blue, yellow by position, and follow the role in Response", async ({ page }) => {
     await resetStorage(page);
     await page.goto(EXPLORE_URL);
-    await openAll(page);
 
     for (const key of SECTIONS) {
+      await openSection(page, key);
       for (const row of MAIN[key]) {
         await expect(page.getByTestId(`expression-card-${row.id}`)).toHaveAttribute("data-tint", row.tint);
       }
@@ -289,9 +240,11 @@ test.describe("Explore page", () => {
   test("no image carousel, scene photo or combo sentence remains", async ({ page }) => {
     await resetStorage(page);
     await page.goto(EXPLORE_URL);
-    await openAll(page);
 
     for (const key of SECTIONS) {
+      // Open each body in turn so the assertion really inspects it (a closed body has 0 images).
+      await openSection(page, key);
+      await expect(page.getByTestId(`section-${key}-body`).locator('[data-testid^="expression-card-"]').first()).toBeVisible();
       await expect(page.getByTestId(`section-${key}-body`).locator("img")).toHaveCount(0);
     }
     await expect(page.getByText("I'm good. Thank you. How about you?")).toHaveCount(0);
@@ -302,9 +255,9 @@ test.describe("Explore page", () => {
     await resetStorage(page);
     await installControllableSpeechStub(page);
     await page.goto(EXPLORE_URL);
-    await openAll(page);
 
     for (const key of SECTIONS) {
+      await openSection(page, key);
       for (const row of MAIN[key]) {
         const card = page.getByTestId(`expression-card-${row.id}`);
         await expect(card.getByRole("button")).toHaveCount(row.en.length);
@@ -313,6 +266,7 @@ test.describe("Explore page", () => {
         }
       }
     }
+    await openSection(page, "greeting");
 
     const first = page.getByTestId("pronounce-greeting-hi");
     const second = page.getByTestId("pronounce-greeting-time-based-2");
@@ -366,7 +320,9 @@ test.describe("Explore page", () => {
       await expect(step.getByTestId("formula-zh")).toHaveText(zh);
       await expect(step.getByTestId("formula-hint")).toHaveText(hint);
     }
-    await expect(panel.locator("button, a")).toHaveCount(0);
+    // T-009: the three steps are buttons now (they highlight a card); still no links.
+    await expect(panel.getByRole("button")).toHaveCount(3);
+    await expect(panel.locator("a")).toHaveCount(0);
   });
 
   test("at 375px the Conversation Formula fits with no horizontal scroll", async ({ page }) => {
@@ -385,28 +341,25 @@ test.describe("Explore page", () => {
     expect(hasHorizontalScroll).toBe(false);
   });
 
-  test("at 375px with every section open there is no horizontal scroll", async ({ page }) => {
+  // Retitled from "with every section open": the accordion allows only one open body at a time,
+  // so each section is opened in turn and checked for horizontal overflow.
+  test("at 375px each opened section has no horizontal scroll", async ({ page }) => {
     await resetStorage(page);
     await page.setViewportSize({ width: 375, height: 812 });
     await page.goto(EXPLORE_URL);
-    await openAll(page);
 
     for (const key of SECTIONS) {
-      await expect(page.getByTestId(`section-${key}-body`)).toBeVisible();
+      await openSection(page, key);
+      expect(await hasHorizontalScroll(page)).toBe(false);
     }
-
-    const hasHorizontalScroll = await page.evaluate(
-      () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
-    );
-    expect(hasHorizontalScroll).toBe(false);
   });
 
   test("all four Explore More groups start collapsed, showing 更多表达 and their own subtitle", async ({ page }) => {
     await resetStorage(page);
     await page.goto(EXPLORE_URL);
-    await openAll(page);
 
     for (const key of SECTIONS) {
+      await openSection(page, key);
       const more = page.getByTestId(`explore-more-${key}`);
       await expect(more).toHaveAttribute("data-state", "collapsed");
       await expect(more).toContainText("更多表达");
@@ -445,10 +398,10 @@ test.describe("Explore page", () => {
   }) => {
     await resetStorage(page);
     await page.goto(EXPLORE_URL);
-    await openAll(page);
-    await openAllMore(page);
 
     for (const key of SECTIONS) {
+      await openSection(page, key);
+      await openMore(page, key);
       const more = page.getByTestId(`explore-more-${key}-body`);
       await expect(more.locator('[data-testid^="expression-card-"]')).toHaveCount(MORE[key].length);
       for (const row of MORE[key]) {
@@ -482,29 +435,33 @@ test.describe("Explore page", () => {
   test("each Explore More opens and closes independently of the others", async ({ page }) => {
     await resetStorage(page);
     await page.goto(EXPLORE_URL);
-    await openAll(page);
 
-    await page.getByTestId("explore-more-checkin-toggle").click();
+    // Only one section body is mounted at a time, so each group's state is read inside its own
+    // section; the state itself survives the section collapsing (lifted in the page).
+    await openSection(page, "checkin");
+    await openMore(page, "checkin");
+    await openSection(page, "greeting");
+    await expect(page.getByTestId("explore-more-greeting")).toHaveAttribute("data-state", "collapsed");
+    await openSection(page, "closing");
+    await expect(page.getByTestId("explore-more-closing")).toHaveAttribute("data-state", "collapsed");
+    await openMore(page, "closing");
+
+    await openSection(page, "checkin");
     await expect(page.getByTestId("explore-more-checkin")).toHaveAttribute("data-state", "expanded");
-    for (const key of ["greeting", "response", "closing"]) {
-      await expect(page.getByTestId(`explore-more-${key}`)).toHaveAttribute("data-state", "collapsed");
-    }
-
-    await page.getByTestId("explore-more-closing-toggle").click();
     await page.getByTestId("explore-more-checkin-toggle").click();
     await expect(page.getByTestId("explore-more-checkin")).toHaveAttribute("data-state", "collapsed");
+    await openSection(page, "closing");
     await expect(page.getByTestId("explore-more-closing")).toHaveAttribute("data-state", "expanded");
-    await expect(page.getByTestId("explore-more-greeting")).toHaveAttribute("data-state", "collapsed");
   });
 
   test("every Explore More expression has a working pronunciation button", async ({ page }) => {
     await resetStorage(page);
     await installControllableSpeechStub(page);
     await page.goto(EXPLORE_URL);
-    await openAll(page);
-    await openAllMore(page);
 
     for (const key of SECTIONS) {
+      await openSection(page, key);
+      await openMore(page, key);
       for (const row of MORE[key]) {
         const card = page.getByTestId(`expression-card-${row.id}`);
         await expect(card.getByRole("button")).toHaveCount(row.en.length);
@@ -512,8 +469,10 @@ test.describe("Explore page", () => {
       }
     }
 
+    // Both lines must be mounted together to check exclusivity, so use Greeting's two More cards.
+    await openSection(page, "greeting");
     const first = page.getByTestId("pronounce-greeting-hey");
-    const second = page.getByTestId("pronounce-closing-catch-you-later");
+    const second = page.getByTestId("pronounce-greeting-good-to-see-you");
     await first.click();
     await expect(first).toHaveAttribute("data-state", "playing");
     await second.click();
@@ -523,20 +482,18 @@ test.describe("Explore page", () => {
     await expect(second).toHaveAttribute("data-state", "idle");
   });
 
-  test("at 375px with every section and Explore More open there is no horizontal scroll", async ({ page }) => {
+  // Retitled from "with every section and Explore More open": see the accordion note above.
+  test("at 375px each opened section with its Explore More open has no horizontal scroll", async ({ page }) => {
     await resetStorage(page);
     await page.setViewportSize({ width: 375, height: 812 });
     await page.goto(EXPLORE_URL);
-    await openAll(page);
-    await openAllMore(page);
 
     for (const key of SECTIONS) {
+      await openSection(page, key);
+      await openMore(page, key);
       await expect(page.getByTestId(`explore-more-${key}-body`)).toBeVisible();
+      expect(await hasHorizontalScroll(page)).toBe(false);
     }
-    const hasHorizontalScroll = await page.evaluate(
-      () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
-    );
-    expect(hasHorizontalScroll).toBe(false);
   });
 
   test("Continue reads\"Continue 继续学习 →\" and is reachable without opening anything", async ({ page }) => {
@@ -547,5 +504,196 @@ test.describe("Explore page", () => {
     await expect(continueButton).toBeVisible();
     await continueButton.click();
     await expect(page).toHaveURL(/\/guided-practice(\?|$)/);
+  });
+});
+
+/** Parses a computed CSS time list ("0.22s, 0s") to ms for its first entry. */
+function firstMs(value: string): number {
+  const first = value.split(",")[0].trim();
+  return first.endsWith("ms") ? parseFloat(first) : parseFloat(first) * 1000;
+}
+
+test.describe("Explore typography (T-007)", () => {
+  test("section titles are 14-15px, English lines 16-18px, Explore More toggle fully visible", async ({ page }) => {
+    await resetStorage(page);
+    await page.goto(EXPLORE_URL);
+
+    for (const key of SECTIONS) {
+      const title = page.getByTestId(`section-${key}-header`).locator("span").filter({ hasText: " · " }).last();
+      const size = await title.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+      expect(size).toBeGreaterThanOrEqual(14);
+      expect(size).toBeLessThanOrEqual(15);
+    }
+
+    const hi = page.getByTestId("expression-card-greeting-hi").getByText("Hi!", { exact: true });
+    const hiSize = await hi.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+    expect(hiSize).toBeGreaterThanOrEqual(16);
+    expect(hiSize).toBeLessThanOrEqual(18);
+
+    for (const key of SECTIONS) {
+      await openSection(page, key);
+      const toggle = page.getByTestId(`explore-more-${key}-toggle`);
+      for (const text of ["更多表达", MORE_SUBTITLES[key]]) {
+        const el = toggle.getByText(text, { exact: true });
+        await expect(el).toBeVisible();
+        // Fully visible: not clipped by truncate / line-clamp.
+        const clipped = await el.evaluate((node) => node.scrollWidth > node.clientWidth || node.scrollHeight > node.clientHeight + 1);
+        expect(clipped).toBe(false);
+      }
+      const box = await toggle.boundingBox();
+      // Measured height is recorded in the test output (target 44-48px, not a hard fail).
+      console.log(`explore-more-${key}-toggle height: ${box!.height}px`);
+      expect(box!.height).toBeLessThanOrEqual(56);
+    }
+  });
+});
+
+test.describe("Conversation Formula highlight (T-009)", () => {
+  const PAIRS = [
+    ["formula-step-1", "response-good-thanks"],
+    ["formula-step-2", "response-little-busy-today"],
+    ["formula-step-3", "response-how-about-you"],
+  ] as const;
+  const ALL_CARDS = PAIRS.map(([, id]) => id);
+
+  async function expectOnlyHighlighted(page: Page, id: string | null) {
+    for (const card of ALL_CARDS) {
+      const el = page.getByTestId(`expression-card-${card}`);
+      if (card === id) {
+        await expect(el).toHaveAttribute("data-highlighted", "true");
+        await expect(el).toHaveCSS("border-top-width", "2px");
+        await expect(el).toHaveCSS("border-top-color", "rgb(47, 174, 96)");
+        // Light-green tint, whatever the card's own tint was.
+        await expect(el).toHaveCSS("background-color", "rgb(214, 242, 225)");
+      } else {
+        await expect(el).toHaveAttribute("data-highlighted", "false");
+        await expect(el).toHaveCSS("border-top-width", "1px");
+      }
+    }
+  }
+
+  test("clicking a step highlights only its main card; again clears; another moves; no audio", async ({ page }) => {
+    await resetStorage(page);
+    await installControllableSpeechStub(page);
+    await page.goto(EXPLORE_URL);
+    await openSection(page, "response");
+    await openMore(page, "response");
+
+    await expectOnlyHighlighted(page, null);
+    for (const [step, card] of PAIRS) {
+      await page.getByTestId(step).click();
+      await expectOnlyHighlighted(page, card);
+      await expect(page.getByTestId(step)).toHaveAttribute("aria-pressed", "true");
+    }
+    // Explore More variants are never highlighted.
+    await expect(page.getByTestId("explore-more-response-body").locator('[data-highlighted="true"]')).toHaveCount(0);
+    await expect(page.locator('[data-highlighted="true"]')).toHaveCount(1);
+
+    await page.getByTestId("formula-step-2").click();
+    await expectOnlyHighlighted(page, "response-little-busy-today");
+    await page.getByTestId("formula-step-2").click();
+    await expectOnlyHighlighted(page, null);
+
+    // Selecting steps never plays audio.
+    await expect(page.locator('[data-testid^="pronounce-"][data-state="playing"]')).toHaveCount(0);
+    await expect(page.getByTestId("waveform")).toHaveCount(0);
+
+    const card = page.getByTestId("expression-card-response-good-thanks");
+    const duration = await card.evaluate((el) => getComputedStyle(el).transitionDuration);
+    expect(firstMs(duration)).toBeGreaterThanOrEqual(200);
+    expect(firstMs(duration)).toBeLessThanOrEqual(250);
+  });
+});
+
+test.describe("Explore More fade (T-010)", () => {
+  for (const key of SECTIONS) {
+    test(`${key}: body fades in 200-250ms, out 150-200ms, and stays mounted`, async ({ page }) => {
+      await resetStorage(page);
+      await page.goto(EXPLORE_URL);
+      await openSection(page, key);
+
+      const toggle = page.getByTestId(`explore-more-${key}-toggle`);
+      const body = page.getByTestId(`explore-more-${key}-body`);
+      await expect(body).toHaveCount(0);
+
+      await toggle.click();
+      await expect(body).toBeVisible();
+      await expect(body).toHaveAttribute("data-open", "true");
+      const open = await body.evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return { property: cs.transitionProperty, duration: cs.transitionDuration };
+      });
+      expect(open.property).toContain("opacity");
+      expect(firstMs(open.duration)).toBeGreaterThanOrEqual(190);
+      expect(firstMs(open.duration)).toBeLessThanOrEqual(260);
+      await expect(body).toHaveCSS("opacity", "1");
+
+      await toggle.click();
+      const closing = await body.evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return { property: cs.transitionProperty, duration: cs.transitionDuration };
+      });
+      expect(closing.property).toContain("opacity");
+      expect(firstMs(closing.duration)).toBeGreaterThanOrEqual(140);
+      expect(firstMs(closing.duration)).toBeLessThanOrEqual(210);
+      await expect(body).not.toBeVisible();
+      await expect(body).toHaveCount(1); // still mounted after the close
+      await expect(page.getByTestId(`explore-more-${key}`)).toHaveAttribute("data-state", "collapsed");
+    });
+  }
+
+  test("Greeting's Explore More reveals Hey! and Good to see you!", async ({ page }) => {
+    await resetStorage(page);
+    await page.goto(EXPLORE_URL);
+    await page.getByTestId("explore-more-greeting-toggle").click();
+    const body = page.getByTestId("explore-more-greeting-body");
+    await expect(body.getByTestId("expression-card-greeting-hey")).toBeVisible();
+    await expect(body.getByTestId("expression-card-greeting-good-to-see-you")).toBeVisible();
+  });
+});
+
+test.describe("Pronunciation waveform (T-008)", () => {
+  test("a playing Explore card shows the waveform and a 1px green border; both clear on end", async ({ page }) => {
+    await resetStorage(page);
+    await installControllableSpeechStub(page);
+    await page.goto(EXPLORE_URL);
+
+    const button = page.getByTestId("pronounce-greeting-hi");
+    const card = page.getByTestId("expression-card-greeting-hi");
+    await expect(page.getByTestId("waveform")).toHaveCount(0);
+    await expect(card).toHaveCSS("border-top-width", "1px");
+    await expect(card).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
+
+    await button.click();
+    await expect(button).toHaveAttribute("data-state", "playing");
+    const waveform = page.getByTestId("waveform");
+    await expect(waveform).toBeVisible();
+    const bars = await waveform.locator("> span").count();
+    expect(bars).toBeGreaterThanOrEqual(3);
+    expect(bars).toBeLessThanOrEqual(4);
+    await expect(button).not.toContainText("🔈");
+    await expect(button).not.toContainText("🔊");
+    await expect(card).toHaveCSS("border-top-width", "1px");
+    await expect(card).toHaveCSS("border-top-color", "rgb(47, 174, 96)");
+    const duration = await button.evaluate((el) => getComputedStyle(el).transitionDuration);
+    expect(firstMs(duration)).toBeGreaterThanOrEqual(190);
+    expect(firstMs(duration)).toBeLessThanOrEqual(260);
+
+    await page.evaluate(() => window.__resolveSpeech?.());
+    await expect(button).toHaveAttribute("data-state", "idle");
+    await expect(page.getByTestId("waveform")).toHaveCount(0);
+    await expect(button).toContainText("🔈");
+    await expect(card).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
+  });
+
+  test("the playing border differs from the formula highlight (2px + tint)", async ({ page }) => {
+    await resetStorage(page);
+    await installControllableSpeechStub(page);
+    await page.goto(EXPLORE_URL);
+    await openSection(page, "response");
+    await page.getByTestId("pronounce-response-how-about-you").click();
+    const card = page.getByTestId("expression-card-response-how-about-you");
+    await expect(card).toHaveCSS("border-top-width", "1px");
+    await expect(card).toHaveAttribute("data-highlighted", "false");
   });
 });

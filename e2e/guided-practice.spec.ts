@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { resetStorage, seedProgress } from "./fixtures";
+import { installControllableSpeechStub, resetStorage, seedProgress } from "./fixtures";
 import { ASSEMBLED_RESPONSES, CORE_EXPRESSIONS, SITUATIONS, YOUR_RESPONSE_EMPTY } from "../src/content/guided-practice";
 
 /**
@@ -113,5 +113,114 @@ test.describe("Guided Practice", () => {
     await seedProgress(page, ["observe", "notice", "explore"]);
     await page.goto("/practice");
     await expect(page).toHaveURL(/\/$/);
+  });
+
+  // T-011 / T-008 additions.
+  function ms(value: string): number {
+    const first = value.split(",")[0].trim();
+    return first.endsWith("ms") ? parseFloat(first) : parseFloat(first) * 1000;
+  }
+
+  test("expression rows use an ARIA checkbox with a green border + checkmark, not a native input", async ({ page }) => {
+    await resetStorage(page);
+    await page.goto(GUIDED_PRACTICE_URL);
+    await page.getByRole("radio", { name: /Coffee Shop/ }).click();
+
+    await expect(page.locator('input[type="checkbox"]')).toHaveCount(0);
+    const [first, second] = CORE_EXPRESSIONS;
+    const row = page.getByTestId(`guided-expression-${first.id}`);
+    const other = page.getByTestId(`guided-expression-${second.id}`);
+
+    await expect(checkbox(page, first.id)).toHaveAttribute("aria-checked", "false");
+    await expect(row).toHaveAttribute("data-selected", "false");
+    await expect(row).not.toHaveCSS("border-top-color", "rgb(47, 174, 96)");
+    await expect(page.getByTestId(`guided-check-${first.id}`)).toHaveText("");
+
+    await checkbox(page, first.id).click();
+    await expect(checkbox(page, first.id)).toHaveAttribute("aria-checked", "true");
+    await expect(row).toHaveAttribute("data-selected", "true");
+    await expect(row).toHaveCSS("border-top-color", "rgb(47, 174, 96)");
+    await expect(page.getByTestId(`guided-check-${first.id}`)).toHaveText("✓");
+    // Unselected neighbours keep the default border and no checkmark.
+    await expect(other).toHaveAttribute("data-selected", "false");
+    await expect(other).not.toHaveCSS("border-top-color", "rgb(47, 174, 96)");
+    await expect(page.getByTestId(`guided-check-${second.id}`)).toHaveText("");
+
+    const duration = await row.evaluate((el) => getComputedStyle(el).transitionDuration);
+    expect(ms(duration)).toBeGreaterThanOrEqual(150);
+    expect(ms(duration)).toBeLessThanOrEqual(200);
+  });
+
+  test("Situation cards keep a green border + checkmark with a 200-250ms transition", async ({ page }) => {
+    await resetStorage(page);
+    await page.goto(GUIDED_PRACTICE_URL);
+    const card = page.getByTestId("situation-coffee-shop");
+    await page.getByRole("radio", { name: /Coffee Shop/ }).click();
+    await expect(card).toHaveCSS("border-top-color", "rgb(47, 174, 96)");
+    await expect(card).toContainText("✓");
+    const properties = await card.evaluate((el) => getComputedStyle(el).transitionProperty);
+    expect(properties).toMatch(/color/);
+    const duration = await card.evaluate((el) => getComputedStyle(el).transitionDuration);
+    expect(ms(duration)).toBeGreaterThanOrEqual(200);
+    expect(ms(duration)).toBeLessThanOrEqual(250);
+  });
+
+  test("preview keeps formula order; feedback fades in 200-250ms, also on a Situation switch, keeping selections", async ({
+    page,
+  }) => {
+    await resetStorage(page);
+    await page.goto(GUIDED_PRACTICE_URL);
+    await page.getByRole("radio", { name: /Coffee Shop/ }).click();
+
+    // Select in reverse order; the preview still reads Respond -> Add More -> Ask Back.
+    for (const expression of [...CORE_EXPRESSIONS].reverse()) await checkbox(page, expression.id).check();
+    const full = ASSEMBLED_RESPONSES.find((r) => r.key === "rab")!;
+    await expect(page.getByTestId("your-response")).toHaveText(full.text);
+    const preview = await page.getByTestId("your-response").evaluate((el) => getComputedStyle(el).animationDuration);
+    expect(ms(preview)).toBeGreaterThanOrEqual(150);
+    expect(ms(preview)).toBeLessThanOrEqual(200);
+
+    const feedback = page.getByTestId("guided-feedback");
+    const fade = await feedback.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { name: cs.animationName, duration: cs.animationDuration };
+    });
+    expect(fade.name).toBe("fade-in");
+    expect(ms(fade.duration)).toBeGreaterThanOrEqual(200);
+    expect(ms(fade.duration)).toBeLessThanOrEqual(250);
+
+    // Situation switch: feedback re-appears with the same 200-250ms fade; selections preserved.
+    await page.getByRole("radio", { name: /Neighbor/ }).click();
+    await expect(feedback).toContainText(SITUATIONS[1].feedback.rab.zh);
+    const switched = await feedback.evaluate((el) => getComputedStyle(el).animationDuration);
+    expect(ms(switched)).toBeGreaterThanOrEqual(200);
+    expect(ms(switched)).toBeLessThanOrEqual(250);
+    for (const expression of CORE_EXPRESSIONS) await expect(checkbox(page, expression.id)).toBeChecked();
+  });
+
+  test("playing audio shows the waveform and never changes the selections", async ({ page }) => {
+    await resetStorage(page);
+    await installControllableSpeechStub(page);
+    await page.goto(GUIDED_PRACTICE_URL);
+    await page.getByRole("radio", { name: /Coffee Shop/ }).click();
+    const [first] = CORE_EXPRESSIONS;
+    await checkbox(page, first.id).check();
+
+    const speaker = page.getByTestId("guided-pronounce-response-good-thanks");
+    await expect(speaker).toHaveAttribute("data-state", "idle");
+    await expect(page.getByTestId("waveform")).toHaveCount(0);
+    await speaker.click();
+    await expect(speaker).toHaveAttribute("data-state", "playing");
+    await expect(page.getByTestId("waveform")).toBeVisible();
+    for (const expression of CORE_EXPRESSIONS) {
+      await expect(checkbox(page, expression.id)).toHaveAttribute(
+        "aria-checked",
+        String(expression.id === first.id),
+      );
+    }
+    await page.evaluate(() => window.__resolveSpeech?.());
+    await expect(speaker).toHaveAttribute("data-state", "idle");
+    await expect(page.getByTestId("waveform")).toHaveCount(0);
+    await expect(checkbox(page, first.id)).toBeChecked();
   });
 });

@@ -140,6 +140,56 @@ body {
   @apply scale-95 brightness-90;
 }
 
+/* Explore More body fade (T-010): stays mounted once opened. Open fades in
+   220ms; closing fades out 180ms, then visibility/height drop away. */
+.fade-body {
+  opacity: 1;
+  visibility: visible;
+  transition:
+    opacity 220ms ease-out,
+    visibility 0s linear 0s;
+}
+.fade-body[data-open="false"] {
+  opacity: 0;
+  visibility: hidden;
+  height: 0;
+  overflow: hidden;
+  transition:
+    opacity 180ms ease-in,
+    visibility 0s linear 180ms;
+}
+
+/* One-shot fades used by Guided Practice (feedback 220ms, preview 180ms). */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.fade-in-220 {
+  animation: fade-in 220ms ease-out;
+}
+.fade-in-180 {
+  animation: fade-in 180ms ease-out;
+}
+
+/* Pronunciation waveform bars (T-008). */
+@keyframes waveform-bar {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+.waveform-bar {
+  animation: waveform-bar 700ms ease-in-out infinite;
+  transform-origin: center;
+}
+
 /*
  * Page-to-page transition (ticket 14; spec.md user story 6: "页面之间切换有
  * 轻量过渡动画，so that 体验连贯不生硬"). Deliberately just a short fade +

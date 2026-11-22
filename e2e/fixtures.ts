@@ -398,3 +398,68 @@ export async function makeCall(page: Page, learnerLine: string | null, callNumbe
   }
   await hangUp(page);
 }
+
+/**
+ * A self-contained, controllable `window.speechSynthesis` stub, installed
+ * only for the tests that need to observe the transient "playing" state
+ * deterministically.
+ *
+ * This is intentionally NOT added to e2e/fixtures.ts's shared
+ * `mockSpeechApis`: that helper's existing stub resolves `onend` on a
+ * microtask (see e2e/fixtures.ts and the "mockSpeechApis installs a
+ * controllable speechSynthesis stub" test in e2e/fixtures.spec.ts, which
+ * asserts exactly that auto-resolve behavior) — fine for that fixture's own
+ * purpose, but too fast for Playwright to reliably observe an intermediate
+ * "playing" attribute before it flips back. Real browser speech synthesis
+ * is equally unusable here: headless environments often have no system TTS
+ * voices, so `speechSynthesis.speak()` can hang or error unpredictably.
+ */
+export async function installControllableSpeechStub(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    // Pre-generated mp3s must not take part: make <audio> playback fail at once
+    // so speak() always falls through to the controllable synthesis stub below,
+    // whether or not public/audio holds a file for the line.
+    HTMLMediaElement.prototype.play = () => Promise.reject(new Error("audio disabled in test"));
+
+    type FakeUtterance = { onstart?: () => void; onend?: () => void };
+    let resolveCurrent: (() => void) | null = null;
+
+    const fakeSynthesis = {
+      speaking: false,
+      pending: false,
+      paused: false,
+      speak(utterance: FakeUtterance) {
+        utterance.onstart?.();
+        resolveCurrent = () => utterance.onend?.();
+      },
+      cancel() {
+        resolveCurrent?.();
+        resolveCurrent = null;
+      },
+      pause() {},
+      resume() {},
+      getVoices() {
+        return [];
+      },
+    };
+
+    Object.defineProperty(window, "speechSynthesis", {
+      value: fakeSynthesis,
+      configurable: true,
+      writable: true,
+    });
+
+    Object.assign(window, {
+      __resolveSpeech: () => {
+        resolveCurrent?.();
+        resolveCurrent = null;
+      },
+    });
+  });
+}
+
+declare global {
+  interface Window {
+    __resolveSpeech?: () => void;
+  }
+}

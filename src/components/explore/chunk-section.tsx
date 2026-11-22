@@ -32,12 +32,12 @@ export function ChunkSection({ icon, titleEn, titleZh, open, onToggle, testId, c
         aria-expanded={open}
         aria-controls={bodyId}
         data-testid={`${testId}-header`}
-        className="flex w-full items-center justify-between gap-1 px-3 py-4 text-left active:brightness-95"
+        className="flex w-full items-center justify-between gap-1 px-3 py-3 text-left active:brightness-95"
         onClick={onToggle}
       >
         <span className="flex min-w-0 items-center gap-1.5">
           {icon ? <span aria-hidden>{icon}</span> : null}
-          <span className="min-w-0 text-[12px] leading-6 font-medium whitespace-nowrap text-foreground">
+          <span className="min-w-0 text-[14px] leading-5 font-medium text-foreground">
             {titleEn} · {titleZh}
           </span>
         </span>
@@ -47,7 +47,7 @@ export function ChunkSection({ icon, titleEn, titleZh, open, onToggle, testId, c
       </button>
 
       {open ? (
-        <div id={bodyId} data-testid={bodyId} className="min-w-0 px-4 pb-4">
+        <div id={bodyId} data-testid={bodyId} className="min-w-0 px-3 pb-3">
           {children}
         </div>
       ) : null}

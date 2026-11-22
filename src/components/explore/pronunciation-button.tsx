@@ -50,10 +50,22 @@ export function PronunciationButton({
       data-testid={testId}
       data-state={isPlaying ? "playing" : "idle"}
       disabled={disabled}
-      className={`btn-icon-pressed inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-button bg-accent-soft text-accent disabled:cursor-not-allowed disabled:bg-[#eef0f3] disabled:text-muted disabled:opacity-60 ${className}`.trim()}
+      className={`btn-icon-pressed inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-button bg-accent-soft text-accent transition-colors duration-[220ms] data-[state=playing]:bg-[#d6f2e1] disabled:cursor-not-allowed disabled:bg-[#eef0f3] disabled:text-muted disabled:opacity-60 ${className}`.trim()}
       onClick={activate}
     >
-      <span aria-hidden>{isPlaying ? "🔊" : "🔈"}</span>
+      {isPlaying ? (
+        <span aria-hidden data-testid="waveform" className="flex h-4 items-center gap-0.5">
+          {[0, 1, 2, 3].map((bar) => (
+            <span
+              key={bar}
+              className="waveform-bar block h-4 w-[3px] rounded-full bg-accent"
+              style={{ animationDelay: `${bar * 120}ms` }}
+            />
+          ))}
+        </span>
+      ) : (
+        <span aria-hidden>🔈</span>
+      )}
     </button>
   );
 }
